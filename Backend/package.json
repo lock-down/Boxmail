@@ -1,0 +1,24 @@
+{
+  "name": "boxmail-local-service",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "imapflow": "2.4.0",
+    "nodemailer": "10.1.0",
+    "mailparser": "3.9.38",
+    "mammoth": "1.13.0",
+    "exceljs": "4.4.0",
+    "pdf-parse": "2.4.5"
+  },
+  "devDependencies": {
+    "smtp-server": "3.19.21"
+  }
+}

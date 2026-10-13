@@ -1,0 +1,350 @@
+import http from 'node:http';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { rm } from 'node:fs/promises';
+import { Repository } from './database.js';
+import {
+  ServiceError,
+  accountInput,
+  aiConfig,
+  recipients,
+} from './validation.js';
+import { testAccount, syncAccount, updateMessage, sendDraft } from './mail.js';
+import { runAgent, approveClassification, completion } from './agent.js';
+import { saveAttachment, attachmentBytes } from './attachments.js';
+import { seedDemo } from './demo.js';
+
+export async function startServer({
+  directory,
+  token,
+  port = 0,
+  demo = true,
+  mailSync = syncAccount,
+  mailTest = testAccount,
+  agentRun = runAgent,
+}) {
+  if (!token || token.length < 24)
+    throw new Error('A session token is required');
+  const repo = new Repository(directory);
+  if (demo) await seedDemo(repo);
+  for (const d of repo.list('draft').filter((d) => d.status === 'sending'))
+    repo.put('draft', { ...d, status: 'uncertain' });
+  for (const j of repo.list('job').filter((j) => j.status === 'running'))
+    repo.put('job', {
+      ...j,
+      status: 'failed',
+      error: '应用关闭中断了任务，请重试',
+    });
+  const locks = new Set();
+  const defaults = {
+    id: 'settings',
+    ai: {
+      baseURL: 'https://api.openai.com/v1',
+      model: '',
+      temperature: 0.3,
+      timeout: 60,
+      maxTokens: 4096,
+      enabled: true,
+      tokenParameter: 'max_completion_tokens',
+      prompts: {},
+    },
+    preferences: {
+      syncMinutes: 5,
+      markRead: true,
+      signature: '',
+      fontSize: 14,
+      launchAtLogin: false,
+      notifications: false,
+      blockRemoteImages: true,
+      spamFilter: true,
+      language: '简体中文',
+    },
+  };
+  if (!repo.get('settings', 'settings')) repo.put('settings', defaults);
+  function state() {
+    return {
+      accounts: repo.list('account'),
+      messages: repo.search(''),
+      drafts: repo.list('draft').filter((d) => d.status !== 'sent'),
+      attachments: repo.list('attachment'),
+      jobs: repo
+        .list('job')
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      settings: repo.get('settings', 'settings'),
+      events: repo.events(),
+      pendingMutations: repo.list('mutation').length,
+    };
+  }
+  const server = http.createServer(async (req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    const provided = Buffer.from(String(req.headers['x-boxmail-token'] || ''));
+    const expected = Buffer.from(token);
+    if (
+      provided.length !== expected.length ||
+      !timingSafeEqual(provided, expected) ||
+      req.headers.origin
+    ) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ error: '未授权访问' }));
+      return;
+    }
+    try {
+      const url = new URL(req.url, 'http://127.0.0.1');
+      const route = url.pathname;
+      let body = {};
+      if (['POST', 'PATCH', 'PUT'].includes(req.method)) {
+        let size = 0;
+        const chunks = [];
+        for await (const c of req) {
+          size += c.length;
+          if (size > 40 * 1024 * 1024)
+            throw new ServiceError('请求超过 40 MB', 413);
+          chunks.push(c);
+        }
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        } catch {
+          throw new ServiceError('请求 JSON 无效');
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body))
+          throw new ServiceError('请求格式错误');
+      }
+      let result;
+      if (req.method === 'GET' && route === '/state') result = state();
+      else if (req.method === 'GET' && route === '/search')
+        result = {
+          messages: repo.search(
+            url.searchParams.get('q') || '',
+            url.searchParams.get('accountId'),
+          ),
+        };
+      else if (req.method === 'POST' && route === '/accounts/test')
+        result = await mailTest(accountInput(body.account), body.password);
+      else if (req.method === 'POST' && route === '/accounts') {
+        const a = accountInput(body.account);
+        a.id = a.id || randomUUID();
+        if (a.id === 'demo') throw new ServiceError('演示账号不能改为真实账号');
+        const old = repo.get('account', a.id);
+        repo.put('account', { ...old, ...a, lastSync: old?.lastSync || null });
+        result = { id: a.id, ok: true };
+      } else if (req.method === 'DELETE' && route.startsWith('/accounts/')) {
+        const id = route.split('/')[2];
+        if (locks.has(id) || locks.has('agent'))
+          throw new ServiceError('账户正在执行任务，请完成后再移除', 409);
+        const candidates = new Set(
+          [...repo.list('message'), ...repo.list('draft')]
+            .filter((m) => m.accountId === id)
+            .flatMap((m) => m.attachmentIds || []),
+        );
+        repo.transaction(() => {
+          repo.remove('account', id);
+          for (const kind of [
+            'message',
+            'draft',
+            'mutation',
+            'job',
+            'relocation',
+          ])
+            for (const v of repo.list(kind).filter((x) => x.accountId === id))
+              repo.remove(kind, v.id);
+        });
+        const referenced = new Set(
+          [...repo.list('message'), ...repo.list('draft')].flatMap(
+            (m) => m.attachmentIds || [],
+          ),
+        );
+        for (const aid of candidates) {
+          if (referenced.has(aid)) continue;
+          const attachment = repo.get('attachment', aid);
+          repo.remove('attachment', aid);
+          if (attachment)
+            await rm(attachment.path, { force: true }).catch(() => {});
+        }
+        result = { ok: true };
+      } else if (req.method === 'POST' && route === '/sync') {
+        const a = repo.get('account', body.accountId);
+        if (!a || a.isDemo) throw new ServiceError('请先添加真实邮箱');
+        if (locks.has(a.id)) throw new ServiceError('该账户正在同步', 409);
+        locks.add(a.id);
+        try {
+          result = await mailSync(repo, a, body.password);
+        } finally {
+          locks.delete(a.id);
+        }
+      } else if (req.method === 'PATCH' && route.startsWith('/messages/')) {
+        const id = route.split('/')[2],
+          message = repo.get('message', id);
+        if (
+          message &&
+          locks.has(message.accountId) &&
+          ['starred', 'unread', 'folder'].some((k) => body[k] !== undefined)
+        )
+          throw new ServiceError('该账户正在同步，请完成后再修改邮件状态', 409);
+        result = updateMessage(repo, id, body);
+      } else if (req.method === 'POST' && route === '/todos') {
+        const m = repo.get('message', body.messageId);
+        if (!m?.summary) throw new ServiceError('邮件没有待办');
+        m.summary.todos = m.summary.todos.map((t) =>
+          t.id === body.todoId ? { ...t, done: body.done === true } : t,
+        );
+        result = repo.put('message', m);
+      } else if (req.method === 'POST' && route === '/settings') {
+        const old = repo.get('settings', 'settings');
+        const ai = body.ai
+          ? aiConfig(body.ai, { requireModel: false })
+          : old.ai;
+        const p = body.preferences || old.preferences;
+        const preferences = {
+          ...old.preferences,
+          ...p,
+          syncMinutes: Math.min(60, Math.max(1, Number(p.syncMinutes) || 5)),
+          fontSize: Math.min(24, Math.max(12, Number(p.fontSize) || 14)),
+          signature: String(p.signature || '').slice(0, 4000),
+        };
+        result = repo.put('settings', { id: 'settings', ai, preferences });
+      } else if (req.method === 'POST' && route === '/ai/test') {
+        await completion(body.config, body.apiKey, 'compose', {
+          request: '返回 subject 和 body，内容为连接成功',
+        });
+        result = { ok: true };
+      } else if (req.method === 'POST' && route === '/ai/models') {
+        const config = aiConfig({
+          ...body.config,
+          model: body.config.model || 'model-list',
+        });
+        const r = await fetch(`${config.baseURL}/models`, {
+          headers: body.apiKey
+            ? { Authorization: `Bearer ${body.apiKey}` }
+            : {},
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!r.ok)
+          throw new ServiceError(`模型列表请求失败：HTTP ${r.status}`, 502);
+        result = { models: (await r.json()).data?.map((m) => m.id) || [] };
+      } else if (req.method === 'POST' && route === '/agent') {
+        if (locks.has('agent'))
+          throw new ServiceError('AI 正在执行任务，请等待完成', 409);
+        locks.add('agent');
+        try {
+          result = await agentRun(repo, {
+            ...body,
+            config: repo.get('settings', 'settings').ai,
+          });
+        } finally {
+          locks.delete('agent');
+        }
+      } else if (
+        req.method === 'POST' &&
+        /^\/jobs\/[^/]+\/(approve|undo)$/.test(route)
+      )
+        result = approveClassification(
+          repo,
+          route.split('/')[2],
+          route.endsWith('/undo'),
+        );
+      else if (req.method === 'POST' && route === '/drafts') {
+        if (!repo.get('account', body.accountId))
+          throw new ServiceError('请选择发送账户');
+        const id = body.id || randomUUID();
+        const old = repo.get('draft', id);
+        if (old && ['sent', 'sending', 'uncertain'].includes(old.status))
+          throw new ServiceError('该草稿不能修改，请另存为新草稿', 409);
+        const draft = {
+          id,
+          accountId: body.accountId,
+          to: String(body.to || ''),
+          cc: String(body.cc || ''),
+          bcc: String(body.bcc || ''),
+          subject: String(body.subject || '').slice(0, 2000),
+          body: String(body.body || '').slice(0, 500000),
+          attachmentIds: (body.attachmentIds || []).filter((a) =>
+            repo.get('attachment', a),
+          ),
+          inReplyTo: String(body.inReplyTo || ''),
+          status: 'draft',
+          updatedAt: new Date().toISOString(),
+          sourceMessageId: body.sourceMessageId || null,
+        };
+        result = repo.put('draft', draft);
+      } else if (req.method === 'DELETE' && route.startsWith('/drafts/')) {
+        const id = route.split('/')[2];
+        if (['sending', 'uncertain'].includes(repo.get('draft', id)?.status))
+          throw new ServiceError('该草稿的发送结果待确认', 409);
+        repo.remove('draft', id);
+        result = { ok: true };
+      } else if (req.method === 'POST' && route === '/send')
+        result = await sendDraft(
+          repo,
+          body.draftId,
+          body.password,
+          body.approved,
+        );
+      else if (req.method === 'POST' && route === '/attachments') {
+        if (typeof body.content !== 'string' || !body.name)
+          throw new ServiceError('附件无效');
+        result = await saveAttachment(
+          repo,
+          body.messageId || body.draftId || '',
+          body.name,
+          Buffer.from(body.content, 'base64'),
+          body.contentType,
+        );
+      } else if (req.method === 'GET' && route.startsWith('/attachments/')) {
+        const a = await attachmentBytes(repo, route.split('/')[2]);
+        result = {
+          name: a.metadata.name,
+          content: a.buffer.toString('base64'),
+        };
+      } else throw new ServiceError('接口不存在', 404);
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(e.status || 500);
+      res.end(
+        JSON.stringify({
+          error:
+            e instanceof ServiceError
+              ? e.message
+              : e.name === 'TimeoutError'
+                ? '请求超时，请重试'
+                : '操作失败，请检查网络、邮箱配置或文件内容',
+        }),
+      );
+    }
+  });
+  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
+  return {
+    server,
+    repo,
+    port: server.address().port,
+    close: async () => {
+      await new Promise((resolve) => server.close(resolve));
+      repo.close();
+    },
+  };
+}
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const app = await startServer({
+    directory: process.env.BOXMAIL_DATA,
+    token: process.env.BOXMAIL_TOKEN,
+    port: Number(process.env.BOXMAIL_PORT || 0),
+    demo: process.env.BOXMAIL_DEMO !== '0',
+  });
+  process.stdout.write(JSON.stringify({ port: app.port }) + '\n');
+  const stop = async () => {
+    await app.close();
+    process.exit(0);
+  };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+  const parent = process.ppid;
+  setInterval(() => {
+    try {
+      process.kill(parent, 0);
+    } catch {
+      stop();
+    }
+  }, 5000).unref();
+}
