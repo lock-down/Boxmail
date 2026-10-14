@@ -281,10 +281,12 @@ struct SettingsView: View {
             SecureField("邮箱应用密码 / 授权码", text: $password).textFieldStyle(.roundedBorder)
           }
           serverFields(
-            "IMAP", host: $account.imapHost, port: $account.imapPort, tls: $account.imapTLS)
+            "IMAP", host: $account.imapHost, port: $account.imapPort, tls: $account.imapTLS,
+            sslPort: 993, startTLSPort: 143)
           serverFields(
-            "SMTP", host: $account.smtpHost, port: $account.smtpPort, tls: $account.smtpTLS)
-          Text("QQ、163 等邮箱需先在网页邮箱启用 IMAP/SMTP，并生成客户端授权码。非直连 TLS 端口会强制使用 STARTTLS。").font(
+            "SMTP", host: $account.smtpHost, port: $account.smtpPort, tls: $account.smtpTLS,
+            sslPort: 465, startTLSPort: 587)
+          Text("SSL/TLS 与 STARTTLS 勾选项互斥。QQ、163 等邮箱需先启用 IMAP/SMTP，并生成客户端授权码。").font(
             .system(size: 10)
           ).foregroundStyle(Palette.muted)
           HStack {
@@ -322,13 +324,14 @@ struct SettingsView: View {
       Toggle("打开邮件时标记为已读", isOn: $preferences.markRead).font(.system(size: 13))
       Stepper("正文字号：\(preferences.fontSize) pt", value: $preferences.fontSize, in: 12...24).font(
         .system(size: 13))
-      Text("正文采用文本阅读视图，不加载远程图片或执行邮件中的脚本。已读和星标更改会在下次同步时提交至服务器。").font(.system(size: 12))
+      Toggle("屏蔽远程图片", isOn: $preferences.blockRemoteImages).font(.system(size: 13))
+      Text("HTML 邮件保留原文排版，内嵌图片直接展示。外部图片可在邮件中单独加载，邮件中的脚本不会执行。已读和星标更改会在下次同步时提交至服务器。").font(.system(size: 12))
         .foregroundStyle(Palette.muted)
     }
   }
   private var spamSettings: some View {
     SectionCard(title: "垃圾邮件与内容安全", icon: "shield") {
-      Text("同步时会识别服务商的垃圾邮件文件夹。正文以纯文本呈现，外部跟踪图片不会加载。AI 分类只修改本机分类标签。第一版暂未提供本机垃圾邮件训练或黑名单规则。").font(
+      Text("同步时会识别服务商的垃圾邮件文件夹。默认屏蔽远程图片自动加载。AI 分类只修改本机分类标签。第一版暂未提供本机垃圾邮件训练或黑名单规则。").font(
         .system(size: 13)
       ).lineSpacing(7)
       Text("需要管理垃圾邮件时，可在服务商网页邮箱调整规则。").font(.system(size: 12)).foregroundStyle(Palette.muted)
@@ -370,12 +373,22 @@ struct SettingsView: View {
     }
   }
   private func serverFields(
-    _ name: String, host: Binding<String>, port: Binding<Int>, tls: Binding<Bool>
+    _ name: String, host: Binding<String>, port: Binding<Int>, tls: Binding<Bool>,
+    sslPort: Int, startTLSPort: Int
   ) -> some View {
     HStack {
       field(name + " 地址", text: host)
       TextField("端口", value: port, format: .number).textFieldStyle(.roundedBorder).frame(width: 65)
-      Toggle("TLS", isOn: tls).font(.system(size: 11)).frame(width: 68)
+      Toggle("SSL/TLS", isOn: tls).toggleStyle(.checkbox).font(.system(size: 11)).fixedSize()
+      Toggle(
+        "STARTTLS",
+        isOn: Binding(get: { !tls.wrappedValue }, set: { tls.wrappedValue = !$0 })
+      ).toggleStyle(.checkbox).font(.system(size: 11)).fixedSize()
+    }.onChange(of: tls.wrappedValue) { oldValue, newValue in
+      let oldPort = oldValue ? sslPort : startTLSPort
+      if port.wrappedValue == oldPort {
+        port.wrappedValue = newValue ? sslPort : startTLSPort
+      }
     }
   }
   private func save(close: Bool) {

@@ -79,10 +79,7 @@ struct MailDetailView: View {
             SummaryCard(store: store, message: message, summary: summary)
           }
           Text("邮件原文").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.muted)
-          Text(message.body.isEmpty ? "这封邮件没有可展示的文本正文。" : message.body).font(
-            .system(size: CGFloat(store.settings.preferences.fontSize))
-          ).lineSpacing(7).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+          MailBodyView(message: message, preferences: store.settings.preferences).id(message.id)
           if !message.attachmentIds.isEmpty {
             HStack {
               Label("\(message.attachmentIds.count) 个附件", systemImage: "paperclip").font(

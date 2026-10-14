@@ -65,6 +65,12 @@ import SwiftUI
       try await refresh()
       ready = true
       selectedMessageId = filteredMessages.first?.id
+      if messages.contains(where: { message in
+        message.uid != nil && message.bodyVersion != 1
+          && accounts.contains { $0.id == message.accountId && !$0.isDemo }
+      }) {
+        await syncAll(silent: true)
+      }
       polling = Task {
         while !Task.isCancelled {
           try? await Task.sleep(for: .seconds(settings.preferences.syncMinutes * 60))

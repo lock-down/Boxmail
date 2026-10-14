@@ -5,6 +5,8 @@ import { simpleParser } from 'mailparser';
 import { createHash, randomUUID } from 'node:crypto';
 import { saveAttachment, attachmentBytes } from './attachments.js';
 import { ServiceError, required, recipients } from './validation.js';
+import { mailServiceError } from './mail-errors.js';
+import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
 
 function clientFor(account, password) {
   const client = new ImapFlow({
@@ -12,6 +14,7 @@ function clientFor(account, password) {
     port: account.imapPort,
     secure: account.imapTLS,
     doSTARTTLS: account.imapTLS ? undefined : true,
+    tls: { rejectUnauthorized: true },
     auth: {
       user: account.username,
       pass: required(password, '邮箱授权码', 4000),
@@ -30,6 +33,7 @@ function transportFor(account, password) {
     port: account.smtpPort,
     secure: account.smtpTLS,
     requireTLS: !account.smtpTLS,
+    tls: { rejectUnauthorized: true },
     auth: {
       user: account.username,
       pass: required(password, '邮箱授权码', 4000),
@@ -41,15 +45,31 @@ function transportFor(account, password) {
     disableUrlAccess: true,
   });
 }
-export async function testAccount(account, password) {
-  const client = clientFor(account, password);
-  try {
-    await client.connect();
-    await transportFor(account, password).verify();
-    return { ok: true };
-  } finally {
-    await client.logout().catch(() => client.close());
+export async function testAccount(account, password, { clientFactory = clientFor, transportFactory = transportFor } = {}) {
+  const results = await Promise.allSettled([
+    (async () => {
+      let client;
+      try {
+        client = clientFactory(account, password);
+        await client.connect();
+      } catch (error) { throw mailServiceError(error, 'IMAP', account); }
+      finally { if (client) await client.logout().catch(() => client.close()); }
+    })(),
+    (async () => {
+      let transport;
+      try {
+        transport = transportFactory(account, password);
+        await transport.verify();
+      } catch (error) { throw mailServiceError(error, 'SMTP', account); }
+      finally { transport?.close(); }
+    })(),
+  ]);
+  if (results.some(result => result.status === 'rejected')) {
+    throw new ServiceError(results.map((result, index) => result.status === 'fulfilled'
+      ? `${index === 0 ? 'IMAP' : 'SMTP'} 连接成功。`
+      : result.reason.message).join('\n'), 502);
   }
+  return { ok: true };
 }
 const special = {
   '\\Sent': 'sent',
@@ -66,9 +86,11 @@ export async function syncAccount(
 ) {
   const client = clientFactory(account, password);
   let count = 0;
+  let repaired = 0;
   let skipped = 0;
   try {
-    await client.connect();
+    try { await client.connect(); }
+    catch (error) { throw mailServiceError(error, 'IMAP', account); }
     const folders = await client.list();
     account.folders = {
       ...account.folders,
@@ -177,6 +199,14 @@ export async function syncAccount(
               !seen.has(m.uid),
           ))
           repo.remove('message', old.id);
+        // Old cached messages can lie outside the current 200-message sync window.
+        for (const legacy of repo.list('message').filter(m =>
+          m.accountId === account.id && m.remotePath === remotePath && m.uidValidity === validity
+          && m.bodyVersion !== MAIL_BODY_VERSION && !seen.has(m.uid))) {
+          const remote = await client.fetchOne(legacy.uid,
+            { uid: true, flags: true, size: true, internalDate: true }, { uid: true });
+          if (remote) fetched.push(remote);
+        }
         for (const remote of fetched) {
           if (remote.size > 25 * 1024 * 1024) {
             skipped++;
@@ -198,7 +228,7 @@ export async function syncAccount(
                 ? starPending.value
                 : remote.flags.has('\\Flagged'),
             });
-            continue;
+            if (old.bodyVersion === MAIL_BODY_VERSION) continue;
           }
           const full = await client.fetchOne(
             remote.uid,
@@ -210,11 +240,16 @@ export async function syncAccount(
             continue;
           }
           const parsed = await simpleParser(full.source, {
-            skipHtmlToText: false,
+            skipHtmlToText: true,
             skipTextToHtml: true,
           });
           const from = parsed.from?.value[0];
-          const body = parsed.text || '';
+          const content = mailBody(parsed);
+          if (old) {
+            repo.put('message', { ...repo.get('message', id), ...content });
+            repaired++;
+            continue;
+          }
           const message = {
             id,
             accountId: account.id,
@@ -228,8 +263,7 @@ export async function syncAccount(
             to: parsed.to?.text || account.email,
             cc: parsed.cc?.text || '',
             subject: parsed.subject || '(无主题)',
-            body,
-            preview: body.replace(/\s+/g, ' ').slice(0, 140),
+            ...content,
             date: (
               parsed.date ||
               remote.internalDate ||
@@ -295,9 +329,9 @@ export async function syncAccount(
     repo.put('account', account);
     repo.event(
       'sync',
-      `${account.email}：新增 ${count} 封，跳过 ${skipped} 个超限邮件`,
+      `${account.email}：新增 ${count} 封，补齐 ${repaired} 封正文，跳过 ${skipped} 个超限邮件`,
     );
-    return { count, skipped, ok: true };
+    return { count, repaired, skipped, ok: true };
   } finally {
     await client.logout().catch(() => client.close());
   }
@@ -454,7 +488,9 @@ export async function sendDraft(
     });
     throw new ServiceError(
       certainFailure
-        ? '发送失败，请检查 SMTP 设置或收件人'
+        ? (e.code === 'EENVELOPE'
+          ? 'SMTP 服务器拒绝收件人，请检查收件地址'
+          : mailServiceError(e, 'SMTP', account).message)
         : '发送连接中断，结果未确认。请先检查已发送邮箱，避免重复发送',
       502,
     );

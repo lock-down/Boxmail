@@ -1,6 +1,6 @@
 # Boxmail 本机后端
 
-版本 **0.0.2**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
+版本 **0.0.3**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
 
 ## 启动和测试
 
@@ -28,7 +28,7 @@ npm start
 npm test
 ```
 
-0.0.2 包含 28 项后端测试，覆盖邮件协议、Responses 参数、旧设置迁移、提示词、图片上传、PDF 页面转换、超时及临时文件清理。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
+当前版本包含 38 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、提示词、图片上传、PDF 页面转换、超时及临时文件清理。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
 
 ## 接口
 
@@ -65,6 +65,8 @@ npm test
 | [server.js](src/server.js) | 认证、路由、请求限制、任务互斥及进程生命周期 |
 | [database.js](src/database.js) | SQLite 记录、事务、搜索和活动记录 |
 | [mail.js](src/mail.js) | IMAP 同步、邮件状态更改、SMTP 发送和已发送归档 |
+| [mail-errors.js](src/mail-errors.js) | 区分认证、DNS、超时、证书与连接错误，不回显原始认证数据 |
+| [mail-body.js](src/mail-body.js) | HTML 清理、正文文本转换、图片识别及缓存格式版本 |
 | [agent.js](src/agent.js) | 任务编排、上下文、结果校验、摘要、草稿、分类确认与撤销 |
 | [responses.js](src/responses.js) | Responses 请求、Files 上传、响应解析及临时文件清理 |
 | [ai-settings.js](src/ai-settings.js) | AI 默认配置和共享提示词读取 |
@@ -87,6 +89,12 @@ DeepSeek 目前只在 `deepseek-flash` 支持图片输入，选择 `deepseek-v4-
 SQLite 使用 WAL 模式，当前 `user_version` 为 `1`。`records` 表按 `kind` 和 `id` 保存 JSON，`events` 表保存活动记录；附件文件存入数据目录的 `attachments/`。应用版本与数据库结构版本分别管理，后续结构变化需要补充迁移逻辑。
 
 后端不会把邮箱密码或 API Key 保存到数据库；客户端从钥匙串读取后，在任务请求中传入。邮件缓存和附件为本机明文数据，文件访问权限不能替代加密。
+
+账号安全连接沿用 `imapTLS` 和 `smtpTLS` 字段以兼容已配置账户：`true` 表示 SSL/TLS 直连，`false` 表示必须升级 STARTTLS。IMAP 和 SMTP 均启用服务器证书验证，账号 ID 和钥匙串凭证键保持不变。
+
+连接测试分别验证 IMAP 和 SMTP，某一项失败时仍返回另一项的结果。认证失败会标明协议和服务器状态码；同步登录错误也使用相同说明。错误响应不包含授权码、认证载荷或原始服务器返回。
+
+邮件记录同时保留纯文本 `body` 和已清理的 `html`，以 `bodyVersion: 1` 标记新版正文缓存。Mailparser 将 CID 图片转为本机 Data URL；HTML 仅保留阅读所需标签、属性和样式。同步发现旧缓存时重新读取邮件源，只补正文字段，不重建附件、不覆盖摘要或分类；完成后继续复用缓存。客户端启动发现旧正文缓存会执行一次同步，纯文本仍用于搜索、复制及 AI 上下文。
 
 ## 联调时需要保留的行为
 

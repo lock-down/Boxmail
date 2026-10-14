@@ -124,7 +124,8 @@ struct SidebarView: View {
           Text(String(count(destination))).font(.system(size: 10)).foregroundStyle(
             destination.isAI ? Palette.purple : Palette.muted)
         }
-      }.padding(.horizontal, 10).frame(height: 32).background(
+      }.padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 32)
+        .contentShape(Rectangle()).background(
         selected ? Color.white : Color.clear, in: RoundedRectangle(cornerRadius: 8))
     }.buttonStyle(.plain)
   }

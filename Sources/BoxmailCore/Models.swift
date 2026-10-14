@@ -39,6 +39,10 @@ public struct MailMessage: Codable, Identifiable, Hashable {
   public var attachmentIds: [String]
   public var summary: MailSummary?
   public var messageId: String?
+  public var html: String?
+  public var hasRemoteImages: Bool?
+  public var bodyVersion: Int?
+  public var uid: Int?
 }
 public struct MailSummary: Codable, Hashable {
   public var points: [String]

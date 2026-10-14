@@ -1,6 +1,6 @@
 {
   "name": "boxmail-local-service",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,12 +11,14 @@
     "start": "node src/server.js"
   },
   "dependencies": {
+    "exceljs": "4.4.0",
+    "html-to-text": "10.0.1",
     "imapflow": "2.4.0",
-    "nodemailer": "10.1.0",
     "mailparser": "3.9.38",
     "mammoth": "1.13.0",
-    "exceljs": "4.4.0",
-    "pdf-parse": "2.4.5"
+    "nodemailer": "10.1.0",
+    "pdf-parse": "2.4.5",
+    "sanitize-html": "2.18.0"
   },
   "devDependencies": {
     "smtp-server": "3.19.21"
