@@ -9,7 +9,7 @@ import Foundation
   private let session: URLSession = {
     let config = URLSessionConfiguration.ephemeral
     config.timeoutIntervalForRequest = 190
-    config.timeoutIntervalForResource = 240
+    config.timeoutIntervalForResource = 660
     return URLSession(configuration: config)
   }()
   var dataDirectory: URL {

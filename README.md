@@ -1,8 +1,8 @@
 # Boxmail
 
-Boxmail 是原生 macOS AI Agent 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，并调用可配置的 OpenAI 兼容模型接口。
+Boxmail 是原生 macOS AI Agent 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，并调用 DeepSeek Responses API 或同类兼容服务。
 
-当前版本为 **0.0.1**，用于后续开发、联调和修复的初始基线。版本号记录在 [VERSION](VERSION)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本为 **0.0.2**，包含 DeepSeek Responses 接入、三档思考等级、可编辑的默认提示词和图片、文档理解。`v0.0.1` 保留为初始基线，版本号记录在 [VERSION](VERSION)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 运行项目
 
@@ -24,14 +24,22 @@ Boxmail 是原生 macOS AI Agent 邮件客户端，使用 SwiftUI 构建界面�
 
 1. 打开“设置 > 账号”，添加邮箱地址、登录用户名、IMAP/SMTP 主机、端口和 TLS 选项，填写邮箱授权码或服务商支持的密码。
 2. 测试连接并保存账户，再执行同步；QQ、163 和企业邮箱均通过通用 IMAP/SMTP 接入，具体参数以服务商配置为准。
-3. 打开“设置 > AI 助手”，填写 API 地址、API Key 和模型名称，测试连接后保存。
+3. 打开“设置 > AI 助手”，填写 API Key；默认地址为 `https://api.deepseek.com`，模型为 `deepseek-flash`，也可以配置其他兼容服务，测试连接后保存。
 4. 在邮件详情中生成摘要或回复，在写信窗口检查草稿并确认发送；智能整理需确认后才应用本机分类，可撤销。
 
-AI 接口地址填写服务商的 API 基地址，比如以 `/v1` 结尾的地址，服务会在其后追加 `/chat/completions` 和 `/models`。远程接口使用 HTTPS，本机模型允许回环地址 HTTP。模型名称需要填写，兼容性应通过连接测试确认。
+AI 接口地址填写服务商的 API 基地址，服务会在其后追加 `/responses`、`/models`，解析图片时使用 `/files`。远程接口使用 HTTPS，本机模型允许回环地址 HTTP。高级参数只有思考等级 `Low / High / Max` 和超时，默认 `High`、120 秒，超时范围为 10 至 600 秒。请求不发送温度或 token 上限参数，接口依据 [DeepSeek Responses 文档](https://api-docs.deepseek.com/zh-cn/api/create-response/)。
 
-调用云端 AI 时，任务所需的邮件或附件文本会发送到所配置的服务商。邮箱凭证和 API Key 保存在 macOS 钥匙串，不写入项目或邮件数据库。
+摘要、回复、写信、分类、附件理解和翻译均已填写默认提示词，可自定义、恢复当前默认；清空后保存会恢复默认。客户端和后端共用 `Sources/BoxmailCore/Resources/DefaultPrompts.json`，旧设置会自动补齐默认提示词并移除旧高级参数，自定义配置会保留。
 
-## 0.0.1 的功能和范围
+调用云端 AI 时，任务所需的邮件、附件文本或图片会发送到所配置的服务商。邮箱凭证和 API Key 保存在 macOS 钥匙串，不写入项目或邮件数据库。
+
+## 从 0.0.1 升级
+
+运行构建脚本即可启动新版，现有本机邮件、附件和草稿会保留。启动时会移除旧的温度和 token 设置，补齐思考等级及默认提示词，保留自定义提示词和已配置的服务商、模型、超时；未配置的旧默认 AI 地址和模型会改用 DeepSeek。
+
+AI 接口已从 Chat Completions 改为 Responses。原服务商如果仅支持 `/chat/completions`，需要在“设置 > AI 助手”切换为支持 `/responses` 的服务；图片和 PDF 理解还需要 Files 接口和视觉模型。升级后可先测试连接，再使用真实邮件进行联调。
+
+## 开发版功能和范围
 
 | 功能 | 当前行为 |
 | --- | --- |
@@ -40,10 +48,14 @@ AI 接口地址填写服务商的 API 基地址，比如以 `/v1` 结尾的地�
 | 写信与发送 | 本机草稿、回复、转发、签名、附件、发送确认和发送结果记录 |
 | AI 助手 | 摘要、待办、回复草稿、写信、分类建议、附件解析和翻译 |
 | 邮件整理 | 分类预览、确认应用、撤销；分类标签保存在本机 |
-| 附件与搜索 | 文本 PDF、DOCX、XLSX、TXT、CSV 等文本提取，邮件及附件文本搜索 |
+| 附件与搜索 | 文档和图片理解，邮件、附件文本和 AI 解析结果搜索 |
 | 设计参考 | Pencil MCP 导出的 19 个 HTML/CSS 页面及对应 PNG 预览 |
 
-每个被识别的邮件文件夹同步最近 200 封邮件，尚未实现全量历史同步、IMAP IDLE、OAuth 登录、服务器草稿同步和扫描文档 OCR。单个附件限制为 25 MB，提取文本最多保留 200,000 个字符。正文采用文本阅读视图，尚未实现完整 HTML 邮件渲染。
+图片通过 Files API 上传，再以 `input_image.file_id` 交给模型；PDF 在本机转换为页面图片，支持扫描文档，每次最多 20 页；DOCX、XLSX、TXT、CSV 等提取文本交给模型，无需配置 OCR 服务。DeepSeek 的接口支持 JPEG、PNG、GIF、WebP 图片，PDF 和 Office 文件不能直接作为文件输入，详见 [Files API](https://api-docs.deepseek.com/zh-cn/api/create-file/)。图片理解需使用支持视觉输入的模型，DeepSeek 默认使用 `deepseek-flash`。
+
+每个被识别的邮件文件夹同步最近 200 封邮件，尚未实现全量历史同步、IMAP IDLE、OAuth 登录和服务器草稿同步。单个附件及 PDF 转换后的图片合计限制为 25 MB，提取文本最多保留 200,000 个字符，单次附件 AI 分析最多提交 60,000 字符。正文采用文本阅读视图，尚未实现完整 HTML 邮件渲染。
+
+图片上传时设置一小时过期，并在任务完成或失败后尝试删除云端临时文件；清理失败时由 DeepSeek 按过期设置处理。本机附件和解析结果会保留。
 
 真实邮箱服务商和真实 AI 服务仍需联调。最低系统版本、Intel Mac、正式签名和公证也尚未验证；登录启动、系统通知、本机垃圾邮件训练等能力尚未接入。
 
@@ -78,5 +90,7 @@ npm ci --prefix Backend
 后端测试使用临时数据、本机协议服务和模拟 AI 响应，不访问真实邮箱、不发送真实外部邮件，也不产生云端 AI 调用费用。`--verify` 会启动 App 并检查进程是否存在，界面和真实服务联调仍需按开发文档检查。
 
 `test.sh` 依次运行后端和 Swift 测试，并在当前工具链提供插件时显式加载 `TestingMacros`，处理 Command Line Tools 的测试宏加载问题。
+
+0.0.2 验证记录：28 项后端测试、4 项 Swift 测试通过，App 构建、启动、本机签名和 Info.plist 检查通过；已检查思考等级、提示词编辑与恢复默认、附件页面操作。真实 DeepSeek 服务和邮箱服务商仍需联调。
 
 Git 忽略 `.build/`、`dist/`、`Backend/node_modules/`、`artifacts/`、日志、数据库和本机环境变量文件。初始版本包含源码、依赖锁文件、测试及设计导出，构建产物可通过脚本重新生成。

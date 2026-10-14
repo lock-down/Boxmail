@@ -1,3 +1,5 @@
+import { DEFAULT_PROMPTS } from './ai-settings.js';
+
 export class ServiceError extends Error {
   constructor(message, status = 400) {
     super(message);
@@ -57,6 +59,9 @@ export function aiConfig(input, { requireModel = true } = {}) {
     throw new ServiceError('API 地址必须使用 HTTPS，本地服务可使用 HTTP');
   if (url.username || url.password || url.search || url.hash)
     throw new ServiceError('API 地址不能包含凭证、查询参数或片段');
+  const effort = input.effort ?? 'high';
+  if (!['low', 'high', 'max'].includes(effort))
+    throw new ServiceError('思考等级只能选择 Low、High 或 Max');
   return {
     baseURL: url.href.replace(/\/$/, ''),
     model: requireModel
@@ -64,23 +69,12 @@ export function aiConfig(input, { requireModel = true } = {}) {
       : String(input.model || '')
           .trim()
           .slice(0, 500),
-    timeout: Math.min(180, Math.max(10, Number(input.timeout) || 60)),
-    maxTokens: Math.min(16000, Math.max(256, Number(input.maxTokens) || 4096)),
-    temperature: Math.min(2, Math.max(0, Number(input.temperature) || 0)),
-    tokenParameter:
-      input.tokenParameter === 'max_tokens'
-        ? 'max_tokens'
-        : 'max_completion_tokens',
+    timeout: Math.min(600, Math.max(10, Number(input.timeout) || 120)),
+    effort,
     enabled: input.enabled !== false,
-    prompts: Object.fromEntries(
-      Object.entries(input.prompts || {})
-        .filter(
-          ([k, v]) =>
-            ['summary', 'reply', 'classify', 'attachment', 'compose'].includes(
-              k,
-            ) && typeof v === 'string',
-        )
-        .map(([k, v]) => [k, v.slice(0, 6000)]),
-    ),
+    prompts: Object.fromEntries(Object.entries(DEFAULT_PROMPTS).map(([task, fallback]) => {
+      const custom = input.prompts?.[task];
+      return [task, typeof custom === 'string' && custom.trim() ? custom.trim().slice(0, 6000) : fallback];
+    })),
   };
 }

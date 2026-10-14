@@ -87,3 +87,41 @@ export async function attachmentBytes(repo, id) {
   if (!a) throw new ServiceError('附件不存在', 404);
   return { metadata: a, buffer: await readFile(a.path) };
 }
+
+export async function modelAttachment(repo, id) {
+  const { metadata, buffer } = await attachmentBytes(repo, id);
+  const ext = path.extname(metadata.name).toLowerCase();
+  const imageTypes = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+  const imageType = imageTypes[ext] || (Object.values(imageTypes).includes(metadata.contentType) ? metadata.contentType : null);
+  if (imageType)
+    return { kind: 'image', images: [{ name: metadata.name, contentType: imageType, buffer }] };
+  if (ext === '.pdf' || metadata.contentType === 'application/pdf') {
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    try {
+      const info = await parser.getInfo();
+      if (info.total > 20) throw new ServiceError(`PDF 共 ${info.total} 页，请拆分为每份不超过 20 页后解析`);
+      const details = await parser.getInfo({ parsePageInfo: true });
+      const images = [];
+      let bytes = 0;
+      for (const page of details.pages) {
+        const screenshot = await parser.getScreenshot({
+          partial: [page.pageNumber], scale: 1800 / Math.max(page.width, page.height),
+          imageDataUrl: false, imageBuffer: true,
+        });
+        const image = screenshot.pages[0];
+        if (!image?.data?.length) throw new ServiceError('PDF 页面无法转换，请检查文件');
+        const buffer = Buffer.from(image.data);
+        bytes += buffer.length;
+        if (bytes > 25 * 1024 * 1024) throw new ServiceError('PDF 页面图片超过 25 MB，请拆分文件后解析');
+        images.push({ name: `${path.parse(metadata.name).name}-page-${image.pageNumber}.png`, contentType: 'image/png', buffer });
+      }
+      if (!images.length) throw new ServiceError('PDF 没有可解析的页面');
+      return { kind: 'pdf', pages: info.total, images };
+    } catch (error) {
+      if (error instanceof ServiceError) throw error;
+      throw new ServiceError('PDF 无法读取，请检查文件是否损坏或受密码保护');
+    } finally { await parser.destroy(); }
+  }
+  if (metadata.text?.trim()) return { kind: 'text', images: [] };
+  throw new ServiceError('该附件格式暂不支持模型理解，请使用 PDF、DOCX、XLSX、文本或 JPEG、PNG、GIF、WebP 图片');
+}

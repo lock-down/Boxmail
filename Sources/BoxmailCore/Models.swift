@@ -54,6 +54,16 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
   public var id, messageId, name, contentType, path, text, parseError, date: String
   public var size: Int
   public var analysis: String?
+  public var isImage: Bool {
+    ["jpg", "jpeg", "png", "gif", "webp"].contains((name as NSString).pathExtension.lowercased())
+      || ["image/jpeg", "image/png", "image/gif", "image/webp"].contains(contentType)
+  }
+  public var isPDF: Bool {
+    (name as NSString).pathExtension.lowercased() == "pdf" || contentType == "application/pdf"
+  }
+  public var canAnalyze: Bool {
+    isImage || isPDF || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
 }
 public struct MailDraft: Codable, Identifiable, Hashable {
   public var id, accountId, to, cc, bcc, subject, body, status, updatedAt: String
@@ -73,12 +83,11 @@ public struct MailDraft: Codable, Identifiable, Hashable {
   }
 }
 public struct AIConfig: Codable, Hashable {
-  public var baseURL = "https://api.openai.com/v1", model = "",
-    tokenParameter = "max_completion_tokens"
-  public var temperature = 0.3
-  public var timeout = 60, maxTokens = 4096
+  public var baseURL = "https://api.deepseek.com", model = "deepseek-flash"
+  public var effort = "high"
+  public var timeout = 120
   public var enabled = true
-  public var prompts: [String: String] = [:]
+  public var prompts: [String: String] = AIPromptDefaults.values
   public init() {}
 }
 public struct Preferences: Codable, Hashable {

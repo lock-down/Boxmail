@@ -1,6 +1,6 @@
 # Boxmail 本机后端
 
-版本 **0.0.1**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
+版本 **0.0.2**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
 
 ## 启动和测试
 
@@ -28,7 +28,7 @@ npm start
 npm test
 ```
 
-测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
+0.0.2 包含 28 项后端测试，覆盖邮件协议、Responses 参数、旧设置迁移、提示词、图片上传、PDF 页面转换、超时及临时文件清理。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
 
 ## 接口
 
@@ -65,10 +65,24 @@ npm test
 | [server.js](src/server.js) | 认证、路由、请求限制、任务互斥及进程生命周期 |
 | [database.js](src/database.js) | SQLite 记录、事务、搜索和活动记录 |
 | [mail.js](src/mail.js) | IMAP 同步、邮件状态更改、SMTP 发送和已发送归档 |
-| [agent.js](src/agent.js) | 模型请求、结果校验、摘要、草稿、分类确认与撤销 |
-| [attachments.js](src/attachments.js) | 附件保存、读取及文本提取 |
+| [agent.js](src/agent.js) | 任务编排、上下文、结果校验、摘要、草稿、分类确认与撤销 |
+| [responses.js](src/responses.js) | Responses 请求、Files 上传、响应解析及临时文件清理 |
+| [ai-settings.js](src/ai-settings.js) | AI 默认配置和共享提示词读取 |
+| [attachments.js](src/attachments.js) | 附件保存、读取、文本提取及 PDF 页面转换 |
 | [validation.js](src/validation.js) | 账户、地址、收件人和 AI 配置校验 |
 | [demo.js](src/demo.js) | 首次启动的演示数据 |
+
+## AI 接口和附件理解
+
+按照 [DeepSeek Responses API](https://api-docs.deepseek.com/zh-cn/api/create-response/) 发起非流式请求，通过 `instructions` 提供任务提示词，`input` 提供用户数据，`reasoning.effort` 传递 `low`、`high` 或 `max`，`text.format` 使用 JSON 模式。不发送温度、token 上限或原 Chat Completions 的参数。只读取完成响应中 assistant 消息的 `output_text`，忽略思考内容；响应未完成时保留已有结果并将任务标为失败。
+
+默认使用 `https://api.deepseek.com`、`deepseek-flash`、`high`、120 秒。超时范围为 10 至 600 秒，涵盖 Files 上传和 Responses 请求；客户端另留处理时间。旧配置启动时补齐 `effort` 和提示词，去掉旧的温度及 token 设置，保留自定义服务商、模型和提示词。
+
+共享默认提示词位于 [DefaultPrompts.json](../Sources/BoxmailCore/Resources/DefaultPrompts.json)，通过构建脚本同时打包给 Swift 和 Node.js。用户编辑的提示词保存在设置中，空白值恢复为相应默认值。
+
+JPEG、PNG、GIF、WebP 通过 [Files API](https://api-docs.deepseek.com/zh-cn/api/create-file/) 以 `purpose=user_data` 上传，再通过 `input_image.file_id` 引用；上传设置一小时有效期，任务结束后尝试删除临时文件。PDF 使用已有 PDF 解析依赖转换页面为 PNG，无需 OCR 服务，每次最多 20 页，页面图片合计最多 25 MB；超限会提示拆分，不会静默遗漏页面。DOCX、XLSX 和文本附件提交提取内容，最多 60,000 字符，超过时在上下文中标明截断。
+
+DeepSeek 目前只在 `deepseek-flash` 支持图片输入，选择 `deepseek-v4-pro` 解析图片会提示切换模型。其他服务商须同时支持此 Responses/Files 格式，实际兼容性需联调。
 
 SQLite 使用 WAL 模式，当前 `user_version` 为 `1`。`records` 表按 `kind` 和 `id` 保存 JSON，`events` 表保存活动记录；附件文件存入数据目录的 `attachments/`。应用版本与数据库结构版本分别管理，后续结构变化需要补充迁移逻辑。
 
@@ -80,4 +94,4 @@ SQLite 使用 WAL 模式，当前 `user_version` 为 `1`。`records` 表按 `kin
 
 发送必须显式确认。草稿状态包括 `draft`、`sending`、`sent` 和 `uncertain`：发送成功后重复请求不会再次发送，结果不明确的草稿禁止自动重试。启动时把中断的发送标为 `uncertain`，把中断的 AI 任务标为失败。SMTP 接受后归档失败会返回提示，不能据此再次发送。
 
-全量同步、OCR、OAuth 和服务器草稿同步尚未实现。真实服务验证和版本提交流程见 [开发文档](../docs/DEVELOPMENT.md)。
+全量同步、OAuth 和服务器草稿同步尚未实现。真实服务验证和版本提交流程见 [开发文档](../docs/DEVELOPMENT.md)。

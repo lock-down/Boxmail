@@ -142,10 +142,10 @@ struct SettingsView: View {
     VStack(spacing: 16) {
       SectionCard(title: "云端 / 本地 AI 模型", icon: "cloud") {
         HStack {
-          Tag(text: "OpenAI 兼容 · Chat Completions", ai: true)
+          Tag(text: "DeepSeek · Responses API", ai: true)
           Spacer()
         }
-        field("API 地址", text: $config.baseURL, prompt: "https://服务商地址/v1")
+        field("API 地址", text: $config.baseURL, prompt: "https://api.deepseek.com")
         HStack {
           Text("API Key").font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
             width: 76, alignment: .trailing)
@@ -154,7 +154,7 @@ struct SettingsView: View {
             loading || config.model.isEmpty)
         }
         HStack {
-          field("默认模型", text: $config.model, prompt: "填写服务商支持的模型名称")
+          field("默认模型", text: $config.model, prompt: "deepseek-flash")
           Menu {
             ForEach(models, id: \.self) { model in Button(model) { config.model = model } }
           } label: {
@@ -164,24 +164,20 @@ struct SettingsView: View {
         }
         HStack(alignment: .top, spacing: 12) {
           VStack(alignment: .leading, spacing: 8) {
-            Text("温度 · \(config.temperature,specifier:"%.1f")").font(.system(size: 10))
-              .foregroundStyle(Palette.muted)
-            Slider(value: $config.temperature, in: 0...2, step: 0.1)
-          }
-          VStack(alignment: .leading, spacing: 8) {
-            Text("最大输出 Tokens").font(.system(size: 10)).foregroundStyle(Palette.muted)
-            TextField("4096", value: $config.maxTokens, format: .number).textFieldStyle(
-              .roundedBorder)
-          }
+            Text("思考等级（effort）").font(.system(size: 10)).foregroundStyle(Palette.muted)
+            Picker("思考等级", selection: $config.effort) {
+              Text("Low").tag("low")
+              Text("High").tag("high")
+              Text("Max").tag("max")
+            }.pickerStyle(.segmented).labelsHidden()
+          }.frame(maxWidth: .infinity)
           VStack(alignment: .leading, spacing: 8) {
             Text("请求超时（秒）").font(.system(size: 10)).foregroundStyle(Palette.muted)
-            TextField("60", value: $config.timeout, format: .number).textFieldStyle(.roundedBorder)
-          }
+            TextField("120", value: $config.timeout, format: .number).textFieldStyle(.roundedBorder)
+          }.frame(width: 150)
         }
-        Picker("Token 参数", selection: $config.tokenParameter) {
-          Text("max_completion_tokens").tag("max_completion_tokens")
-          Text("max_tokens（部分兼容服务）").tag("max_tokens")
-        }.font(.system(size: 11))
+        Text("超时可设为 10 至 600 秒。图片和 PDF 理解请使用支持视觉输入的模型，如 deepseek-flash。")
+          .font(.system(size: 10)).foregroundStyle(Palette.muted)
       }
       SectionCard(title: "系统默认提示词", icon: "curlybraces") {
         HStack(spacing: 6) {
@@ -189,6 +185,7 @@ struct SettingsView: View {
             [
               ("summary", "邮件总结"), ("reply", "自动回复"), ("classify", "智能整理"), ("attachment", "附件解析"),
               ("compose", "AI 写信"),
+              ("translate", "邮件翻译"),
             ], id: \.0
           ) { item in
             Button {
@@ -202,16 +199,20 @@ struct SettingsView: View {
         }
         TextEditor(
           text: Binding(
-            get: { config.prompts[promptTab] ?? "" }, set: { config.prompts[promptTab] = $0 })
-        ).font(.system(size: 12)).frame(height: 84).padding(9).scrollContentBackground(.hidden)
+            get: { config.prompts[promptTab] ?? AIPromptDefaults.values[promptTab] ?? "" },
+            set: { config.prompts[promptTab] = $0 })
+        ).font(.system(size: 12)).frame(height: 140).padding(9).scrollContentBackground(.hidden)
           .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
-        Text("补充你的语气、格式与业务要求。留空时使用内置提示词。邮箱和附件内容会发送至你配置的 AI 服务。").font(.system(size: 10))
-          .foregroundStyle(Palette.muted)
+        Text("已预设每类任务的提示词，可自定义语气和分析要求。清空后保存会恢复默认。邮件内容、图片和文档内容会发送至你配置的 AI 服务。").font(
+          .system(size: 10)
+        )
+        .foregroundStyle(Palette.muted)
         HStack {
           Spacer()
-          Button("恢复当前默认") { config.prompts[promptTab] = "" }.buttonStyle(.plain).font(
-            .system(size: 11)
-          ).foregroundStyle(Palette.muted)
+          Button("恢复当前默认") { config.prompts[promptTab] = AIPromptDefaults.values[promptTab] }
+            .buttonStyle(.plain).font(
+              .system(size: 11)
+            ).foregroundStyle(Palette.muted)
         }
       }
     }
@@ -351,9 +352,11 @@ struct SettingsView: View {
         }
       }
       SectionCard(title: "运行诊断", icon: "stethoscope") {
-        Text("本机服务：\(store.ready ? "已连接" : "未连接")\n待同步更改：\(store.pendingMutations) 项\n应用版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")")
-          .font(.system(size: 12)).lineSpacing(8)
-        Text("附件支持文本 PDF、DOCX、XLSX、TXT 和 CSV；扫描文档 OCR、OAuth 登录和服务器草稿同步尚未接入。").font(
+        Text(
+          "本机服务：\(store.ready ? "已连接" : "未连接")\n待同步更改：\(store.pendingMutations) 项\n应用版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"
+        )
+        .font(.system(size: 12)).lineSpacing(8)
+        Text("附件由模型理解：图片直接上传，PDF 转为页面图片，Word 和表格提取内容。OAuth 登录和服务器草稿同步尚未接入。").font(
           .system(size: 11)
         ).foregroundStyle(Palette.muted)
       }
@@ -396,8 +399,9 @@ struct SettingsView: View {
     Task {
       defer { loading = false }
       do {
-        try await BackendService.shared.perform(
-          "/ai/test", body: ["config": try jsonObject(config), "apiKey": key])
+        let _: EmptyResponse = try await BackendService.shared.request(
+          "/ai/test", method: "POST", body: ["config": try jsonObject(config), "apiKey": key],
+          timeout: TimeInterval(max(10, min(600, config.timeout)) + 30))
         status = "AI 服务连接成功"
       } catch { status = "连接失败：\(error.localizedDescription)" }
     }

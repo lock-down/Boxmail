@@ -13,6 +13,7 @@ import { testAccount, syncAccount, updateMessage, sendDraft } from './mail.js';
 import { runAgent, approveClassification, completion } from './agent.js';
 import { saveAttachment, attachmentBytes } from './attachments.js';
 import { seedDemo } from './demo.js';
+import { DEFAULT_AI } from './ai-settings.js';
 
 export async function startServer({
   directory,
@@ -38,16 +39,7 @@ export async function startServer({
   const locks = new Set();
   const defaults = {
     id: 'settings',
-    ai: {
-      baseURL: 'https://api.openai.com/v1',
-      model: '',
-      temperature: 0.3,
-      timeout: 60,
-      maxTokens: 4096,
-      enabled: true,
-      tokenParameter: 'max_completion_tokens',
-      prompts: {},
-    },
+    ai: { ...DEFAULT_AI, prompts: { ...DEFAULT_AI.prompts } },
     preferences: {
       syncMinutes: 5,
       markRead: true,
@@ -61,6 +53,12 @@ export async function startServer({
     },
   };
   if (!repo.get('settings', 'settings')) repo.put('settings', defaults);
+  // Normalize existing 0.0.1 settings without losing custom prompts or providers.
+  const saved = repo.get('settings', 'settings');
+  let savedAI = { ...DEFAULT_AI, ...saved.ai };
+  if (!saved.ai.effort && !saved.ai.model && saved.ai.baseURL === 'https://api.openai.com/v1')
+    savedAI = { ...savedAI, baseURL: DEFAULT_AI.baseURL, model: DEFAULT_AI.model };
+  repo.put('settings', { ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, ai: aiConfig(savedAI, { requireModel: false }) });
   function state() {
     return {
       accounts: repo.list('account'),
@@ -193,7 +191,7 @@ export async function startServer({
       } else if (req.method === 'POST' && route === '/settings') {
         const old = repo.get('settings', 'settings');
         const ai = body.ai
-          ? aiConfig(body.ai, { requireModel: false })
+          ? aiConfig({ ...old.ai, ...body.ai, prompts: { ...old.ai.prompts, ...body.ai.prompts } }, { requireModel: false })
           : old.ai;
         const p = body.preferences || old.preferences;
         const preferences = {

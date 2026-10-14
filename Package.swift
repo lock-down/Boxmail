@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.executable(name: "Boxmail", targets: ["Boxmail"])],
     targets: [
-        .target(name: "BoxmailCore"),
+        .target(name: "BoxmailCore", resources: [.process("Resources")]),
         .executableTarget(name: "Boxmail", dependencies: ["BoxmailCore"]),
         .testTarget(name: "BoxmailCoreTests", dependencies: ["BoxmailCore"])
     ],

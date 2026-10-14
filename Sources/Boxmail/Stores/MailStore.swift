@@ -181,7 +181,7 @@ import SwiftUI
     if let message { input["messageId"] = message.id }
     if let attachment { input["attachmentId"] = attachment.id }
     let job: AgentJob = try await BackendService.shared.request(
-      "/agent", method: "POST", body: input)
+      "/agent", method: "POST", body: input, timeout: TimeInterval(settings.ai.timeout + 30))
     try await refresh()
     return job
   }

@@ -1,3 +1,4 @@
+import AppKit
 import BoxmailCore
 import SwiftUI
 
@@ -7,8 +8,11 @@ struct AttachmentsView: View {
   @ViewState<String> private var type = "全部"
   var filtered: [MailAttachment] {
     store.accountAttachments.filter { a in
-      (query.isEmpty || (a.name + " " + a.text).localizedCaseInsensitiveContains(query))
-        && (type == "全部" || a.name.lowercased().hasSuffix(type.lowercased()))
+      (query.isEmpty
+        || (a.name + " " + a.text + " " + (a.analysis ?? "")).localizedCaseInsensitiveContains(
+          query))
+        && (type == "全部"
+          || (type == "图片" ? a.isImage : a.name.lowercased().hasSuffix(type.lowercased())))
     }
   }
   var body: some View {
@@ -17,7 +21,7 @@ struct AttachmentsView: View {
         VStack(alignment: .leading, spacing: 8) {
           Text(store.destination == .analysis ? "附件解析" : "附件内容中心").font(
             .system(size: 24, weight: .bold))
-          Text("集中查看邮件附件，直接搜索文件里的内容").font(.system(size: 12)).foregroundStyle(Palette.muted)
+          Text("集中查看文档和图片，模型理解结果可直接搜索").font(.system(size: 12)).foregroundStyle(Palette.muted)
         }
         Spacer()
         Tag(text: "\(store.accountAttachments.filter{$0.analysis != nil}.count) 个 AI 已解析", ai: true)
@@ -30,7 +34,7 @@ struct AttachmentsView: View {
           RoundedRectangle(cornerRadius: 8).stroke(Palette.border)
         ).frame(maxWidth: 420)
         Spacer()
-        ForEach(["全部", "PDF", "DOCX", "XLSX", "TXT"], id: \.self) { value in
+        ForEach(["全部", "PDF", "DOCX", "XLSX", "TXT", "图片"], id: \.self) { value in
           Button {
             type = value
           } label: {
@@ -43,7 +47,7 @@ struct AttachmentsView: View {
       HStack {
         Text("\(filtered.count) 个附件").font(.system(size: 12, weight: .medium))
         Spacer()
-        Text("支持文本 PDF、DOCX、XLSX、TXT、CSV").font(.system(size: 11)).foregroundStyle(Palette.muted)
+        Text("支持 PDF、文档、表格和图片理解").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }
       ScrollView {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 285), spacing: 16)], spacing: 16) {
@@ -51,8 +55,8 @@ struct AttachmentsView: View {
             VStack(alignment: .leading, spacing: 14) {
               HStack {
                 Image(
-                  systemName: attachment.name.lowercased().hasSuffix("pdf")
-                    ? "doc.richtext" : "doc.text"
+                  systemName: attachment.isImage
+                    ? "photo" : attachment.isPDF ? "doc.richtext" : "doc.text"
                 ).font(.system(size: 27)).foregroundStyle(Palette.blue).frame(width: 48, height: 52)
                   .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 8))
                 Spacer()
@@ -63,8 +67,11 @@ struct AttachmentsView: View {
                 .system(size: 11)
               ).foregroundStyle(Palette.muted).lineLimit(1)
               Text(
-                attachment.text.isEmpty
-                  ? "暂无可提取文本" : attachment.text.replacingOccurrences(of: "\n", with: " ")
+                attachment.analysis
+                  ?? (attachment.text.isEmpty
+                    ? (attachment.isImage
+                      ? "图片可直接交给模型理解" : attachment.isPDF ? "PDF 页面可直接交给模型理解" : "可打开原文件查看")
+                    : attachment.text.replacingOccurrences(of: "\n", with: " "))
               ).font(.system(size: 12)).foregroundStyle(Palette.muted).lineLimit(3).frame(
                 height: 50, alignment: .top)
               HStack {
@@ -92,6 +99,8 @@ struct AttachmentPreviewView: View {
   @Bindable var store: MailStore
   let attachmentId: String
   @Environment(\.dismiss) private var dismiss
+  @ViewState<NSImage?> private var previewImage: NSImage?
+  @ViewState<String> private var previewError = ""
   var attachment: MailAttachment? { store.attachments.first { $0.id == attachmentId } }
   var body: some View {
     VStack(spacing: 0) {
@@ -112,15 +121,25 @@ struct AttachmentPreviewView: View {
           ScrollView {
             VStack(alignment: .leading, spacing: 18) {
               HStack {
-                Text("附件文本").font(.system(size: 17, weight: .semibold))
+                Text(attachment.isImage ? "图片预览" : "附件内容").font(
+                  .system(size: 17, weight: .semibold))
                 Spacer()
-                Tag(text: "本机提取")
+                Tag(text: attachment.isImage ? "原始图片" : "本机预览")
               }
-              Text(
-                attachment.text.isEmpty
-                  ? "该文件没有可提取的文本。扫描 PDF、图片及旧版 Office 文件暂不支持 OCR。可以打开原文件查看。" : attachment.text
-              ).font(.system(size: 13)).lineSpacing(6).textSelection(.enabled).frame(
-                maxWidth: .infinity, alignment: .leading)
+              if attachment.isImage, let image = previewImage {
+                Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 500)
+              } else if attachment.isImage && previewError.isEmpty {
+                ProgressView("正在加载图片…")
+              } else {
+                Text(
+                  attachment.text.isEmpty
+                    ? (attachment.isPDF
+                      ? "PDF 将以页面图片交给模型理解，支持扫描文档。可打开原文件查看全部页面。"
+                      : previewError.isEmpty ? "可打开原文件查看内容。" : previewError)
+                    : attachment.text
+                ).font(.system(size: 13)).lineSpacing(6).textSelection(.enabled).frame(
+                  maxWidth: .infinity, alignment: .leading)
+              }
             }.padding(24)
           }.frame(maxWidth: .infinity)
           Divider()
@@ -128,7 +147,13 @@ struct AttachmentPreviewView: View {
             VStack(alignment: .leading, spacing: 18) {
               Label("AI 解析", systemImage: "sparkles").font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Palette.purple)
-              Text("提炼文件摘要、关键数据与行动建议").font(.system(size: 12)).foregroundStyle(Palette.muted)
+              Text("提炼文档或图片的摘要、关键数据与行动建议").font(.system(size: 12)).foregroundStyle(Palette.muted)
+              Text(
+                attachment.isPDF
+                  ? "PDF 每次最多解析 20 页。页面图片会发送至已配置的 AI 服务。"
+                  : attachment.isImage ? "原始图片会上传至已配置的 AI 服务。" : "文档内容会发送至已配置的 AI 服务。"
+              )
+              .font(.system(size: 11)).foregroundStyle(Palette.muted)
               HStack {
                 ActionButton(
                   title: attachment.analysis == nil ? "开始解析" : "重新解析", icon: "sparkles", kind: .ai
@@ -136,7 +161,7 @@ struct AttachmentPreviewView: View {
                   store.action("attachment-ai") {
                     _ = try await store.runAI(task: "attachment", attachment: attachment)
                   }
-                }.disabled(attachment.text.isEmpty || store.busy.contains("agent"))
+                }.disabled(!attachment.canAnalyze || store.busy.contains("agent"))
                 if store.busy.contains("agent") { ProgressView().controlSize(.small) }
               }
               if let text = attachment.analysis {
@@ -150,6 +175,18 @@ struct AttachmentPreviewView: View {
         }
       }
     }.frame(width: 1000, height: 720).background(.white)
+      .task(id: attachmentId) {
+        guard attachment?.isImage == true else { return }
+        do {
+          let file: FileResponse = try await BackendService.shared.request(
+            "/attachments/\(attachmentId)")
+          guard let data = Data(base64Encoded: file.content), let image = NSImage(data: data) else {
+            previewError = "图片预览不可用，可打开原文件查看。"
+            return
+          }
+          previewImage = image
+        } catch { previewError = "图片预览加载失败，可打开原文件查看。" }
+      }
       .alert(
         "解析未完成",
         isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })

@@ -15,12 +15,16 @@ fi
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 if [[ ! -d Backend/node_modules ]]; then npm ci --prefix Backend --no-fund --no-audit; fi
 swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+BUILD_DIR="$(swift build --show-bin-path)"
+BUILD_BINARY="$BUILD_DIR/$APP_NAME"
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources/Runtime" "$APP_CONTENTS/Resources/Backend"
 cp "$BUILD_BINARY" "$APP_CONTENTS/MacOS/$APP_NAME"
 NODE_BINARY="$(command -v node)"
 if [[ ! -f "$APP_CONTENTS/Resources/Runtime/node" || "$NODE_BINARY" -nt "$APP_CONTENTS/Resources/Runtime/node" ]]; then cp "$NODE_BINARY" "$APP_CONTENTS/Resources/Runtime/node"; fi
 rsync -a --delete --exclude test --exclude package-lock.json --exclude '*.sqlite*' Backend/ "$APP_CONTENTS/Resources/Backend/"
+mkdir -p "$APP_CONTENTS/Resources/Backend/Resources"
+cp Sources/BoxmailCore/Resources/DefaultPrompts.json "$APP_CONTENTS/Resources/Backend/Resources/DefaultPrompts.json"
+rsync -a --delete "$BUILD_DIR/Boxmail_BoxmailCore.bundle/" "$APP_CONTENTS/Resources/Boxmail_BoxmailCore.bundle/"
 chmod +x "$APP_CONTENTS/MacOS/$APP_NAME" "$APP_CONTENTS/Resources/Runtime/node"
 if [[ ! -f "$APP_CONTENTS/Resources/Boxmail.icns" || script/generate_icon.swift -nt "$APP_CONTENTS/Resources/Boxmail.icns" ]]; then
   mkdir -p artifacts/Boxmail.iconset
@@ -37,7 +41,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleIconFile</key><string>Boxmail</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>

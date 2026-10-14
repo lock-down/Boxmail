@@ -86,14 +86,15 @@ async function mockAI(t, respond) {
     res.setHeader('Content-Type', 'application/json');
     res.end(
       JSON.stringify({
-        choices: [
+        status: 'completed',
+        output: [
           {
-            message: {
-              content:
+            type: 'message', role: 'assistant',
+            content: [{ type: 'output_text', text:
                 typeof respond === 'string'
                   ? respond
                   : JSON.stringify(respond(body)),
-            },
+            }],
           },
         ],
       }),
@@ -107,8 +108,7 @@ async function mockAI(t, respond) {
       baseURL: `http://127.0.0.1:${server.address().port}/v1`,
       model: 'test-model',
       timeout: 10,
-      maxTokens: 512,
-      temperature: 0.3,
+      effort: 'high',
       enabled: true,
     },
   };
@@ -195,10 +195,12 @@ test('AI summary produces persisted todos and sends untrusted mail as user data'
   });
   assert.equal(job.status, 'completed');
   assert.equal(repo.get('message', 'm1').summary.todos[0].done, false);
-  assert.match(ai.requests[0].messages[0].content, /待分析的数据/);
+  assert.match(ai.requests[0].instructions, /待分析的数据/);
   assert.equal(ai.requests[0].model, 'test-model');
-  assert.equal(ai.requests[0].max_completion_tokens, 512);
-  assert.equal(ai.requests[0].messages[1].role, 'user');
+  assert.deepEqual(ai.requests[0].reasoning, { effort: 'high' });
+  assert.equal(ai.requests[0].input[0].role, 'user');
+  assert.equal(ai.requests[0].temperature, undefined);
+  assert.equal(ai.requests[0].max_output_tokens, undefined);
 });
 test('AI replies create reviewable drafts without sending', async (t) => {
   const repo = await fixture(t);
@@ -328,7 +330,7 @@ test('recipient and API endpoint validation', () => {
   );
   assert.equal(
     aiConfig({ baseURL: 'http://127.0.0.1:11434/v1', model: 'm' }).timeout,
-    60,
+    120,
   );
   assert.throws(() => accountInput({ ...account, email: 'bad' }));
 });
