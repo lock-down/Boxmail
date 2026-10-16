@@ -40,6 +40,7 @@ struct SidebarView: View {
               ForEach(store.accounts) { account in
                 Button {
                   store.accountId = account.id
+                  store.mailAITab = nil
                   store.selectedMessageId = store.filteredMessages.first?.id
                   showAccounts = false
                 } label: {
@@ -62,9 +63,12 @@ struct SidebarView: View {
           destination in row(destination)
         }
         sectionTitle("AI 助手").padding(.top, 7)
-        ForEach([MailDestination.summary, .replies, .organize, .analysis]) { destination in
+        ForEach([MailDestination.summary, .organize]) { destination in
           row(destination)
         }
+        Text("翻译、附件理解和回复请打开邮件")
+          .font(.system(size: 10)).foregroundStyle(Palette.muted)
+          .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.top, 8)
       }.padding(12)
       Spacer()
       if store.currentAccount?.isDemo == true {
@@ -80,14 +84,21 @@ struct SidebarView: View {
       }
       HStack(spacing: 7) {
         Image(
-          systemName: store.pendingMutations > 0
-            ? "arrow.triangle.2.circlepath" : "checkmark.circle"
-        ).foregroundStyle(Palette.success)
-        Text(
-          store.pendingMutations > 0
-            ? "\(store.pendingMutations) 项更改待同步"
-            : store.currentAccount?.isDemo == true ? "演示模式" : "本机邮件已保存"
-        ).font(.system(size: 11)).foregroundStyle(Palette.muted)
+          systemName: !store.credentialAuthorizationAccounts.isEmpty
+            ? "lock.circle"
+            : store.pendingMutations > 0 ? "arrow.triangle.2.circlepath" : "checkmark.circle"
+        ).foregroundStyle(
+          store.credentialAuthorizationAccounts.isEmpty ? Palette.success : Palette.amber)
+        if !store.credentialAuthorizationAccounts.isEmpty {
+          Button("邮箱需授权 · 点击同步") { Task { await store.syncAll() } }
+            .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.amber)
+        } else {
+          Text(
+            store.pendingMutations > 0
+              ? "\(store.pendingMutations) 项更改待同步"
+              : store.currentAccount?.isDemo == true ? "演示模式" : "本机邮件已保存"
+          ).font(.system(size: 11)).foregroundStyle(Palette.muted)
+        }
         Spacer()
         IconButton(icon: "gearshape", help: "设置") { store.showSettings = true }
       }.padding(.horizontal, 16).padding(.bottom, 13)
@@ -120,13 +131,16 @@ struct SidebarView: View {
           .foregroundStyle(destination.isAI ? Palette.purple : Palette.muted)
         Text(destination.title).font(.system(size: 13, weight: selected ? .semibold : .regular))
         Spacer()
+        if destination == .organize, store.latestOrganization?.status == "running" {
+          ProgressView().controlSize(.mini)
+        }
         if count(destination) > 0 {
           Text(String(count(destination))).font(.system(size: 10)).foregroundStyle(
             destination.isAI ? Palette.purple : Palette.muted)
         }
       }.padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 32)
         .contentShape(Rectangle()).background(
-        selected ? Color.white : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+          selected ? Color.white : Color.clear, in: RoundedRectangle(cornerRadius: 8))
     }.buttonStyle(.plain)
   }
 }

@@ -286,6 +286,7 @@ export async function syncAccount(
             );
           if (relocation) {
             message.summary = relocation.original.summary;
+            message.translation = relocation.original.translation;
             message.category = relocation.original.category;
             message.attachmentIds = relocation.original.attachmentIds;
             for (const aid of message.attachmentIds) {

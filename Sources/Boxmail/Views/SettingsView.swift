@@ -8,6 +8,7 @@ struct SettingsView: View {
   @ViewState<AIConfig> private var config = AIConfig()
   @ViewState<Preferences> private var preferences = Preferences()
   @ViewState<String> private var key = ""
+  @ViewState<String?> private var originalKey: String?
   @ViewState<[String]> private var models: [String] = []
   @ViewState<String> private var promptTab = "summary"
   @ViewState<String> private var status = ""
@@ -39,7 +40,8 @@ struct SettingsView: View {
               }.font(.system(size: 12, weight: store.settingsTab == tab ? .semibold : .regular))
                 .foregroundStyle(store.settingsTab == tab ? Palette.purple : Palette.ink).padding(
                   .horizontal, 10
-                ).frame(height: 34).background(
+                ).frame(maxWidth: .infinity).frame(height: 34)
+                .contentShape(Rectangle()).background(
                   store.settingsTab == tab ? Palette.purpleSoft : .clear,
                   in: RoundedRectangle(cornerRadius: 7))
             }.buttonStyle(.plain)
@@ -111,10 +113,9 @@ struct SettingsView: View {
       .onAppear {
         config = store.settings.ai
         preferences = store.settings.preferences
-        do { key = try KeychainService.read("ai-key") } catch {
-          status = error.localizedDescription
-        }
+        if store.settingsTab == "AI 助手" { loadAIKey() }
       }
+      .onChange(of: store.settingsTab) { _, tab in if tab == "AI 助手" { loadAIKey() } }
   }
   private var subtitle: String {
     switch store.settingsTab {
@@ -325,8 +326,10 @@ struct SettingsView: View {
       Stepper("正文字号：\(preferences.fontSize) pt", value: $preferences.fontSize, in: 12...24).font(
         .system(size: 13))
       Toggle("屏蔽远程图片", isOn: $preferences.blockRemoteImages).font(.system(size: 13))
-      Text("HTML 邮件保留原文排版，内嵌图片直接展示。外部图片可在邮件中单独加载，邮件中的脚本不会执行。已读和星标更改会在下次同步时提交至服务器。").font(.system(size: 12))
-        .foregroundStyle(Palette.muted)
+      Text("HTML 邮件保留原文排版，内嵌图片直接展示。外部图片可在邮件中单独加载，邮件中的脚本不会执行。已读和星标更改会在下次同步时提交至服务器。").font(
+        .system(size: 12)
+      )
+      .foregroundStyle(Palette.muted)
     }
   }
   private var spamSettings: some View {
@@ -396,7 +399,10 @@ struct SettingsView: View {
     Task {
       defer { loading = false }
       do {
-        try KeychainService.save(key, account: "ai-key")
+        if originalKey.map({ key != $0 }) ?? !key.isEmpty {
+          try KeychainService.save(key, account: "ai-key")
+          originalKey = key
+        }
         try await BackendService.shared.perform(
           "/settings",
           body: ["ai": try jsonObject(config), "preferences": try jsonObject(preferences)])
@@ -405,6 +411,13 @@ struct SettingsView: View {
         if close { dismiss() }
       } catch { status = "保存失败：\(error.localizedDescription)" }
     }
+  }
+  private func loadAIKey() {
+    guard originalKey == nil, key.isEmpty else { return }
+    do {
+      key = try KeychainService.read("ai-key")
+      originalKey = key
+    } catch { status = error.localizedDescription }
   }
   private func testAI() {
     loading = true

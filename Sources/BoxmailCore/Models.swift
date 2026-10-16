@@ -43,6 +43,7 @@ public struct MailMessage: Codable, Identifiable, Hashable {
   public var hasRemoteImages: Bool?
   public var bodyVersion: Int?
   public var uid: Int?
+  public var translation: String?
 }
 public struct MailSummary: Codable, Hashable {
   public var points: [String]
@@ -109,8 +110,33 @@ public struct SettingsData: Codable {
 }
 public struct AgentJob: Codable, Identifiable {
   public var id, task, status, createdAt: String
-  public var messageId, error, accountId: String?
+  public var messageId, error, accountId, attachmentId, replyPreset: String?
+  public var preview: Bool?
   public var result: AgentResult?
+  public var progress: OrganizeProgress?
+}
+public struct OrganizeProgress: Codable {
+  public var total, completed, failed, batchSize, batch: Int
+}
+public enum MailAITab: String, CaseIterable, Identifiable {
+  case summary, translate, attachment, reply
+  public var id: String { rawValue }
+  public var title: String {
+    switch self {
+    case .summary: return "总结"
+    case .translate: return "翻译"
+    case .attachment: return "附件理解"
+    case .reply: return "AI 回复"
+    }
+  }
+  public var icon: String {
+    switch self {
+    case .summary: return "sparkles"
+    case .translate: return "character.bubble"
+    case .attachment: return "doc.text.magnifyingglass"
+    case .reply: return "arrowshape.turn.up.left"
+    }
+  }
 }
 public struct AgentResult: Codable {
   public var subject, body, draftId, text: String?

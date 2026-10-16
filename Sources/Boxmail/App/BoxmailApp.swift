@@ -1,4 +1,5 @@
 import AppKit
+import BoxmailCore
 import SwiftUI
 
 @main struct BoxmailApp: App {
@@ -24,12 +25,27 @@ import SwiftUI
         Button("转发") {
           if let m = store.selectedMessage { store.newDraft(reply: m, forward: true) }
         }.keyboardShortcut("f", modifiers: [.command, .shift])
-        Button("生成 AI 总结") {
-          if let m = store.selectedMessage { store.generate(task: "summary", message: m) }
-        }.keyboardShortcut("s", modifiers: [.command, .shift])
+      }
+      CommandMenu("AI") {
+        Button("总结当前邮件") { openAI(.summary) }
+          .keyboardShortcut("s", modifiers: [.command, .shift])
+          .disabled(store.selectedMessage == nil)
+        Button("翻译当前邮件") { openAI(.translate) }
+          .keyboardShortcut("t", modifiers: [.command, .shift])
+          .disabled(store.selectedMessage == nil)
+        Button("理解当前邮件附件") { openAI(.attachment) }
+          .disabled(store.selectedMessage?.attachmentIds.isEmpty != false)
+        Button("AI 回复当前邮件") { openAI(.reply) }.disabled(store.selectedMessage == nil)
+        Divider()
+        Button("智能整理收件箱") { store.navigate(.organize) }
       }
     }
     Settings { SettingsView(store: store).preferredColorScheme(.light) }
+  }
+  private func openAI(_ tab: BoxmailCore.MailAITab) {
+    guard let message = store.selectedMessage else { return }
+    store.openMail(message)
+    store.showMailAI(tab, message: message)
   }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -38,7 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.activate(ignoringOtherApps: true)
   }
   func applicationWillTerminate(_ notification: Notification) {
-    MainActor.assumeIsolated { BackendService.shared.stop() }
+    MainActor.assumeIsolated {
+      KeychainService.clearSession()
+      BackendService.shared.stop()
+    }
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }

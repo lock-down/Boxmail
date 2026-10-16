@@ -12,6 +12,11 @@ if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VERSION must contain a version such as 0.0.1" >&2
   exit 2
 fi
+SIGNING_IDENTITY="${BOXMAIL_SIGNING_IDENTITY:-}"
+if [[ -z "$SIGNING_IDENTITY" && -f "$ROOT_DIR/.boxmail-signing-identity" ]]; then
+  SIGNING_IDENTITY="$(tr -d '\r\n' < "$ROOT_DIR/.boxmail-signing-identity")"
+fi
+SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 if [[ ! -d Backend/node_modules ]]; then npm ci --prefix Backend --no-fund --no-audit; fi
 swift build
@@ -24,6 +29,7 @@ if [[ ! -f "$APP_CONTENTS/Resources/Runtime/node" || "$NODE_BINARY" -nt "$APP_CO
 rsync -a --delete --exclude test --exclude package-lock.json --exclude '*.sqlite*' Backend/ "$APP_CONTENTS/Resources/Backend/"
 mkdir -p "$APP_CONTENTS/Resources/Backend/Resources"
 cp Sources/BoxmailCore/Resources/DefaultPrompts.json "$APP_CONTENTS/Resources/Backend/Resources/DefaultPrompts.json"
+cp Sources/BoxmailCore/Resources/ReplyPresets.json "$APP_CONTENTS/Resources/Backend/Resources/ReplyPresets.json"
 rsync -a --delete "$BUILD_DIR/Boxmail_BoxmailCore.bundle/" "$APP_CONTENTS/Resources/Boxmail_BoxmailCore.bundle/"
 chmod +x "$APP_CONTENTS/MacOS/$APP_NAME" "$APP_CONTENTS/Resources/Runtime/node"
 if [[ ! -f "$APP_CONTENTS/Resources/Boxmail.icns" || script/generate_icon.swift -nt "$APP_CONTENTS/Resources/Boxmail.icns" ]]; then
@@ -41,15 +47,20 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleIconFile</key><string>Boxmail</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-<key>CFBundleVersion</key><string>3</string>
+<key>CFBundleVersion</key><string>4</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
-# Stable local identifier for the Keychain; distribution signing is separate.
-codesign --force --sign - --identifier "$BUNDLE_ID" "$APP_BUNDLE" >/dev/null
+# A fixed bundle ID alone does not preserve Keychain authorization across ad hoc builds.
+# Set BOXMAIL_SIGNING_IDENTITY to a persistent development identity's SHA-1 fingerprint.
+if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+  echo "使用临时签名：重新构建后可能需要再次授权钥匙串。固定证书可通过 BOXMAIL_SIGNING_IDENTITY 配置。" >&2
+fi
+codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_ID" "$APP_BUNDLE" >/dev/null
+codesign --verify --deep --strict "$APP_BUNDLE"
 case "$MODE" in
 run) /usr/bin/open -n "$APP_BUNDLE" ;;
 --verify|verify) /usr/bin/open -n "$APP_BUNDLE"; sleep 1; pgrep -x "$APP_NAME" >/dev/null ;;

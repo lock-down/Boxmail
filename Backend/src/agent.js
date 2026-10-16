@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { ServiceError } from './validation.js';
 import { completion } from './responses.js';
 import { modelAttachment } from './attachments.js';
+import { REVIEWABLE } from './organizer.js';
+import { REPLY_PRESETS } from './reply-presets.js';
 export { completion } from './responses.js';
 
 function strings(v) {
@@ -11,7 +13,14 @@ function strings(v) {
 }
 export async function runAgent(repo, input) {
   const message = input.messageId ? repo.get('message', input.messageId) : null;
+  if (input.messageId && !message) throw new ServiceError('邮件不存在', 404);
+  if (message && input.accountId && message.accountId !== input.accountId)
+    throw new ServiceError('邮件不属于当前账户', 400);
   const task = input.task;
+  const preset = task === 'reply' && typeof input.replyPreset === 'string'
+    ? Object.hasOwn(REPLY_PRESETS, input.replyPreset) && REPLY_PRESETS[input.replyPreset] : null;
+  if (task === 'reply' && input.replyPreset != null && !preset)
+    throw new ServiceError('未知回复选项');
   let context;
   if (['summary', 'reply', 'translate'].includes(task)) {
     if (!message) throw new ServiceError('请选择邮件');
@@ -21,6 +30,7 @@ export async function runAgent(repo, input) {
       date: message.date,
       body: message.body,
       request: input.prompt || '',
+      ...(preset ? { replyIntent: preset.title } : {}),
       attachments: message.attachmentIds.map((id) => {
         const a = repo.get('attachment', id);
         return { name: a?.name, text: a?.text?.slice(0, 16000), analysis: a?.analysis?.slice(0, 16000) };
@@ -44,11 +54,14 @@ export async function runAgent(repo, input) {
   } else if (task === 'attachment') {
     const a = repo.get('attachment', input.attachmentId);
     if (!a) throw new ServiceError('附件不存在', 404);
+    if (message && (!message.attachmentIds.includes(a.id) || a.messageId !== message.id))
+      throw new ServiceError('该附件不属于当前邮件', 400);
     context = {
       name: a.name,
       text: a.text.slice(0, 60000),
       textTruncated: a.text.length > 60000,
       request: input.prompt || '',
+      email: message ? { subject: message.subject, sender: message.sender, body: message.body.slice(0, 5000) } : undefined,
     };
   } else
     context = {
@@ -62,7 +75,9 @@ export async function runAgent(repo, input) {
     task,
     status: 'running',
     accountId: input.accountId || message?.accountId || null,
-    messageId: input.messageId || null,
+    messageId: input.messageId || (task === 'attachment' ? repo.get('attachment', input.attachmentId)?.messageId : null) || null,
+    attachmentId: input.attachmentId || null,
+    ...(task === 'reply' ? { replyPreset: input.replyPreset || null, preview: input.preview === true } : {}),
     createdAt: new Date().toISOString(),
     result: null,
     error: null,
@@ -79,7 +94,8 @@ export async function runAgent(repo, input) {
         context.pageOrder = '输入图片按照文档页码从第 1 页开始依次排列';
       }
     }
-    const result = await completion(input.config, input.apiKey, task, context, images);
+    const result = await completion(input.config, input.apiKey, task, context, images,
+      { additionalInstructions: preset?.instruction });
     if (task === 'summary') {
       if (!strings(result.points).length)
         throw new ServiceError('摘要格式不正确', 502);
@@ -111,24 +127,11 @@ export async function runAgent(repo, input) {
       repo.put('message', { ...current, summary });
       job.result = summary;
     } else if (['reply', 'compose'].includes(task)) {
-      if (typeof result.body !== 'string' || typeof result.subject !== 'string')
+      if (typeof result.body !== 'string' || !result.body.trim() || typeof result.subject !== 'string')
         throw new ServiceError('邮件草稿格式不正确', 502);
       job.result = { subject: result.subject, body: result.body };
-      if (task === 'reply') {
-        const draft = {
-          id: randomUUID(),
-          accountId: message.accountId,
-          to: message.senderEmail,
-          cc: '',
-          bcc: '',
-          subject: result.subject,
-          body: result.body,
-          attachmentIds: [],
-          inReplyTo: message.messageId || '',
-          status: 'draft',
-          updatedAt: new Date().toISOString(),
-          sourceMessageId: message.id,
-        };
+      if (task === 'reply' && !job.preview) {
+        const draft = replyDraft(message, result);
         repo.put('draft', draft);
         job.result.draftId = draft.id;
       }
@@ -161,6 +164,10 @@ export async function runAgent(repo, input) {
       if (task === 'attachment') {
         const a = repo.get('attachment', input.attachmentId);
         repo.put('attachment', { ...a, analysis: result.text });
+      } else if (task === 'translate') {
+        const current = repo.get('message', message.id);
+        if (!current) throw new ServiceError('邮件已移动，请重新打开邮件', 409);
+        repo.put('message', { ...current, translation: result.text });
       }
     }
     if (job.status !== 'needsApproval') job.status = 'completed';
@@ -174,22 +181,53 @@ export async function runAgent(repo, input) {
     throw e;
   }
 }
+function replyDraft(message, result) {
+  return {
+    id: randomUUID(), accountId: message.accountId, to: message.senderEmail, cc: '', bcc: '',
+    subject: result.subject, body: result.body, attachmentIds: [], inReplyTo: message.messageId || '',
+    status: 'draft', updatedAt: new Date().toISOString(), sourceMessageId: message.id,
+  };
+}
+
+export function useReplyPreview(repo, id) {
+  const job = repo.get('job', id);
+  if (!job || job.task !== 'reply' || !job.preview || job.status !== 'completed'
+    || typeof job.result?.body !== 'string' || !job.result.body.trim())
+    throw new ServiceError('该回复预览尚不可使用', 409);
+  return repo.transaction(() => {
+    if (job.result.draftId) {
+      const existing = repo.get('draft', job.result.draftId);
+      if (!existing || existing.status !== 'draft') throw new ServiceError('该草稿已删除或已进入发送流程，请重新生成', 409);
+      return existing;
+    }
+    const message = repo.get('message', job.messageId);
+    if (!message) throw new ServiceError('原邮件不存在，请重新打开邮件生成回复', 404);
+    const draft = replyDraft(message, job.result);
+    repo.put('draft', draft);
+    job.result.draftId = draft.id;
+    repo.put('job', job);
+    repo.event('draft', '已将 AI 回复预览保存为待审核草稿');
+    return draft;
+  });
+}
 export function approveClassification(repo, id, undo = false) {
   const job = repo.get('job', id);
   if (
     !job ||
     job.task !== 'classify' ||
-    job.status !== (undo ? 'applied' : 'needsApproval')
+    !job.result?.items?.length ||
+    !(undo ? job.status === 'applied' : REVIEWABLE.includes(job.status))
   )
     throw new ServiceError('该整理任务不能执行此操作', 409);
   repo.transaction(() => {
     if (undo) {
-      for (const p of job.result.previous) {
+      for (const p of job.result.previous || []) {
         const m = repo.get('message', p.id);
         if (m) repo.put('message', { ...m, category: p.category });
       }
       job.status = 'undone';
     } else {
+      job.result.previous = [];
       for (const item of job.result.items) {
         const m = repo.get('message', item.id);
         if (m) {

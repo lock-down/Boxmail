@@ -10,10 +10,11 @@ import {
   recipients,
 } from './validation.js';
 import { testAccount, syncAccount, updateMessage, sendDraft } from './mail.js';
-import { runAgent, approveClassification, completion } from './agent.js';
+import { runAgent, approveClassification, useReplyPreview, completion } from './agent.js';
 import { saveAttachment, attachmentBytes } from './attachments.js';
 import { seedDemo } from './demo.js';
 import { DEFAULT_AI } from './ai-settings.js';
+import { Organizer } from './organizer.js';
 
 export async function startServer({
   directory,
@@ -23,6 +24,7 @@ export async function startServer({
   mailSync = syncAccount,
   mailTest = testAccount,
   agentRun = runAgent,
+  organizerComplete,
 }) {
   if (!token || token.length < 24)
     throw new Error('A session token is required');
@@ -33,10 +35,11 @@ export async function startServer({
   for (const j of repo.list('job').filter((j) => j.status === 'running'))
     repo.put('job', {
       ...j,
-      status: 'failed',
-      error: '应用关闭中断了任务，请重试',
+      status: j.task === 'classify' && j.messageIds ? 'paused' : 'failed',
+      error: '应用关闭中断了任务，已完成的结果已保留，请重试',
     });
   const locks = new Set();
+  const organizer = new Organizer(repo, organizerComplete ? { complete: organizerComplete } : {});
   const defaults = {
     id: 'settings',
     ai: { ...DEFAULT_AI, prompts: { ...DEFAULT_AI.prompts } },
@@ -129,7 +132,7 @@ export async function startServer({
         result = { id: a.id, ok: true };
       } else if (req.method === 'DELETE' && route.startsWith('/accounts/')) {
         const id = route.split('/')[2];
-        if (locks.has(id) || locks.has('agent'))
+        if (locks.has(id) || locks.has('agent') || organizer.busy(id))
           throw new ServiceError('账户正在执行任务，请完成后再移除', 409);
         const candidates = new Set(
           [...repo.list('message'), ...repo.list('draft')]
@@ -221,6 +224,20 @@ export async function startServer({
         if (!r.ok)
           throw new ServiceError(`模型列表请求失败：HTTP ${r.status}`, 502);
         result = { models: (await r.json()).data?.map((m) => m.id) || [] };
+      } else if (req.method === 'POST' && (route === '/organize' || (route === '/agent' && body.task === 'classify'))) {
+        result = organizer.start({ ...body, config: repo.get('settings', 'settings').ai });
+      } else if (req.method === 'GET' && /^\/jobs\/[^/]+$/.test(route)) {
+        result = repo.get('job', route.split('/')[2]);
+        if (!result) throw new ServiceError('任务不存在', 404);
+      } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/draft$/.test(route)) {
+        result = useReplyPreview(repo, route.split('/')[2]);
+      } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/pause$/.test(route)) {
+        result = await organizer.pause(route.split('/')[2]);
+      } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/retry$/.test(route)) {
+        const id = route.split('/')[2], job = repo.get('job', id);
+        if (!job) throw new ServiceError('任务不存在', 404);
+        result = organizer.start({ accountId: job.accountId, apiKey: body.apiKey,
+          config: repo.get('settings', 'settings').ai }, id);
       } else if (req.method === 'POST' && route === '/agent') {
         if (locks.has('agent'))
           throw new ServiceError('AI 正在执行任务，请等待完成', 409);
@@ -318,6 +335,7 @@ export async function startServer({
     repo,
     port: server.address().port,
     close: async () => {
+      await organizer.close();
       await new Promise((resolve) => server.close(resolve));
       repo.close();
     },

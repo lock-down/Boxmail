@@ -32,3 +32,12 @@ import Testing
     #expect(attachment.canAnalyze)
   }
 }
+
+@Test func replyPresetsLoadSharedResourceAndRetainDistinctIntentRules() {
+  #expect(ReplyPreset.allCases.map(\.title) == ["感兴趣回复", "不感兴趣回复", "感谢回复"])
+  #expect(Set(ReplyPreset.allCases.map(\.rawValue)).count == 3)
+  #expect(ReplyPreset.allCases.allSatisfy { !$0.detail.isEmpty && !$0.instruction.isEmpty })
+  #expect(ReplyPreset.interested.instruction.contains("兴趣不等于接受邀请"))
+  #expect(ReplyPreset.decline.instruction.contains("不要编造"))
+  #expect(ReplyPreset.thanks.instruction.contains("感谢不代表同意"))
+}

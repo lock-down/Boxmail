@@ -19,9 +19,9 @@ struct AttachmentsView: View {
     VStack(alignment: .leading, spacing: 22) {
       HStack {
         VStack(alignment: .leading, spacing: 8) {
-          Text(store.destination == .analysis ? "附件解析" : "附件内容中心").font(
+          Text("附件中心").font(
             .system(size: 24, weight: .bold))
-          Text("集中查看文档和图片，模型理解结果可直接搜索").font(.system(size: 12)).foregroundStyle(Palette.muted)
+          Text("查找、预览和下载附件，打开原邮件可使用 AI 理解。").font(.system(size: 12)).foregroundStyle(Palette.muted)
         }
         Spacer()
         Tag(text: "\(store.accountAttachments.filter{$0.analysis != nil}.count) 个 AI 已解析", ai: true)
@@ -78,8 +78,13 @@ struct AttachmentsView: View {
                 Text(fileSize(attachment.size)).font(.system(size: 10)).foregroundStyle(
                   Palette.muted)
                 Spacer()
-                ActionButton(title: "查看与解析", icon: "sparkles", kind: .softAI) {
+                ActionButton(title: "预览", icon: "doc.text") {
                   store.previewAttachment = attachment
+                }
+                if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
+                  ActionButton(title: "原邮件", icon: "envelope") {
+                    store.openMail(mail, tab: .attachment)
+                  }
                 }
                 IconButton(icon: "arrow.down.to.line", help: "下载附件") { store.download(attachment) }
               }
@@ -145,30 +150,22 @@ struct AttachmentPreviewView: View {
           Divider()
           ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-              Label("AI 解析", systemImage: "sparkles").font(.system(size: 17, weight: .semibold))
+              Label("所属邮件", systemImage: "envelope").font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Palette.purple)
-              Text("提炼文档或图片的摘要、关键数据与行动建议").font(.system(size: 12)).foregroundStyle(Palette.muted)
-              Text(
-                attachment.isPDF
-                  ? "PDF 每次最多解析 20 页。页面图片会发送至已配置的 AI 服务。"
-                  : attachment.isImage ? "原始图片会上传至已配置的 AI 服务。" : "文档内容会发送至已配置的 AI 服务。"
-              )
-              .font(.system(size: 11)).foregroundStyle(Palette.muted)
-              HStack {
-                ActionButton(
-                  title: attachment.analysis == nil ? "开始解析" : "重新解析", icon: "sparkles", kind: .ai
-                ) {
-                  store.action("attachment-ai") {
-                    _ = try await store.runAI(task: "attachment", attachment: attachment)
-                  }
-                }.disabled(!attachment.canAnalyze || store.busy.contains("agent"))
-                if store.busy.contains("agent") { ProgressView().controlSize(.small) }
+              if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
+                Text(mail.subject).font(.system(size: 14, weight: .medium))
+                Text(mail.sender).font(.system(size: 12)).foregroundStyle(Palette.muted)
+                ActionButton(title: "在原邮件中理解附件", icon: "sparkles", kind: .ai) {
+                  dismiss()
+                  store.openMail(mail, tab: .attachment)
+                }
               }
+              Text("回到邮件后，可结合来信内容提炼附件摘要、关键数据与行动建议。")
+                .font(.system(size: 12)).foregroundStyle(Palette.muted)
               if let text = attachment.analysis {
+                Divider()
+                Text("已保存的理解结果").font(.system(size: 12, weight: .semibold))
                 Text(text).font(.system(size: 13)).lineSpacing(6).textSelection(.enabled)
-              } else {
-                Text("解析结果会保存到本机，可通过搜索查找其中内容。").font(.system(size: 12)).foregroundStyle(
-                  Palette.muted)
               }
             }.padding(24)
           }.frame(width: 330).background(Palette.canvas)

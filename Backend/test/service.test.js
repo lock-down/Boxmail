@@ -8,7 +8,8 @@ import { startServer } from '../src/server.js';
 import { Repository } from '../src/database.js';
 import { syncAccount, sendDraft, updateMessage } from '../src/mail.js';
 import { saveAttachment, extractText } from '../src/attachments.js';
-import { runAgent, approveClassification } from '../src/agent.js';
+import { runAgent, approveClassification, useReplyPreview } from '../src/agent.js';
+import { REPLY_PRESETS } from '../src/reply-presets.js';
 import { accountInput, aiConfig, recipients } from '../src/validation.js';
 import ExcelJS from 'exceljs';
 
@@ -223,6 +224,129 @@ test('AI replies create reviewable drafts without sending', async (t) => {
     0,
   );
 });
+test('three reply attitudes use distinct instructions and preview without creating drafts', async (t) => {
+  const repo = await fixture(t);
+  repo.put('message', message);
+  const ai = await mockAI(t, (body) => {
+    const context = JSON.parse(body.input[0].content[0].text);
+    return { subject: 'Re: 路线图评审', body: `${context.replyIntent}的独立预览` };
+  });
+  assert.deepEqual(Object.keys(REPLY_PRESETS), ['interested', 'decline', 'thanks']);
+  const custom = '回复时不使用客套开场白。'.padEnd(6000, '文');
+  for (const [replyPreset, definition] of Object.entries(REPLY_PRESETS)) {
+    const config = { ...ai.config, prompts: { reply: custom } };
+    const job = await runAgent(repo, {
+      task: 'reply', messageId: 'm1', replyPreset, preview: true,
+      prompt: '控制在 100 字内', config, apiKey: 'test-key',
+    });
+    assert.equal(job.status, 'completed');
+    assert.equal(job.preview, true);
+    assert.equal(job.replyPreset, replyPreset);
+    assert.equal(job.result.body, `${definition.title}的独立预览`);
+    assert.equal(job.result.draftId, undefined);
+    const request = ai.requests.at(-1);
+    assert.ok(request.instructions.includes(custom));
+    assert.ok(request.instructions.includes(definition.instruction));
+    const context = JSON.parse(request.input[0].content[0].text);
+    assert.equal(context.request, '控制在 100 字内');
+    assert.equal(context.replyIntent, definition.title);
+    assert.deepEqual(config.prompts, { reply: custom });
+  }
+  assert.equal(repo.list('draft').length, 0);
+  assert.equal(repo.list('message').filter((m) => m.folder === 'sent').length, 0);
+});
+test('unknown reply attitudes are rejected before creating a job or calling a model', async (t) => {
+  const repo = await fixture(t);
+  repo.put('message', message);
+  const ai = await mockAI(t, () => ({ subject: 'Re: 评审', body: '收到' }));
+  for (const replyPreset of ['accept', '__proto__', 'toString', '', ['thanks'], {}]) {
+    await assert.rejects(runAgent(repo, {
+      task: 'reply', messageId: 'm1', replyPreset, preview: true, config: ai.config,
+    }), /未知回复选项/);
+  }
+  assert.equal(ai.requests.length, 0);
+  assert.equal(repo.list('job').length, 0);
+});
+test('custom reply previews use the editable reply prompt and retain successful results after failure', async (t) => {
+  const repo = await fixture(t);
+  repo.put('message', message);
+  let empty = false;
+  const ai = await mockAI(t, () => ({ subject: 'Re: 评审', body: empty ? '  ' : '确认收到，请告知下一步。' }));
+  const job = await runAgent(repo, {
+    task: 'reply', messageId: 'm1', preview: true, prompt: '询问下一步', config: ai.config,
+  });
+  assert.equal(job.replyPreset, null);
+  assert.match(ai.requests[0].instructions, /不编造承诺/);
+  assert.equal(JSON.parse(ai.requests[0].input[0].content[0].text).replyIntent, undefined);
+  empty = true;
+  await assert.rejects(runAgent(repo, {
+    task: 'reply', messageId: 'm1', preview: true, config: ai.config,
+  }), /草稿格式/);
+  assert.equal(repo.get('job', job.id).result.body, '确认收到，请告知下一步。');
+  assert.equal(repo.list('job').filter((j) => j.status === 'failed').length, 1);
+  assert.equal(repo.list('draft').length, 0);
+});
+test('using a reply preview creates one editable draft and preserves edits on repeated use', async (t) => {
+  const repo = await fixture(t);
+  repo.put('message', { ...message, messageId: '<original@example.com>' });
+  const ai = await mockAI(t, () => ({ subject: 'Re: 评审', body: '谢谢，已收到。' }));
+  const job = await runAgent(repo, {
+    task: 'reply', messageId: 'm1', replyPreset: 'thanks', preview: true, config: ai.config,
+  });
+  const draft = useReplyPreview(repo, job.id);
+  assert.equal(draft.to, message.senderEmail);
+  assert.equal(draft.accountId, message.accountId);
+  assert.equal(draft.sourceMessageId, message.id);
+  assert.equal(draft.inReplyTo, '<original@example.com>');
+  assert.equal(draft.status, 'draft');
+  assert.deepEqual(draft.attachmentIds, []);
+  repo.put('draft', { ...draft, body: '用户修改的正文' });
+  const reused = useReplyPreview(repo, job.id);
+  assert.equal(reused.id, draft.id);
+  assert.equal(reused.body, '用户修改的正文');
+  assert.equal(repo.list('draft').length, 1);
+  assert.equal(repo.get('job', job.id).result.draftId, draft.id);
+  assert.equal(ai.requests.length, 1);
+  assert.equal(repo.list('message').filter((m) => m.folder === 'sent').length, 0);
+});
+test('reply previews cannot resurrect deleted drafts or drafts in the send flow', async (t) => {
+  const repo = await fixture(t);
+  repo.put('message', message);
+  const ai = await mockAI(t, () => ({ subject: 'Re: 评审', body: '谢谢，已收到。' }));
+  const job = await runAgent(repo, {
+    task: 'reply', messageId: 'm1', replyPreset: 'thanks', preview: true, config: ai.config,
+  });
+  const draft = useReplyPreview(repo, job.id);
+  for (const status of ['sending', 'sent', 'uncertain']) {
+    repo.put('draft', { ...draft, status });
+    assert.throws(() => useReplyPreview(repo, job.id), { status: 409 });
+  }
+  repo.remove('draft', draft.id);
+  assert.throws(() => useReplyPreview(repo, job.id), { status: 409 });
+  assert.equal(repo.list('draft').length, 0);
+});
+test('reply preview draft API rejects invalid jobs and missing source mail', async (t) => {
+  const app = await apiFixture(t);
+  app.repo.put('message', message);
+  const ai = await mockAI(t, () => ({ subject: 'Re: 评审', body: '谢谢，已收到。' }));
+  const job = await runAgent(app.repo, {
+    task: 'reply', messageId: 'm1', replyPreset: 'thanks', preview: true, config: ai.config,
+  });
+  const response = await app.request(`/jobs/${job.id}/draft`, {});
+  assert.equal(response.status, 200);
+  assert.equal(response.body.body, '谢谢，已收到。');
+  assert.equal(response.body.status, 'draft');
+  assert.equal(response.body.sourceMessageId, 'm1');
+  assert.equal((await app.request(`/jobs/${job.id}/draft`, {})).body.id, response.body.id);
+  for (const variant of [{ preview: false }, { status: 'running' }, { task: 'summary' }]) {
+    app.repo.put('job', { ...job, id: 'invalid-preview', ...variant });
+    assert.equal((await app.request('/jobs/invalid-preview/draft', {})).status, 409);
+  }
+  assert.equal((await app.request('/jobs/missing/draft', {})).status, 409);
+  app.repo.put('job', { ...job, id: 'orphan-preview', messageId: 'missing' });
+  assert.equal((await app.request('/jobs/orphan-preview/draft', {})).status, 404);
+  assert.equal(app.repo.list('draft').length, 1);
+});
 test('classification requires approval, ignores foreign IDs, deduplicates, and supports undo', async (t) => {
   const repo = await fixture(t);
   repo.put('message', message);
@@ -411,6 +535,7 @@ test('moving a message retains local summary, categories and attachment text', a
     category: '工作项目',
     attachmentIds: [attachment.id],
     summary: { points: ['周五截止'], todos: [], keyInfo: [] },
+    translation: '已保存译文',
   };
   repo.put('message', original);
   updateMessage(repo, original.id, { folder: 'trash' });
@@ -419,6 +544,7 @@ test('moving a message retains local summary, categories and attachment text', a
   assert.equal(next.folder, 'trash');
   assert.equal(next.category, '工作项目');
   assert.deepEqual(next.summary.points, ['周五截止']);
+  assert.equal(next.translation, '已保存译文');
   assert.deepEqual(next.attachmentIds, [attachment.id]);
   assert.equal(repo.get('attachment', attachment.id).messageId, next.id);
   assert.equal(repo.list('relocation').length, 0);

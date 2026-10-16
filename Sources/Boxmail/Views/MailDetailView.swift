@@ -33,10 +33,6 @@ struct MailDetailView: View {
         }.menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 24)
         IconButton(icon: "trash", help: "移到已删除") { store.update(message, ["folder": "trash"]) }
         Spacer(minLength: 5)
-        if store.busy.contains("agent") { ProgressView().controlSize(.small) }
-        ActionButton(title: "AI 总结", icon: "sparkles", kind: .softAI) {
-          store.generate(task: "summary", message: message)
-        }.disabled(store.busy.contains("agent"))
         IconButton(
           icon: message.starred ? "star.fill" : "star", help: message.starred ? "取消星标" : "添加星标",
           color: message.starred ? Palette.amber : Palette.muted
@@ -47,55 +43,63 @@ struct MailDetailView: View {
             NSPasteboard.general.setString(message.body, forType: .string)
           }
           Button("标记为未读") { store.update(message, ["unread": true]) }
-          Button("翻译全文") { store.generate(task: "translate", message: message) }
         } label: {
           Image(systemName: "ellipsis").foregroundStyle(Palette.muted)
         }.menuStyle(.borderlessButton).menuIndicator(.hidden)
       }.padding(.horizontal, 18).frame(height: 47).background(.white)
       Divider()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          Text(message.subject).font(.system(size: 21, weight: .bold)).textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-          HStack {
-            Tag(text: message.category)
-            if message.starred { Tag(text: "星标邮件") }
-          }
-          HStack(spacing: 10) {
-            Text(String(message.sender.prefix(1))).font(.system(size: 17)).foregroundStyle(.white)
-              .frame(width: 36, height: 36).background(Palette.blue, in: Circle())
-            VStack(alignment: .leading, spacing: 5) {
-              HStack {
-                Text(message.sender).font(.system(size: 13, weight: .medium))
-                Text(message.senderEmail).font(.system(size: 11)).foregroundStyle(Palette.muted)
-              }
-              Text("发送至 \(message.to)").font(.system(size: 11)).foregroundStyle(Palette.muted)
-                .lineLimit(2)
-            }
-            Spacer()
-            Text(displayTime(message.date)).font(.system(size: 11)).foregroundStyle(Palette.muted)
-          }
-          if let summary = message.summary {
-            SummaryCard(store: store, message: message, summary: summary)
-          }
-          Text("邮件原文").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.muted)
-          MailBodyView(message: message, preferences: store.settings.preferences).id(message.id)
-          if !message.attachmentIds.isEmpty {
+      MailAIBar(store: store, message: message)
+      Divider()
+      ScrollViewReader { reader in
+        ScrollView {
+          VStack(alignment: .leading, spacing: 18) {
+            Text(message.subject).font(.system(size: 21, weight: .bold)).textSelection(.enabled)
+              .fixedSize(horizontal: false, vertical: true)
             HStack {
-              Label("\(message.attachmentIds.count) 个附件", systemImage: "paperclip").font(
-                .system(size: 12, weight: .semibold))
-              Text("可解析附件内容并用于搜索").font(.system(size: 10)).foregroundStyle(Palette.purple)
-            }.padding(.top, 5)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 9)], spacing: 9) {
-              ForEach(message.attachmentIds, id: \.self) { id in
-                if let attachment = store.attachments.first(where: { $0.id == id }) {
-                  AttachmentCard(attachment: attachment) { store.previewAttachment = attachment }
+              Tag(text: message.category)
+              if message.starred { Tag(text: "星标邮件") }
+            }
+            HStack(spacing: 10) {
+              Text(String(message.sender.prefix(1))).font(.system(size: 17)).foregroundStyle(.white)
+                .frame(width: 36, height: 36).background(Palette.blue, in: Circle())
+              VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                  Text(message.sender).font(.system(size: 13, weight: .medium))
+                  Text(message.senderEmail).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                }
+                Text("发送至 \(message.to)").font(.system(size: 11)).foregroundStyle(Palette.muted)
+                  .lineLimit(2)
+              }
+              Spacer()
+              Text(displayTime(message.date)).font(.system(size: 11)).foregroundStyle(Palette.muted)
+            }
+            if let tab = store.mailAITab {
+              MailAssistantView(store: store, message: message, tab: tab).id("mail-assistant")
+            }
+            Text("邮件原文").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.muted)
+            MailBodyView(message: message, preferences: store.settings.preferences).id(message.id)
+            if !message.attachmentIds.isEmpty {
+              HStack {
+                Label("\(message.attachmentIds.count) 个附件", systemImage: "paperclip").font(
+                  .system(size: 12, weight: .semibold))
+                Spacer()
+                Button("理解本封邮件附件") { store.mailAITab = .attachment }
+                  .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.purple)
+              }.padding(.top, 5)
+              LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 9)], spacing: 9) {
+                ForEach(message.attachmentIds, id: \.self) { id in
+                  if let attachment = store.attachments.first(where: { $0.id == id }) {
+                    AttachmentCard(attachment: attachment) { store.previewAttachment = attachment }
+                  }
                 }
               }
             }
+          }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+        }.defaultScrollAnchor(.top).id(message.id).background(.white)
+          .onChange(of: store.mailAITab) { _, tab in
+            if tab != nil { withAnimation { reader.scrollTo("mail-assistant", anchor: .top) } }
           }
-        }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-      }.defaultScrollAnchor(.top).id(message.id).background(.white)
+      }
     }.background(.white)
   }
 }
@@ -124,6 +128,9 @@ struct SummaryCard: View {
           icon: collapsed ? "chevron.down" : "chevron.up", help: "折叠总结", color: Palette.purple
         ) { collapsed.toggle() }
       }.foregroundStyle(Palette.purple)
+      if store.destination == .summary, let error = store.mailAIErrors[message.id] {
+        Text(error).font(.system(size: 11)).foregroundStyle(Palette.amber)
+      }
       if !collapsed {
         VStack(alignment: .leading, spacing: 10) {
           ForEach(Array(summary.points.enumerated()), id: \.offset) { index, point in
@@ -169,15 +176,6 @@ struct SummaryCard: View {
               }.font(.system(size: 11))
             }
           }.frame(width: 200)
-        }
-        HStack {
-          ActionButton(title: "AI 一键生成回复", icon: "arrowshape.turn.up.left", kind: .ai) {
-            store.generate(task: "reply", message: message)
-          }
-          ActionButton(title: "翻译全文", icon: "character.bubble", kind: .normal) {
-            store.generate(task: "translate", message: message)
-          }
-          Spacer()
         }
       }
     }.padding(16).background(Palette.purpleSoft, in: RoundedRectangle(cornerRadius: 12)).overlay(

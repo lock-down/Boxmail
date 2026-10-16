@@ -10,6 +10,23 @@ import Testing
   let job = try JSONDecoder().decode(AgentJob.self, from: data)
   #expect(job.result?.items?.first?.category == "工作项目")
   #expect(job.status == "needsApproval")
+  #expect(job.preview == nil)
+  #expect(job.replyPreset == nil)
+}
+
+@Test func replyPreviewContractRetainsAttitudeAndExplicitDraftAssociation() throws {
+  let data = Data(
+    #"{"id":"reply1","task":"reply","status":"completed","createdAt":"2026-10-16T01:00:00Z","messageId":"m1","replyPreset":"thanks","preview":true,"result":{"subject":"Re: 评审","body":"谢谢，已收到。","draftId":"d1"}}"#
+      .utf8)
+  let job = try JSONDecoder().decode(AgentJob.self, from: data)
+  #expect(job.preview == true)
+  #expect(job.replyPreset.flatMap(ReplyPreset.init(rawValue:)) == .thanks)
+  #expect(job.result?.body == "谢谢，已收到。")
+  #expect(job.result?.draftId == "d1")
+  let encoded = try JSONEncoder().encode(job)
+  let decoded = try JSONDecoder().decode(AgentJob.self, from: encoded)
+  #expect(decoded.replyPreset == job.replyPreset)
+  #expect(decoded.preview == job.preview)
 }
 @Test func decodeSummaryJobAndMail() throws {
   let data = Data(
@@ -18,4 +35,15 @@ import Testing
   let message = try JSONDecoder().decode(MailMessage.self, from: data)
   #expect(message.summary?.todos.first?.done == false)
   #expect(message.messageId == nil)
+}
+
+@Test func decodeBackgroundOrganizationProgress() throws {
+  let data = Data(
+    #"{"id":"j2","task":"classify","status":"partial","createdAt":"2026-10-16T01:00:00Z","messageIds":["m1","m2"],"completedIds":["m1"],"progress":{"total":2,"completed":1,"failed":1,"batchSize":6,"batch":1},"result":{"items":[{"id":"m1","category":"工作项目","reason":"评审"}]}}"#
+      .utf8)
+  let job = try JSONDecoder().decode(AgentJob.self, from: data)
+  #expect(job.progress?.completed == 1)
+  #expect(job.progress?.total == 2)
+  #expect(job.result?.items?.count == 1)
+  #expect(job.status == "partial")
 }

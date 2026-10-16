@@ -54,7 +54,7 @@ async function provider(t, options = {}) {
     if (options.delay) await delay(options.delay);
     if (options.httpStatus) res.writeHead(options.httpStatus);
     const text = options.raw ?? JSON.stringify(options.result ?? { text: '图表显示项目已完成' });
-    res.end(JSON.stringify({
+    const payload = {
       status: options.status ?? 'completed',
       output: [
         { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'This is not the result JSON.' }] },
@@ -63,7 +63,12 @@ async function provider(t, options = {}) {
           { type: 'output_text', text: text.slice(12) },
         ] },
       ],
-    }));
+    };
+    if (options.events) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      for (const chunk of options.events(payload)) { res.write(chunk); await delay(1); }
+      res.end();
+    } else res.end(JSON.stringify(payload));
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -257,4 +262,67 @@ test('connection test and model list routes use the configured Responses provide
   assert.deepEqual(await request('/ai/test'), { ok: true });
   assert.equal(ai.requests[0].reasoning.effort, 'max');
   assert.deepEqual(await request('/ai/models'), { models: ['deepseek-flash', 'deepseek-v4-pro'] });
+});
+
+test('streamed Responses handles split UTF-8, CRLF, keepalives and only the completed assistant result', async t => {
+  const ai = await provider(t, { result: { items: [{ id: 'm1', category: '订阅资讯', reason: '新闻' }] }, events: payload => {
+    const bytes = Buffer.from(': keepalive\r\n\r\ndata: ' + JSON.stringify({ type: 'response.reasoning_text.delta', delta: '不能作为输出' }) + '\r\n\r\n'
+      + 'event: response.completed\r\ndata: ' + JSON.stringify({ type: 'response.completed', response: payload }) + '\r\n\r\n');
+    return Array.from({ length: Math.ceil(bytes.length / 7) }, (_, i) => bytes.subarray(i * 7, i * 7 + 7));
+  } });
+  const result = await completion(ai.config, '', 'classify', [{ id: 'm1' }], [], { stream: true });
+  assert.equal(result.items[0].category, '订阅资讯');
+  assert.equal(ai.requests[0].stream, true);
+});
+
+test('truncated, incomplete and malformed streams never become successful results', async t => {
+  for (const [name, events, pattern] of [
+    ['truncated', () => ['data: {"type":"response.output_text.delta","delta":"partial"}\n\n'], /连接中断/],
+    ['incomplete', () => ['data: {"type":"response.incomplete","response":{"status":"incomplete"}}\n\n'], /未完成/],
+    ['malformed', () => ['data: invalid-json\n\n'], /格式不正确/],
+  ]) await t.test(name, async st => {
+    const ai = await provider(st, { events });
+    await assert.rejects(completion(ai.config, '', 'classify', [], [], { stream: true }), pattern);
+  });
+});
+
+test('caller cancellation interrupts a model request without changing the configured timeout', async t => {
+  const ai = await provider(t, { delay: 150 });
+  const controller = new AbortController();
+  const pending = completion(ai.config, '', 'classify', [], [], { signal: controller.signal, stream: true });
+  await delay(20);
+  controller.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+});
+
+test('attachment analysis validates email ownership and records its source email and attachment', async t => {
+  const repo = await repository(t);
+  const a = await saveAttachment(repo, 'm1', '说明.txt', Buffer.from('交付：周五'));
+  const mail = { id: 'm1', accountId: 'a1', subject: '评审资料', sender: '陈嘉禾', body: '请审核附件', attachmentIds: [a.id] };
+  repo.put('message', mail);
+  repo.put('message', { ...mail, id: 'm2', attachmentIds: [] });
+  const ai = await provider(t);
+  await assert.rejects(runAgent(repo, { task: 'attachment', messageId: 'm2', attachmentId: a.id, accountId: 'a1', config: ai.config }), /不属于当前邮件/);
+  await assert.rejects(runAgent(repo, { task: 'summary', messageId: 'm1', accountId: 'a2', config: ai.config }), /不属于当前账户/);
+  assert.equal(ai.requests.length, 0);
+  const job = await runAgent(repo, { task: 'attachment', messageId: 'm1', accountId: 'a1', attachmentId: a.id, config: ai.config });
+  assert.equal(job.messageId, 'm1');
+  assert.equal(job.attachmentId, a.id);
+  const context = JSON.parse(ai.requests[0].input[0].content[0].text);
+  assert.equal(context.email.subject, '评审资料');
+  assert.equal(context.email.body, '请审核附件');
+});
+
+test('translation persists on its source mail and a later failure preserves the prior translation', async t => {
+  const repo = await repository(t);
+  const mail = { id: 'm1', accountId: 'a1', subject: 'Hello', sender: 'Test', body: 'Hello', attachmentIds: [] };
+  repo.put('message', mail);
+  repo.put('message', { ...mail, id: 'm2' });
+  const ai = await provider(t, { result: { text: '你好' } });
+  await runAgent(repo, { task: 'translate', messageId: 'm1', config: ai.config });
+  assert.equal(repo.get('message', 'm1').translation, '你好');
+  assert.equal(repo.get('message', 'm2').translation, undefined);
+  const broken = await provider(t, { status: 'incomplete' });
+  await assert.rejects(runAgent(repo, { task: 'translate', messageId: 'm1', config: broken.config }), /未完成/);
+  assert.equal(repo.get('message', 'm1').translation, '你好');
 });

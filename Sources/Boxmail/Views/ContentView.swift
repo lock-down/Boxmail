@@ -20,7 +20,7 @@ struct ContentView: View {
           mailSplit
         } else {
           switch store.destination {
-          case .attachments, .analysis: AttachmentsView(store: store)
+          case .attachments: AttachmentsView(store: store)
           case .organize: OrganizeView(store: store)
           case .summary: SummaryOverviewView(store: store)
           case .drafts: DraftsView(store: store)
@@ -65,11 +65,7 @@ struct ContentView: View {
       if let message = store.selectedMessage,
         store.filteredMessages.contains(where: { $0.id == message.id })
       {
-        if store.destination == .replies && store.search.isEmpty {
-          ReplyAssistantView(store: store, message: message)
-        } else {
-          MailDetailView(store: store, message: message)
-        }
+        MailDetailView(store: store, message: message)
       } else {
         EmptyState(
           title: store.filteredMessages.isEmpty ? "这里还没有邮件" : "选择一封邮件",
