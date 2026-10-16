@@ -67,7 +67,8 @@ async function provider(t, options = {}) {
     if (options.events) {
       res.setHeader('Content-Type', 'text/event-stream');
       for (const chunk of options.events(payload)) { res.write(chunk); await delay(1); }
-      res.end();
+      if (options.disconnect) res.destroy();
+      else res.end();
     } else res.end(JSON.stringify(payload));
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -325,4 +326,38 @@ test('translation persists on its source mail and a later failure preserves the 
   const broken = await provider(t, { status: 'incomplete' });
   await assert.rejects(runAgent(repo, { task: 'translate', messageId: 'm1', config: broken.config }), /未完成/);
   assert.equal(repo.get('message', 'm1').translation, '你好');
+});
+
+test('eight long attachments retain valid context and complete a streamed mail summary', async t => {
+  const repo = await repository(t);
+  const ids = Array.from({ length: 8 }, (_, i) => `attachment-${i}`);
+  for (const [i, id] of ids.entries()) repo.put('attachment', {
+    id, messageId: 'bulk', name: `附件${i + 1}.docx`, text: '资料内容'.repeat(5000), analysis: '',
+  });
+  repo.put('message', { id: 'bulk', accountId: 'a1', sender: '演示发件人', subject: '多附件评审',
+    body: '请核对全部八个附件。'.repeat(3500), attachmentIds: ids });
+  const ai = await provider(t, { result: { points: ['八个文件需分别核对'], todos: [], keyInfo: [] },
+    events: payload => ['data: ' + JSON.stringify({ type: 'response.completed', response: payload }) + '\n\n'] });
+  const job = await runAgent(repo, { task: 'summary', messageId: 'bulk', config: ai.config });
+  const request = ai.requests[0];
+  assert.equal(request.stream, true);
+  assert.ok(request.input[0].content[0].text.length > 100000);
+  const context = JSON.parse(request.input[0].content[0].text);
+  assert.equal(context.attachments.length, 8);
+  assert.equal(context.attachments[7].name, '附件8.docx');
+  assert.equal(context.attachments[7].textTruncated, true);
+  assert.equal(job.status, 'completed');
+  assert.deepEqual(repo.get('message', 'bulk').summary.points, ['八个文件需分别核对']);
+});
+
+test('a disconnected summary stream keeps the existing summary and returns a specific retry error', async t => {
+  const repo = await repository(t);
+  const summary = { points: ['原有总结'], todos: [], keyInfo: [] };
+  repo.put('message', { id: 'bulk', accountId: 'a1', sender: '演示', subject: '资料', body: '正文', attachmentIds: [], summary });
+  const ai = await provider(t, { disconnect: true,
+    events: () => ['data: {"type":"response.output_text.delta","delta":"unfinished"}\n\n'] });
+  await assert.rejects(runAgent(repo, { task: 'summary', messageId: 'bulk', config: ai.config }), /连接已中断/);
+  assert.deepEqual(repo.get('message', 'bulk').summary, summary);
+  assert.equal(repo.list('job')[0].status, 'failed');
+  assert.match(repo.list('job')[0].error, /连接已中断/);
 });

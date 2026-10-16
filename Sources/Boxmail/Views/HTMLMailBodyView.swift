@@ -17,18 +17,22 @@ struct HTMLMailBodyView: NSViewRepresentable {
     configuration.defaultWebpagePreferences.allowsContentJavaScript = false
     configuration.userContentController.add(
       context.coordinator, contentWorld: .defaultClient, name: "mailBodyHeight")
-    configuration.userContentController.addUserScript(WKUserScript(
-      source: """
-        const content = document.getElementById('mail-content');
-        if (content) {
-          const report = () => window.webkit.messageHandlers.mailBodyHeight.postMessage(
-            Math.ceil(Math.max(content.getBoundingClientRect().height, content.scrollHeight)));
-          new ResizeObserver(report).observe(content);
-          report();
-        }
-        """,
-      injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+    configuration.userContentController.add(
+      context.coordinator, contentWorld: .defaultClient, name: "mailRecipientScrollRegions")
+    configuration.userContentController.addUserScript(
+      WKUserScript(
+        source: MailHTMLDocument.recipientLayoutScript + "\n" + """
+          const content = document.getElementById('mail-content');
+          if (content) {
+            const report = () => window.webkit.messageHandlers.mailBodyHeight.postMessage(
+              Math.ceil(Math.max(content.getBoundingClientRect().height, content.scrollHeight)));
+            new ResizeObserver(report).observe(content);
+            report();
+          }
+          """,
+        injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
     let webView = MailBodyWebView(frame: .zero, configuration: configuration)
+    context.coordinator.webView = webView
     webView.navigationDelegate = context.coordinator
     return webView
   }
@@ -48,14 +52,25 @@ struct HTMLMailBodyView: NSViewRepresentable {
     webView.navigationDelegate = nil
     webView.configuration.userContentController.removeScriptMessageHandler(
       forName: "mailBodyHeight", contentWorld: .defaultClient)
+    webView.configuration.userContentController.removeScriptMessageHandler(
+      forName: "mailRecipientScrollRegions", contentWorld: .defaultClient)
   }
 
   final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var height: Binding<CGFloat>
     var document = ""
+    fileprivate weak var webView: MailBodyWebView?
     init(height: Binding<CGFloat>) { self.height = height }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+    func userContentController(
+      _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
+    ) {
+      if message.name == "mailRecipientScrollRegions", message.frameInfo.isMainFrame,
+        let regions = message.body as? [[String: Double]]
+      {
+        webView?.recipientRegions = regions
+        return
+      }
       guard message.frameInfo.isMainFrame, let value = message.body as? NSNumber else { return }
       let next = max(1, min(100_000, CGFloat(value.doubleValue)))
       guard next.isFinite else { return }
@@ -65,14 +80,18 @@ struct HTMLMailBodyView: NSViewRepresentable {
       }
     }
 
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+    func webView(
+      _ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
       if navigationAction.navigationType == .linkActivated,
-        let url = navigationAction.request.url, MailHTMLDocument.externalLink(url) {
+        let url = navigationAction.request.url, MailHTMLDocument.externalLink(url)
+      {
         NSWorkspace.shared.open(url)
       }
-      decisionHandler(navigationAction.navigationType == .other
-        && navigationAction.request.url?.absoluteString == "about:blank" ? .allow : .cancel)
+      decisionHandler(
+        navigationAction.navigationType == .other
+          && navigationAction.request.url?.absoluteString == "about:blank" ? .allow : .cancel)
     }
   }
 }
@@ -80,6 +99,7 @@ struct HTMLMailBodyView: NSViewRepresentable {
 // HTML is sized to its content. The enclosing SwiftUI scroll view owns vertical scrolling.
 private final class MailBodyWebView: WKWebView {
   private var scrollMonitor: Any?
+  var recipientRegions: [[String: Double]] = []
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
@@ -89,7 +109,21 @@ private final class MailBodyWebView: WKWebView {
       guard let self else { return event }
       guard event.window === self.window,
         self.visibleRect.contains(self.convert(event.locationInWindow, from: nil)),
-        let scrollView = self.parentScrollView else { return event }
+        let scrollView = self.parentScrollView
+      else { return event }
+      let point = self.convert(event.locationInWindow, from: nil)
+      let location = NSPoint(x: point.x, y: self.isFlipped ? point.y : self.bounds.height - point.y)
+      for region in self.recipientRegions {
+        let rect = NSRect(
+          x: region["x"] ?? 0, y: region["y"] ?? 0,
+          width: region["width"] ?? 0, height: region["height"] ?? 0)
+        guard rect.contains(location) else { continue }
+        let top = region["top"] ?? 0
+        let remaining = (region["total"] ?? 0) - (region["visible"] ?? 0) - top
+        if (event.scrollingDeltaY > 0 && top > 1) || (event.scrollingDeltaY < 0 && remaining > 1) {
+          return event
+        }
+      }
       scrollView.scrollWheel(with: event)
       return nil
     }
@@ -125,14 +159,17 @@ struct MailBodyView: View {
             ActionButton(title: "加载本封邮件图片") { loadRemoteImages = true }
           }
         }
-        HTMLMailBodyView(html: html, fontSize: preferences.fontSize,
-          allowRemoteImages: !preferences.blockRemoteImages || loadRemoteImages, height: $height)
-          .frame(height: height)
+        HTMLMailBodyView(
+          html: html, fontSize: preferences.fontSize,
+          allowRemoteImages: !preferences.blockRemoteImages || loadRemoteImages, height: $height
+        )
+        .frame(height: height)
       }.frame(maxWidth: .infinity, alignment: .leading)
     } else {
       Text(message.body.isEmpty ? "这封邮件没有可展示的正文。" : message.body)
         .font(.system(size: CGFloat(preferences.fontSize))).lineSpacing(7).textSelection(.enabled)
-        .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true).frame(
+          maxWidth: .infinity, alignment: .leading)
     }
   }
 }

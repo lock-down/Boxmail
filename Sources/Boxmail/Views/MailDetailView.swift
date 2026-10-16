@@ -7,71 +7,76 @@ struct MailDetailView: View {
   let message: MailMessage
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 6) {
-        if message.folder == "trash" {
-          ActionButton(title: "恢复到收件箱", icon: "arrow.uturn.backward", kind: .primary) {
-            store.update(message, ["folder": "inbox"])
-          }
-        } else {
-          ActionButton(title: "回复", icon: "arrowshape.turn.up.left", kind: .primary) {
-            store.newDraft(reply: message)
-          }
-          ActionButton(title: "全部回复", icon: "arrowshape.turn.up.left.2") {
-            store.newDraft(reply: message, all: true)
-          }
-          ActionButton(title: "转发", icon: "arrowshape.turn.up.right") {
-            store.newDraft(reply: message, forward: true)
+      HStack(spacing: 8) {
+        HStack(spacing: 6) {
+          if message.folder == "trash" {
+            ActionButton(title: "恢复到收件箱", icon: "arrow.uturn.backward", kind: .primary) {
+              store.update(message, ["folder": "inbox"])
+            }
+          } else {
+            ActionButton(title: "回复", icon: "arrowshape.turn.up.left", kind: .primary) {
+              store.newDraft(reply: message)
+            }
+            ActionButton(title: "全部回复", icon: "arrowshape.turn.up.left.2") {
+              store.newDraft(reply: message, all: true)
+            }
+            ActionButton(title: "转发", icon: "arrowshape.turn.up.right") {
+              store.newDraft(reply: message, forward: true)
+            }
           }
         }
-        IconButton(icon: "archivebox", help: "归档") { store.update(message, ["folder": "archive"]) }
-        Menu {
-          ForEach(["工作项目", "订阅资讯", "账单票据", "社交通知", "个人往来", "未分类"], id: \.self) { category in
-            Button(category) { store.update(message, ["category": category]) }
+        Divider().frame(height: 18).padding(.horizontal, 2)
+        HStack(spacing: 4) {
+          IconButton(icon: "archivebox", help: "归档") {
+            store.update(message, ["folder": "archive"])
           }
-        } label: {
-          Image(systemName: "tag").foregroundStyle(Palette.muted)
-        }.menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 24)
-        IconButton(icon: "trash", help: "移到已删除") { store.update(message, ["folder": "trash"]) }
-        Spacer(minLength: 5)
-        IconButton(
-          icon: message.starred ? "star.fill" : "star", help: message.starred ? "取消星标" : "添加星标",
-          color: message.starred ? Palette.amber : Palette.muted
-        ) { store.update(message, ["starred": !message.starred]) }
-        Menu {
-          Button("复制邮件正文") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(message.body, forType: .string)
+          IconMenu(icon: "tag", help: "分类邮件") {
+            ForEach(["工作项目", "订阅资讯", "账单票据", "社交通知", "个人往来", "未分类"], id: \.self) { category in
+              Button(category) { store.update(message, ["category": category]) }
+            }
           }
-          Button("标记为未读") { store.update(message, ["unread": true]) }
-        } label: {
-          Image(systemName: "ellipsis").foregroundStyle(Palette.muted)
-        }.menuStyle(.borderlessButton).menuIndicator(.hidden)
-      }.padding(.horizontal, 18).frame(height: 47).background(.white)
+          IconButton(icon: "trash", help: "移到已删除") { store.update(message, ["folder": "trash"]) }
+          IconButton(
+            icon: message.starred ? "star.fill" : "star", help: message.starred ? "取消星标" : "添加星标",
+            color: message.starred ? Palette.amber : Palette.muted
+          ) { store.update(message, ["starred": !message.starred]) }
+          IconMenu(icon: "ellipsis", help: "更多邮件操作") {
+            Button("复制邮件正文") {
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(message.body, forType: .string)
+            }
+            Button("标记为未读") { store.update(message, ["unread": true]) }
+          }
+        }
+        Spacer(minLength: 0)
+      }.padding(.horizontal, 16).frame(height: 52).background(.white)
       Divider()
       MailAIBar(store: store, message: message)
       Divider()
       ScrollViewReader { reader in
         ScrollView {
           VStack(alignment: .leading, spacing: 18) {
-            Text(message.subject).font(.system(size: 21, weight: .bold)).textSelection(.enabled)
+            Text(message.subject).font(.system(size: 21, weight: .semibold)).tracking(-0.35)
+              .textSelection(.enabled)
               .fixedSize(horizontal: false, vertical: true)
             HStack {
               Tag(text: message.category)
               if message.starred { Tag(text: "星标邮件") }
             }
-            HStack(spacing: 10) {
-              Text(String(message.sender.prefix(1))).font(.system(size: 17)).foregroundStyle(.white)
-                .frame(width: 36, height: 36).background(Palette.blue, in: Circle())
+            HStack(alignment: .top, spacing: 11) {
+              SenderAvatar(name: message.sender, size: 34)
               VStack(alignment: .leading, spacing: 5) {
                 HStack {
-                  Text(message.sender).font(.system(size: 13, weight: .medium))
-                  Text(message.senderEmail).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                  Text(message.sender).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                  Spacer(minLength: 8)
+                  Text(displayTime(message.date)).font(.system(size: 11)).monospacedDigit()
+                    .foregroundStyle(Palette.muted).fixedSize()
                 }
-                Text("发送至 \(message.to)").font(.system(size: 11)).foregroundStyle(Palette.muted)
-                  .lineLimit(2)
+                Text(message.senderEmail).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                  .textSelection(.enabled)
+                  .lineLimit(1).truncationMode(.middle)
+                RecipientDetailsView(to: message.to, cc: message.cc).id(message.id)
               }
-              Spacer()
-              Text(displayTime(message.date)).font(.system(size: 11)).foregroundStyle(Palette.muted)
             }
             if let tab = store.mailAITab {
               MailAssistantView(store: store, message: message, tab: tab).id("mail-assistant")
@@ -84,7 +89,7 @@ struct MailDetailView: View {
                   .system(size: 12, weight: .semibold))
                 Spacer()
                 Button("理解本封邮件附件") { store.mailAITab = .attachment }
-                  .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.purple)
+                  .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.accent)
               }.padding(.top, 5)
               LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 9)], spacing: 9) {
                 ForEach(message.attachmentIds, id: \.self) { id in
@@ -94,7 +99,9 @@ struct MailDetailView: View {
                 }
               }
             }
-          }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+          }.frame(maxWidth: UILayout.reading, alignment: .leading)
+            .padding(.horizontal, 26).padding(.vertical, 28).frame(
+              maxWidth: .infinity, alignment: .top)
         }.defaultScrollAnchor(.top).id(message.id).background(.white)
           .onChange(of: store.mailAITab) { _, tab in
             if tab != nil { withAnimation { reader.scrollTo("mail-assistant", anchor: .top) } }
@@ -107,80 +114,101 @@ struct SummaryCard: View {
   @Bindable var store: MailStore
   let message: MailMessage
   let summary: MailSummary
+  var embedded = false
   @ViewState<Bool> private var collapsed = false
   var body: some View {
-    VStack(alignment: .leading, spacing: 15) {
-      HStack {
-        Image(systemName: "sparkles").foregroundStyle(.white).frame(width: 23, height: 23)
-          .background(Palette.purple, in: RoundedRectangle(cornerRadius: 5))
-        Text("AI 邮件总结").font(.system(size: 13, weight: .semibold))
-        Text(message.accountId == "demo" ? "设计示例摘要" : "已读取正文与可解析附件").font(.system(size: 10))
-          .foregroundStyle(Palette.muted)
-        Spacer()
-        IconButton(icon: "arrow.clockwise", help: "重新生成", color: Palette.purple) {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack(spacing: 8) {
+        Image(systemName: "sparkles").foregroundStyle(Palette.blue)
+        VStack(alignment: .leading, spacing: 3) {
+          Text("AI 邮件总结").font(.system(size: 12, weight: .semibold))
+          Text(message.accountId == "demo" ? "设计示例摘要" : "已读取正文与可解析附件")
+            .font(.system(size: 11)).foregroundStyle(Palette.muted)
+        }
+        Spacer(minLength: 8)
+        IconButton(icon: "arrow.clockwise", help: "重新生成") {
           store.generate(task: "summary", message: message)
         }
-        IconButton(icon: "doc.on.doc", help: "复制总结", color: Palette.purple) {
+        IconButton(icon: "doc.on.doc", help: "复制总结") {
           NSPasteboard.general.clearContents()
           NSPasteboard.general.setString(summary.points.joined(separator: "\n"), forType: .string)
         }
         IconButton(
-          icon: collapsed ? "chevron.down" : "chevron.up", help: "折叠总结", color: Palette.purple
-        ) { collapsed.toggle() }
-      }.foregroundStyle(Palette.purple)
+          icon: collapsed ? "chevron.down" : "chevron.up", help: collapsed ? "展开总结" : "折叠总结"
+        ) {
+          collapsed.toggle()
+        }
+      }
       if store.destination == .summary, let error = store.mailAIErrors[message.id] {
-        Text(error).font(.system(size: 11)).foregroundStyle(Palette.amber)
+        Text(error).font(.system(size: 12)).foregroundStyle(Palette.amber)
       }
       if !collapsed {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
           ForEach(Array(summary.points.enumerated()), id: \.offset) { index, point in
-            HStack(alignment: .top, spacing: 9) {
-              Text(String(index + 1)).font(.system(size: 10)).foregroundStyle(Palette.purple).frame(
-                width: 18, height: 18
-              ).background(.white, in: Circle())
-              Text(point).font(.system(size: 12)).lineSpacing(3).fixedSize(
-                horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 10) {
+              Text(String(index + 1)).font(.system(size: 10, weight: .medium)).monospacedDigit()
+                .foregroundStyle(Palette.blue).frame(width: 20, height: 20)
+                .background(Palette.blueSoft, in: Circle())
+              Text(point).font(.system(size: 13)).lineSpacing(5).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true).frame(
+                  maxWidth: .infinity, alignment: .leading)
             }
           }
         }
-        Divider().overlay(Palette.purple.opacity(0.15))
-        HStack(alignment: .top, spacing: 16) {
-          VStack(alignment: .leading, spacing: 8) {
-            Text("AI 提取的待办").font(.system(size: 10)).foregroundStyle(Palette.purple)
-            ForEach(summary.todos) { todo in
-              Button {
-                store.toggleTodo(message: message, todo: todo)
-              } label: {
-                HStack(spacing: 8) {
-                  Image(systemName: todo.done ? "checkmark.square.fill" : "square").foregroundStyle(
-                    Palette.purple)
-                  Text(todo.title).font(.system(size: 11)).strikethrough(todo.done).frame(
-                    maxWidth: .infinity, alignment: .leading)
-                  if !todo.due.isEmpty {
-                    Text(todo.due).font(.system(size: 10)).foregroundStyle(Palette.amber)
-                  }
-                }.padding(9).background(.white, in: RoundedRectangle(cornerRadius: 6))
-              }.buttonStyle(.plain)
-            }
-            if summary.todos.isEmpty {
-              Text("无明确待办").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            }
-          }.frame(maxWidth: .infinity)
-          VStack(alignment: .leading, spacing: 9) {
-            Text("关键信息").font(.system(size: 10)).foregroundStyle(Palette.purple)
-            ForEach(summary.keyInfo, id: \.label) { info in
-              HStack(alignment: .top) {
-                Text(info.label).foregroundStyle(Palette.muted)
-                Spacer()
-                Text(info.value).multilineTextAlignment(.trailing)
-              }.font(.system(size: 11))
-            }
-          }.frame(width: 200)
+        Divider().overlay(Palette.softBorder)
+        ViewThatFits(in: .horizontal) {
+          HStack(alignment: .top, spacing: 24) {
+            todos.frame(minWidth: 320, maxWidth: .infinity)
+            keyInfo.frame(minWidth: 360, maxWidth: .infinity)
+          }
+          VStack(alignment: .leading, spacing: 20) {
+            todos
+            keyInfo
+          }
         }
       }
-    }.padding(16).background(Palette.purpleSoft, in: RoundedRectangle(cornerRadius: 12)).overlay(
-      RoundedRectangle(cornerRadius: 12).stroke(Palette.purple.opacity(0.18))
-    ).disabled(store.busy.contains("agent"))
+    }.padding(embedded ? 0 : 18)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(embedded ? Color.clear : Palette.canvas, in: RoundedRectangle(cornerRadius: 9))
+      .overlay(RoundedRectangle(cornerRadius: 9).stroke(embedded ? .clear : Palette.softBorder))
+      .disabled(store.busy.contains("agent"))
+  }
+  private var todos: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      Text("待办事项").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted)
+      ForEach(summary.todos) { todo in
+        Button {
+          store.toggleTodo(message: message, todo: todo)
+        } label: {
+          HStack(spacing: 9) {
+            Image(systemName: todo.done ? "checkmark.square.fill" : "square").foregroundStyle(
+              Palette.blue)
+            Text(todo.title).font(.system(size: 12)).strikethrough(todo.done)
+              .frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading)
+            if !todo.due.isEmpty {
+              Text(todo.due).font(.system(size: 11)).foregroundStyle(Palette.amber).lineLimit(2)
+            }
+          }.padding(10).background(.white, in: RoundedRectangle(cornerRadius: 6)).contentShape(
+            Rectangle())
+        }.buttonStyle(ControlFeedback())
+      }
+      if summary.todos.isEmpty {
+        Text("无明确待办").font(.system(size: 12)).foregroundStyle(Palette.muted)
+      }
+    }.frame(maxWidth: .infinity, alignment: .leading)
+  }
+  private var keyInfo: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("关键信息").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted)
+      ForEach(summary.keyInfo, id: \.label) { info in
+        HStack(alignment: .top, spacing: 12) {
+          Text(info.label).foregroundStyle(Palette.muted).frame(width: 116, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+          Text(info.value).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }.font(.system(size: 12)).lineSpacing(4)
+      }
+    }.frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 struct AttachmentCard: View {
@@ -195,6 +223,7 @@ struct AttachmentCard: View {
           Palette.blueSoft, in: RoundedRectangle(cornerRadius: 7))
         VStack(alignment: .leading, spacing: 4) {
           Text(attachment.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+            .truncationMode(.middle).help(attachment.name)
           HStack {
             Text(fileSize(attachment.size)).font(.system(size: 9)).foregroundStyle(Palette.muted)
             if !attachment.text.isEmpty {
@@ -204,7 +233,9 @@ struct AttachmentCard: View {
         }
         Spacer(minLength: 0)
       }.padding(10).background(.white, in: RoundedRectangle(cornerRadius: 8)).overlay(
-        RoundedRectangle(cornerRadius: 8).stroke(Palette.border))
-    }.buttonStyle(.plain)
+        RoundedRectangle(cornerRadius: 8).stroke(Palette.border)
+      ).contentShape(
+        RoundedRectangle(cornerRadius: 8))
+    }.buttonStyle(ControlFeedback(corner: 8))
   }
 }

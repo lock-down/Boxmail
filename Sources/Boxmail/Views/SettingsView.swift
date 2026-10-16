@@ -25,7 +25,7 @@ struct SettingsView: View {
         Text("设置").font(.system(size: 15, weight: .semibold))
         Spacer()
         IconButton(icon: "xmark", help: "关闭设置") { dismiss() }
-      }.padding(.horizontal, 18).frame(height: 50)
+      }.padding(.horizontal, 22).frame(height: 54).background(Palette.chrome)
       Divider()
       HStack(alignment: .top, spacing: 0) {
         VStack(alignment: .leading, spacing: 4) {
@@ -37,25 +37,28 @@ struct SettingsView: View {
                 Image(systemName: icon(tab)).frame(width: 17)
                 Text(tab)
                 Spacer()
-              }.font(.system(size: 12, weight: store.settingsTab == tab ? .semibold : .regular))
-                .foregroundStyle(store.settingsTab == tab ? Palette.purple : Palette.ink).padding(
+              }.font(.system(size: 13, weight: store.settingsTab == tab ? .semibold : .regular))
+                .foregroundStyle(store.settingsTab == tab ? Palette.accent : Palette.ink).padding(
                   .horizontal, 10
-                ).frame(maxWidth: .infinity).frame(height: 34)
+                ).frame(maxWidth: .infinity).frame(height: 36)
                 .contentShape(Rectangle()).background(
-                  store.settingsTab == tab ? Palette.purpleSoft : .clear,
+                  store.settingsTab == tab ? Palette.accentSoft : .clear,
                   in: RoundedRectangle(cornerRadius: 7))
-            }.buttonStyle(.plain)
+            }.buttonStyle(ControlFeedback(selected: store.settingsTab == tab))
+              .accessibilityAddTraits(store.settingsTab == tab ? .isSelected : [])
           }
           Spacer()
-          Text("Boxmail · 原生桌面客户端").font(.system(size: 10)).foregroundStyle(Palette.muted)
-        }.padding(14).frame(width: 196).background(Palette.canvas)
+          Text(
+            "Boxmail · \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"
+          ).font(.system(size: 11)).foregroundStyle(Palette.muted)
+        }.padding(14).frame(width: 190).background(Palette.sidebar)
         Divider()
         ScrollView {
           VStack(alignment: .leading, spacing: 20) {
             HStack {
               VStack(alignment: .leading, spacing: 8) {
-                Text(store.settingsTab).font(.system(size: 17, weight: .semibold))
-                Text(subtitle).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                Text(store.settingsTab).font(.system(size: 22, weight: .semibold)).tracking(-0.3)
+                Text(subtitle).font(.system(size: 12)).foregroundStyle(Palette.muted).lineSpacing(4)
               }
               Spacer()
               if store.settingsTab == "AI 助手" {
@@ -73,22 +76,32 @@ struct SettingsView: View {
             default: advancedSettings
             }
             if !status.isEmpty {
-              Text(status).font(.system(size: 12)).foregroundStyle(
-                status.contains("失败") ? .red : Palette.success
-              ).textSelection(.enabled)
+              Label(
+                status,
+                systemImage: status.contains("失败") || status.contains("无法") || status.contains("授权")
+                  ? "exclamationmark.circle" : "info.circle"
+              )
+              .font(.system(size: 12)).foregroundStyle(
+                status.contains("失败") || status.contains("无法") || status.contains("授权")
+                  ? Palette.amber : Palette.muted
+              )
+              .textSelection(.enabled).lineSpacing(4).padding(12)
+              .frame(maxWidth: .infinity, alignment: .leading).background(
+                Palette.blueSoft, in: RoundedRectangle(cornerRadius: 7))
             }
-          }.padding(22)
-        }
+          }.frame(maxWidth: 740, alignment: .leading).padding(26).frame(
+            maxWidth: .infinity, alignment: .leading)
+        }.id(store.settingsTab).background(Palette.canvas)
       }
       Divider()
       HStack {
         if loading { ProgressView().controlSize(.small) }
         Spacer()
-        ActionButton(title: "取消") { dismiss() }
-        ActionButton(title: "应用") { save(close: false) }
-        ActionButton(title: "确定", kind: .primary) { save(close: true) }
-      }.padding(.horizontal, 18).frame(height: 54)
-    }.frame(width: 1000, height: 750).background(.white)
+        ActionButton(title: "取消") { dismiss() }.keyboardShortcut(.cancelAction)
+        ActionButton(title: "应用") { save(close: false) }.disabled(loading)
+        ActionButton(title: "确定", kind: .primary) { save(close: true) }.disabled(loading)
+      }.padding(.horizontal, 22).frame(height: 60).background(Palette.chrome)
+    }.frame(width: 1000, height: 750).background(.white).tint(Palette.blue)
       .alert(
         "移除邮箱账户",
         isPresented: Binding(
@@ -150,32 +163,33 @@ struct SettingsView: View {
         HStack {
           Text("API Key").font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
             width: 76, alignment: .trailing)
-          SecureField("密钥保存在系统钥匙串", text: $key).textFieldStyle(.roundedBorder)
+          SecureField("密钥保存在系统钥匙串", text: $key).textFieldStyle(.roundedBorder).controlSize(.large)
           ActionButton(title: "测试连接", icon: "bolt", kind: .softAI) { testAI() }.disabled(
             loading || config.model.isEmpty)
         }
         HStack {
           field("默认模型", text: $config.model, prompt: "deepseek-flash")
-          Menu {
-            ForEach(models, id: \.self) { model in Button(model) { config.model = model } }
-          } label: {
-            Image(systemName: "chevron.down")
-          }.menuStyle(.borderlessButton).disabled(models.isEmpty)
+          IconMenu(icon: "chevron.down", help: "选择已读取的模型") {
+            ForEach(models, id: \.self) { model in Button(menuTitle(model)) { config.model = model }
+            }
+          }.disabled(models.isEmpty)
           ActionButton(title: "刷新列表", icon: "arrow.clockwise") { refreshModels() }.disabled(loading)
         }
         HStack(alignment: .top, spacing: 12) {
           VStack(alignment: .leading, spacing: 8) {
-            Text("思考等级（effort）").font(.system(size: 10)).foregroundStyle(Palette.muted)
+            Text("思考等级（effort）").font(.system(size: 11)).foregroundStyle(Palette.muted)
             Picker("思考等级", selection: $config.effort) {
               Text("Low").tag("low")
               Text("High").tag("high")
               Text("Max").tag("max")
             }.pickerStyle(.segmented).labelsHidden()
-          }.frame(maxWidth: .infinity)
+          }.frame(width: 300)
+          Spacer(minLength: 12)
           VStack(alignment: .leading, spacing: 8) {
-            Text("请求超时（秒）").font(.system(size: 10)).foregroundStyle(Palette.muted)
+            Text("请求超时（秒）").font(.system(size: 11)).foregroundStyle(Palette.muted)
             TextField("120", value: $config.timeout, format: .number).textFieldStyle(.roundedBorder)
-          }.frame(width: 150)
+              .controlSize(.large)
+          }.frame(width: 120)
         }
         Text("超时可设为 10 至 600 秒。图片和 PDF 理解请使用支持视觉输入的模型，如 deepseek-flash。")
           .font(.system(size: 10)).foregroundStyle(Palette.muted)
@@ -189,13 +203,9 @@ struct SettingsView: View {
               ("translate", "邮件翻译"),
             ], id: \.0
           ) { item in
-            Button {
+            FilterButton(title: item.1, selected: promptTab == item.0, compact: true) {
               promptTab = item.0
-            } label: {
-              Text(item.1).font(.system(size: 11)).padding(.horizontal, 9).padding(.vertical, 6)
-                .foregroundStyle(promptTab == item.0 ? Palette.purple : Palette.muted).background(
-                  promptTab == item.0 ? Palette.purpleSoft : Palette.canvas, in: Capsule())
-            }.buttonStyle(.plain)
+            }
           }
         }
         TextEditor(
@@ -222,7 +232,7 @@ struct SettingsView: View {
     VStack(alignment: .leading, spacing: 16) {
       ForEach(store.accounts) { a in
         HStack(spacing: 10) {
-          Image(systemName: "envelope").foregroundStyle(Palette.blue)
+          SenderAvatar(name: a.name, size: 34)
           VStack(alignment: .leading, spacing: 4) {
             Text(a.name).font(.system(size: 13, weight: .semibold))
             Text(a.email).font(.system(size: 11)).foregroundStyle(Palette.muted)
@@ -241,7 +251,8 @@ struct SettingsView: View {
             }
             ActionButton(title: "移除") { removingAccount = a }
           }
-        }.padding(14).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+        }.padding(16).background(.white, in: RoundedRectangle(cornerRadius: 9))
+          .overlay(RoundedRectangle(cornerRadius: 9).stroke(Palette.softBorder))
       }
       ActionButton(title: "添加邮箱", icon: "plus", kind: .primary) {
         account = MailAccount()
@@ -279,7 +290,8 @@ struct SettingsView: View {
           HStack {
             Text("授权码").font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
               width: 76, alignment: .trailing)
-            SecureField("邮箱应用密码 / 授权码", text: $password).textFieldStyle(.roundedBorder)
+            SecureField("邮箱应用密码 / 授权码", text: $password).textFieldStyle(.roundedBorder).controlSize(
+              .large)
           }
           serverFields(
             "IMAP", host: $account.imapHost, port: $account.imapPort, tls: $account.imapTLS,
@@ -373,6 +385,7 @@ struct SettingsView: View {
       Text(title).font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
         width: 76, alignment: .trailing)
       TextField(prompt, text: text).textFieldStyle(.roundedBorder).font(.system(size: 12))
+        .controlSize(.large)
     }
   }
   private func serverFields(
@@ -381,7 +394,9 @@ struct SettingsView: View {
   ) -> some View {
     HStack {
       field(name + " 地址", text: host)
-      TextField("端口", value: port, format: .number).textFieldStyle(.roundedBorder).frame(width: 65)
+      TextField("端口", value: port, format: .number).textFieldStyle(.roundedBorder).controlSize(
+        .large
+      ).font(.system(size: 12)).frame(width: 65)
       Toggle("SSL/TLS", isOn: tls).toggleStyle(.checkbox).font(.system(size: 11)).fixedSize()
       Toggle(
         "STARTTLS",

@@ -5,7 +5,7 @@ const formats = {
   reply: '{"subject":"主题","body":"回复正文"}',
   compose: '{"subject":"主题","body":"邮件正文"}',
   classify: '{"items":[{"id":"输入邮件ID","category":"工作项目、订阅资讯、账单票据、社交通知、个人往来或未分类","reason":"简短依据"}]}',
-  attachment: '{"text":"用中文分段说明"}',
+  attachment: '{"text":"用中文 Markdown 说明，分别使用二级标题组织文件主题、主要结论、关键数据、注意事项、行动建议；列表每项单独一行，不要把编号列表挤在同一段"}',
   translate: '{"text":"译文"}',
 };
 
@@ -25,7 +25,8 @@ export async function completion(configInput, apiKey, task, content, images = []
   const signal = options.signal ? AbortSignal.any([deadline, options.signal]) : deadline;
   const uploaded = [];
   try {
-    const parts = [{ type: 'input_text', text: JSON.stringify(content).slice(0, 100000) }];
+    // Keep the context valid JSON; cutting the serialized string can remove later attachments.
+    const parts = [{ type: 'input_text', text: JSON.stringify(content) }];
     for (const image of images) {
       const form = new FormData();
       form.append('purpose', 'user_data');
@@ -74,6 +75,14 @@ export async function completion(configInput, apiKey, task, content, images = []
     } catch {
       throw new ServiceError('模型未返回有效 JSON，请调整模型或提示词后重试', 502);
     }
+  } catch (error) {
+    if (signal.aborted) throw signal.reason;
+    if (error instanceof ServiceError) throw error;
+    if (error instanceof SyntaxError)
+      throw new ServiceError('AI 服务返回的响应格式不正确，请重试', 502);
+    if (error instanceof TypeError || error.message === 'terminated')
+      throw new ServiceError('与 AI 服务的连接已中断，未保存不完整结果。请重试；多附件邮件可先逐个理解附件后再总结。', 502);
+    throw error;
   } finally {
     // Expiration also bounds retention if cleanup cannot reach the service.
     await Promise.allSettled(uploaded.map(async (id) => {

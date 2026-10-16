@@ -36,6 +36,9 @@ import SwiftUI
   var currentAccount: MailAccount? { accounts.first { $0.id == accountId } }
   var selectedMessage: MailMessage? { messages.first { $0.id == selectedMessageId } }
   var accountMessages: [MailMessage] { messages.filter { $0.accountId == accountId } }
+  var unreadInboxMessages: [MailMessage] {
+    accountMessages.filter { $0.folder == "inbox" && $0.unread }
+  }
   var accountAttachments: [MailAttachment] {
     let ids = Set(accountMessages.flatMap(\.attachmentIds))
     return attachments.filter { ids.contains($0.id) }

@@ -9,35 +9,25 @@ struct MailListView: View {
         HStack {
           Text(store.search.isEmpty ? store.destination.title : "搜索结果").font(
             .system(size: 14, weight: .semibold))
-          Text("\(store.filteredMessages.count) 封邮件").font(.system(size: 10)).foregroundStyle(
-            Palette.muted)
+          Text("\(store.filteredMessages.count)").font(.system(size: 11, weight: .medium))
+            .monospacedDigit().foregroundStyle(
+              Palette.muted)
           Spacer()
-          Menu {
+          IconMenu(icon: "line.3.horizontal.decrease", help: "邮件列表操作") {
             Button("全部标记已读") {
               for message in store.filteredMessages.filter(\.unread) {
                 store.update(message, ["unread": false])
               }
             }
             Button("刷新") { Task { await store.syncAll() } }
-          } label: {
-            Image(systemName: "line.3.horizontal.decrease").foregroundStyle(Palette.muted)
-          }.menuStyle(.borderlessButton).menuIndicator(.hidden)
+          }
         }
         HStack(spacing: 6) {
           ForEach(["全部", "未读", "有附件", "AI 已总结"], id: \.self) { filter in
-            Button {
+            FilterButton(title: filter, selected: store.filter == filter, compact: true) {
               store.filter = filter
               store.selectedMessageId = store.filteredMessages.first?.id
-            } label: {
-              Text(filter).font(.system(size: 11)).padding(.horizontal, 8).padding(.vertical, 5)
-                .foregroundStyle(
-                  store.filter == filter
-                    ? (filter == "AI 已总结" ? Palette.purple : Palette.blue) : Palette.muted
-                ).background(
-                  store.filter == filter
-                    ? (filter == "AI 已总结" ? Palette.purpleSoft : Palette.blueSoft) : .clear,
-                  in: RoundedRectangle(cornerRadius: 6))
-            }.buttonStyle(.plain)
+            }
           }
         }
       }.padding(14)
@@ -48,36 +38,46 @@ struct MailListView: View {
           HStack(spacing: 9) {
             Image(systemName: "sparkles")
             VStack(alignment: .leading, spacing: 3) {
-              Text("今日 AI 摘要").font(.system(size: 12, weight: .medium))
+              Text("邮件摘要").font(.system(size: 12, weight: .medium))
               Text("\(store.accountMessages.filter{$0.summary != nil}.count) 封已总结 · 查看邮件要点与待办")
                 .font(.system(size: 10))
             }
             Spacer()
             Image(systemName: "chevron.right").font(.system(size: 10))
-          }.foregroundStyle(Palette.purple).padding(.horizontal, 14).frame(height: 50).background(
-            Palette.purpleSoft)
-        }.buttonStyle(.plain)
+          }.foregroundStyle(Palette.accent).padding(.horizontal, 16).frame(height: 52).background(
+            Palette.canvas
+          ).contentShape(Rectangle())
+        }.buttonStyle(ControlFeedback(corner: 0))
       }
-      ScrollView {
-        LazyVStack(spacing: 0) {
-          ForEach(store.filteredMessages) { message in
-            MailRow(message: message, selected: message.id == store.selectedMessageId).contentShape(
-              Rectangle()
-            ).onTapGesture { store.select(message) }.contextMenu {
-              Button(message.starred ? "取消星标" : "添加星标") {
-                store.update(message, ["starred": !message.starred])
+      Divider().overlay(Palette.softBorder)
+      if store.filteredMessages.isEmpty {
+        EmptyState(title: "没有匹配的邮件", subtitle: "调整筛选条件，或搜索其他关键词。", icon: "tray")
+      } else {
+        ScrollView {
+          LazyVStack(spacing: 0) {
+            ForEach(store.filteredMessages) { message in
+              Button {
+                store.select(message)
+              } label: {
+                MailRow(message: message, selected: message.id == store.selectedMessageId)
+              }.buttonStyle(
+                ControlFeedback(selected: message.id == store.selectedMessageId, corner: 0)
+              )
+              .accessibilityAddTraits(message.id == store.selectedMessageId ? .isSelected : [])
+              .contextMenu {
+                Button(message.starred ? "取消星标" : "添加星标") {
+                  store.update(message, ["starred": !message.starred])
+                }
+                Button(message.unread ? "标记已读" : "标记未读") {
+                  store.update(message, ["unread": !message.unread])
+                }
+                Button("回复") { store.newDraft(reply: message) }
+                Button("移到已删除") { store.update(message, ["folder": "trash"]) }
               }
-              Button(message.unread ? "标记已读" : "标记未读") {
-                store.update(message, ["unread": !message.unread])
-              }
-              Button("回复") { store.newDraft(reply: message) }
-              Button("移到已删除") { store.update(message, ["folder": "trash"]) }
             }
           }
-        }
-      }.defaultScrollAnchor(.top)
-      if store.filteredMessages.isEmpty {
-        Text("没有匹配的邮件").font(.system(size: 12)).foregroundStyle(Palette.muted).padding(30)
+        }.defaultScrollAnchor(.top)
+          .id("\(store.accountId)-\(store.destination.rawValue)-\(store.filter)-\(store.search)")
       }
     }.background(.white)
   }
@@ -92,12 +92,13 @@ struct MailRow: View {
       VStack(alignment: .leading, spacing: 7) {
         HStack {
           Text(message.sender).font(
-            .system(size: 13, weight: message.unread ? .semibold : .regular)
+            .system(size: 12, weight: message.unread ? .semibold : .medium)
           ).lineLimit(1)
           Spacer()
-          Text(displayTime(message.date)).font(.system(size: 10)).foregroundStyle(Palette.muted)
+          Text(displayTime(message.date)).font(.system(size: 11)).monospacedDigit()
+            .foregroundStyle(Palette.muted).fixedSize()
         }
-        Text(message.subject).font(.system(size: 12, weight: message.unread ? .semibold : .regular))
+        Text(message.subject).font(.system(size: 13, weight: message.unread ? .semibold : .medium))
           .lineLimit(1)
         Text(message.preview).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2)
           .lineSpacing(3)
@@ -114,10 +115,13 @@ struct MailRow: View {
           }
         }
       }
-    }.padding(.horizontal, 14).padding(.vertical, 13).frame(
+    }.padding(.horizontal, 14).padding(.vertical, 14).frame(
       maxWidth: .infinity, alignment: .leading
-    ).background(selected ? Palette.blueSoft : .white).overlay(alignment: .bottom) {
-      Rectangle().fill(Palette.softBorder).frame(height: 1)
-    }
+    ).foregroundStyle(Palette.ink).contentShape(Rectangle())
+      .background(selected ? Palette.blueSoft : .white).overlay(alignment: .leading) {
+        if selected { Rectangle().fill(Palette.blue).frame(width: 2) }
+      }.overlay(alignment: .bottom) {
+        Rectangle().fill(Palette.softBorder).frame(height: 1)
+      }
   }
 }

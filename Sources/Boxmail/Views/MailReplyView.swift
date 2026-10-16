@@ -33,16 +33,18 @@ struct MailReplyView: View {
             generate()
           } label: {
             Text(preset.title).font(.system(size: 11, weight: .medium))
-              .foregroundStyle(selectedPreset == preset ? Palette.purple : Palette.ink)
+              .foregroundStyle(selectedPreset == preset ? Palette.accent : Palette.ink)
               .frame(maxWidth: .infinity).frame(height: 34).contentShape(Rectangle())
               .background(
-                selectedPreset == preset ? Palette.purpleSoft : .white,
+                selectedPreset == preset ? Palette.accentSoft : .white,
                 in: RoundedRectangle(cornerRadius: 7)
               )
               .overlay(
                 RoundedRectangle(cornerRadius: 7).stroke(
-                  selectedPreset == preset ? Palette.purple.opacity(0.3) : Palette.border))
-          }.buttonStyle(.plain).help(preset.detail).disabled(store.busy.contains("agent"))
+                  selectedPreset == preset ? Palette.accent.opacity(0.3) : Palette.border))
+          }.buttonStyle(ControlFeedback(selected: selectedPreset == preset)).help(preset.detail)
+            .accessibilityAddTraits(selectedPreset == preset ? .isSelected : [])
+            .disabled(store.busy.contains("agent"))
         }
       }
       HStack {
@@ -51,7 +53,7 @@ struct MailReplyView: View {
         Spacer()
         if selectedPreset != nil {
           Button("改为自定义") { selectedPreset = nil }
-            .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(Palette.purple)
+            .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(Palette.accent)
             .disabled(store.busy.contains("agent"))
         }
       }
@@ -77,7 +79,7 @@ struct MailReplyView: View {
             Text(
               (preview.replyPreset.flatMap(ReplyPreset.init(rawValue:))?.title ?? "自定义回复") + " · 预览"
             )
-            .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.purple)
+            .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.accent)
             Spacer()
             IconButton(icon: "doc.on.doc", help: "复制回复预览") {
               NSPasteboard.general.clearContents()

@@ -19,10 +19,7 @@ struct OrganizeView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 22) {
         HStack(alignment: .top) {
-          VStack(alignment: .leading, spacing: 8) {
-            Text("智能整理").font(.system(size: 24, weight: .bold))
-            Text("按主题整理收件箱，确认建议后再应用分类。").font(.system(size: 12)).foregroundStyle(Palette.muted)
-          }
+          PageHeading(title: "智能整理", subtitle: "按主题整理收件箱，确认建议后再应用分类")
           Spacer()
           Label(store.currentAccount?.email ?? "当前账户", systemImage: "tray")
             .font(.system(size: 11)).foregroundStyle(Palette.muted).padding(9)
@@ -30,13 +27,15 @@ struct OrganizeView: View {
         }
         VStack(alignment: .leading, spacing: 15) {
           HStack(spacing: 18) {
-            Picker("整理范围", selection: $scope) {
-              Text("尚未分类的收件邮件").tag("unclassified")
-              Text("全部收件邮件").tag("inbox")
-            }.frame(maxWidth: 310)
-            Picker("邮件数量", selection: $limit) {
-              ForEach([10, 50, 100, 200], id: \.self) { Text("最近 \($0) 封").tag($0) }
-            }.frame(width: 180)
+            ChoiceMenu(title: scope == "unclassified" ? "尚未分类的收件邮件" : "全部收件邮件", help: "整理范围") {
+              Button("尚未分类的收件邮件") { scope = "unclassified" }
+              Button("全部收件邮件") { scope = "inbox" }
+            }
+            ChoiceMenu(title: "最近 \(limit) 封", help: "邮件数量") {
+              ForEach([10, 50, 100, 200], id: \.self) { value in
+                Button("最近 \(value) 封") { limit = value }
+              }
+            }
             Spacer(minLength: 0)
             ActionButton(title: "开始整理", icon: "wand.and.stars", kind: .ai) {
               store.organize(scope: scope, limit: limit)
@@ -97,27 +96,31 @@ struct OrganizeView: View {
           }
           Text("\(inbox.count) 封邮件").font(.system(size: 11)).foregroundStyle(Palette.muted)
         }
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 10) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 128))], spacing: 8) {
           ForEach(categories, id: \.self) { value in
             Button {
               category = category == value ? nil : value
             } label: {
               HStack {
                 Image(systemName: value == "账单票据" ? "doc.text" : "folder").foregroundStyle(
-                  Palette.purple)
+                  Palette.accent)
                 Text(value).font(.system(size: 12, weight: .medium))
                 Spacer()
                 Text("\(inbox.filter { $0.category == value }.count)").font(
-                  .system(size: 21, weight: .semibold))
-              }.padding(16).frame(maxWidth: .infinity).contentShape(Rectangle())
-                .background(
-                  category == value ? Palette.purpleSoft : .white,
-                  in: RoundedRectangle(cornerRadius: 8)
-                )
-                .overlay(
-                  RoundedRectangle(cornerRadius: 8).stroke(
-                    category == value ? Palette.purple.opacity(0.3) : Palette.border))
-            }.buttonStyle(.plain)
+                  .system(size: 14, weight: .semibold)
+                ).monospacedDigit()
+              }.padding(.horizontal, 12).frame(height: 42).frame(maxWidth: .infinity).contentShape(
+                Rectangle()
+              )
+              .background(
+                category == value ? Palette.accentSoft : .white,
+                in: RoundedRectangle(cornerRadius: 8)
+              )
+              .overlay(
+                RoundedRectangle(cornerRadius: 8).stroke(
+                  category == value ? Palette.accent.opacity(0.3) : Palette.border))
+            }.buttonStyle(ControlFeedback(selected: category == value))
+              .accessibilityAddTraits(category == value ? .isSelected : [])
           }
         }
         LazyVStack(spacing: 0) {
@@ -134,15 +137,15 @@ struct OrganizeView: View {
                 Tag(text: mail.category)
                 Text(displayTime(mail.date)).font(.system(size: 10)).foregroundStyle(Palette.muted)
                   .frame(width: 80, alignment: .trailing)
-              }.padding(14).contentShape(Rectangle())
-            }.buttonStyle(.plain)
+              }.foregroundStyle(Palette.ink).padding(16).contentShape(Rectangle())
+            }.buttonStyle(ControlFeedback(corner: 0))
             Divider().overlay(Palette.softBorder)
           }
           if filtered.isEmpty {
             Text("这个分类暂时没有邮件").font(.system(size: 12)).foregroundStyle(Palette.muted).padding(30)
           }
         }.background(.white, in: RoundedRectangle(cornerRadius: 10))
-      }.padding(30)
+      }.workspacePage()
     }.background(Palette.canvas)
   }
   private func jobStatus(_ job: AgentJob) -> some View {
@@ -153,7 +156,7 @@ struct OrganizeView: View {
           statusTitle(job), systemImage: job.status == "applied" ? "checkmark.circle" : "sparkles"
         )
         .font(.system(size: 14, weight: .semibold)).foregroundStyle(
-          job.status == "applied" ? Palette.success : Palette.purple)
+          job.status == "applied" ? Palette.success : Palette.accent)
         Spacer()
         if running {
           ActionButton(title: "暂停", icon: "pause") { store.pauseOrganization(job) }
@@ -170,13 +173,16 @@ struct OrganizeView: View {
         }
       }
       if let progress = job.progress {
-        ProgressView(value: Double(progress.completed), total: Double(max(1, progress.total))).tint(
-          Palette.purple)
+        if !["applied", "undone"].contains(job.status) {
+          ProgressView(value: Double(progress.completed), total: Double(max(1, progress.total)))
+            .tint(
+              Palette.accent)
+        }
         HStack {
           Text("已分析 \(progress.completed) / \(progress.total) 封")
           Spacer()
           Text(running ? "正在分析第 \(max(1, progress.batch)) 批" : "建议保存在本机")
-        }.font(.system(size: 11)).foregroundStyle(Palette.muted)
+        }.font(.system(size: 11)).monospacedDigit().foregroundStyle(Palette.muted)
       }
       if let error = job.error, !error.isEmpty {
         Text(
@@ -189,7 +195,7 @@ struct OrganizeView: View {
         Text("完成后在这里确认分类；暂停不会清空已完成的建议。").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }
     }.padding(18).background(
-      Palette.purpleSoft.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+      Palette.accentSoft, in: RoundedRectangle(cornerRadius: 10))
   }
   private func statusTitle(_ job: AgentJob) -> String {
     switch job.status {

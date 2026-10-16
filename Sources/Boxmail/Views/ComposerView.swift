@@ -17,6 +17,7 @@ struct ComposerView: View {
   @ViewState<String?> private var saveError: String?
   @ViewState<Bool> private var confirmSend = false
   @ViewState<Task<Void, Never>?> private var autosave: Task<Void, Never>?
+  @FocusState private var focusedAddress: String?
   init(store: MailStore, initial: MailDraft) {
     self.store = store
     self.initial = initial
@@ -30,14 +31,11 @@ struct ComposerView: View {
         }.disabled(
           sending || draft.status == "uncertain" || draft.to.isEmpty
             || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
-        Menu {
-          ForEach(store.accounts) { account in Button(account.name) { draft.accountId = account.id }
+        ChoiceMenu(title: "发件人：\(store.accounts.first{$0.id==draft.accountId}?.email ?? "请选择")") {
+          ForEach(store.accounts) { account in
+            Button(menuTitle(account.name)) { draft.accountId = account.id }
           }
-        } label: {
-          Text("发件人：\(store.accounts.first{$0.id==draft.accountId}?.email ?? "请选择")").font(
-            .system(size: 11)
-          ).foregroundStyle(Palette.muted)
-        }.menuStyle(.borderlessButton)
+        }
         Spacer()
         Text(saveError ?? (saving ? "正在保存…" : saved ? "草稿已保存到本机" : "编辑中 · 自动保存")).font(
           .system(size: 11)
@@ -58,7 +56,7 @@ struct ComposerView: View {
             } catch { store.error = error.localizedDescription }
           }
         }.disabled(sending)
-      }.padding(16)
+      }.padding(16).background(Palette.chrome)
       Divider()
       HStack(spacing: 0) {
         VStack(spacing: 0) {
@@ -71,8 +69,10 @@ struct ComposerView: View {
               Palette.amber
             ).padding(14).background(Palette.blueSoft)
           }
-          TextEditor(text: $draft.body).font(.system(size: 14)).lineSpacing(5)
-            .scrollContentBackground(.hidden).padding(18).background(.white)
+          PlainTextEditor(
+            text: $draft.body, fontSize: 14, lineSpacing: 5, inset: NSSize(width: 24, height: 18),
+            accessibilityLabel: "邮件正文"
+          ).background(.white)
           Divider()
           VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -103,13 +103,16 @@ struct ComposerView: View {
         Divider()
         ScrollView {
           VStack(alignment: .leading, spacing: 18) {
-            Label("AI 写作助手", systemImage: "sparkles").font(.system(size: 17, weight: .semibold))
-              .foregroundStyle(Palette.purple)
-            Text("描述要写的内容，或对现有正文提出修改要求").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            TextEditor(text: $prompt).font(.system(size: 12)).frame(height: 120).padding(8)
-              .scrollContentBackground(.hidden).background(
-                .white, in: RoundedRectangle(cornerRadius: 8)
-              ).overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.border))
+            Label("AI 写作助手", systemImage: "sparkles").font(.system(size: 15, weight: .semibold))
+              .foregroundStyle(Palette.ink)
+            Text("描述要写的内容，或对现有正文提出修改要求").font(.system(size: 12)).foregroundStyle(Palette.muted)
+              .lineSpacing(4)
+            PlainTextEditor(
+              text: $prompt, placeholder: "例如：礼貌确认收到，并询问下一步安排", accessibilityLabel: "AI 写信要求"
+            ).frame(height: 136).background(
+              .white, in: RoundedRectangle(cornerRadius: 8)
+            ).clipShape(RoundedRectangle(cornerRadius: 8))
+              .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.border))
             Text("语气").font(.system(size: 11)).foregroundStyle(Palette.muted)
             Picker("语气", selection: $tone) {
               ForEach(["正式", "亲切", "简洁", "专业"], id: \.self) { Text($0) }
@@ -135,9 +138,10 @@ struct ComposerView: View {
               }
             }
           }.padding(20)
-        }.frame(width: 330).background(Palette.canvas)
+        }.frame(width: 310).background(Palette.canvas)
       }.disabled(sending || draft.status == "uncertain")
-    }.frame(width: 1120, height: 780).background(.white).interactiveDismissDisabled()
+    }.frame(width: 1080, height: 720).background(.white).tint(Palette.blue)
+      .interactiveDismissDisabled()
       .onChange(of: draft) { _, _ in scheduleSave() }
       .alert(
         "操作未完成",
@@ -161,9 +165,11 @@ struct ComposerView: View {
       Text(title).font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
         width: 52, alignment: .trailing)
       TextField(title == "主题" ? "填写邮件主题" : "邮箱地址，多个地址用逗号分隔", text: text).textFieldStyle(.plain)
-        .font(.system(size: 13)).padding(.leading, 10)
-    }.padding(.horizontal, 20).frame(height: 43).overlay(alignment: .bottom) {
-      Rectangle().fill(Palette.softBorder).frame(height: 1)
+        .font(.system(size: 13, weight: title == "主题" ? .medium : .regular)).padding(.leading, 10)
+        .focused($focusedAddress, equals: title).accessibilityLabel(title)
+    }.padding(.horizontal, 20).frame(height: 40).overlay(alignment: .bottom) {
+      Rectangle().fill(focusedAddress == title ? Palette.blue : Palette.softBorder).frame(
+        height: focusedAddress == title ? 2 : 1)
     }
   }
   private func scheduleSave() {

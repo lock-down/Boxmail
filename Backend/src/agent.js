@@ -33,7 +33,8 @@ export async function runAgent(repo, input) {
       ...(preset ? { replyIntent: preset.title } : {}),
       attachments: message.attachmentIds.map((id) => {
         const a = repo.get('attachment', id);
-        return { name: a?.name, text: a?.text?.slice(0, 16000), analysis: a?.analysis?.slice(0, 16000) };
+        return { name: a?.name, text: a?.text?.slice(0, 16000), analysis: a?.analysis?.slice(0, 16000),
+          textTruncated: (a?.text?.length || 0) > 16000, analysisTruncated: (a?.analysis?.length || 0) > 16000 };
       }),
     };
   } else if (task === 'classify') {
@@ -95,7 +96,7 @@ export async function runAgent(repo, input) {
       }
     }
     const result = await completion(input.config, input.apiKey, task, context, images,
-      { additionalInstructions: preset?.instruction });
+      { additionalInstructions: preset?.instruction, stream: true });
     if (task === 'summary') {
       if (!strings(result.points).length)
         throw new ServiceError('摘要格式不正确', 502);

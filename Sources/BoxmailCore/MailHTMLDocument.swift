@@ -1,6 +1,11 @@
 import Foundation
 
 public enum MailHTMLDocument {
+  public static var recipientLayoutScript: String {
+    guard let url = Bundle.module.url(forResource: "MailRecipientLayout", withExtension: "js")
+    else { return "" }
+    return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+  }
   public static func make(html: String, fontSize: Int, allowRemoteImages: Bool) -> String {
     let images = allowRemoteImages ? "data: https: http:" : "data:"
     let size = min(24, max(12, fontSize))
@@ -17,6 +22,8 @@ public enum MailHTMLDocument {
       #mail-content table { max-width: 100% !important; }
       #mail-content pre { white-space: pre-wrap; }
       #mail-content a { color: #246de3; }
+      #mail-content .boxmail-recipient-list { max-height: 160px; overflow-y: auto; overflow-x: hidden; padding-right: 10px; overflow-wrap: anywhere; }
+      #mail-content .boxmail-recipient-list:focus-visible { outline: 2px solid #3567af; outline-offset: 2px; }
       </style></head><body><div id="mail-content">\(html)</div></body></html>
       """
   }

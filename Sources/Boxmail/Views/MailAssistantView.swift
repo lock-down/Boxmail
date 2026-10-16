@@ -13,12 +13,13 @@ struct MailAIBar: View {
         } label: {
           Label(tab == .summary ? "AI 总结" : tab.title, systemImage: tab.icon)
             .font(.system(size: 11, weight: .medium)).padding(.horizontal, 10).frame(height: 29)
-            .foregroundStyle(store.mailAITab == tab ? Palette.purple : Palette.muted)
+            .foregroundStyle(store.mailAITab == tab ? Palette.accent : Palette.muted)
             .background(
-              store.mailAITab == tab ? Palette.purpleSoft : .clear,
+              store.mailAITab == tab ? Palette.accentSoft : .clear,
               in: RoundedRectangle(cornerRadius: 6)
             ).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(ControlFeedback(selected: store.mailAITab == tab, corner: 6))
+          .accessibilityAddTraits(store.mailAITab == tab ? .isSelected : [])
           .disabled(tab == .attachment && message.attachmentIds.isEmpty)
           .help(
             tab == .attachment && message.attachmentIds.isEmpty ? "本封邮件没有附件" : "\(tab.title)当前邮件")
@@ -44,7 +45,7 @@ struct MailAssistantView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 15) {
       HStack(spacing: 8) {
-        Image(systemName: tab.icon).foregroundStyle(Palette.purple)
+        Image(systemName: tab.icon).foregroundStyle(Palette.accent)
         Text("本封邮件 · \(tab.title)").font(.system(size: 13, weight: .semibold))
         Spacer()
         IconButton(icon: "xmark", help: "收起 AI 面板") { store.mailAITab = nil }
@@ -71,7 +72,7 @@ struct MailAssistantView: View {
   }
   @ViewBuilder private var summary: some View {
     if let summary = message.summary {
-      SummaryCard(store: store, message: message, summary: summary)
+      SummaryCard(store: store, message: message, summary: summary, embedded: true)
     } else {
       Text("提炼正文要点、待办与关键信息。").font(.system(size: 12)).foregroundStyle(Palette.muted)
       if !working {
@@ -84,7 +85,7 @@ struct MailAssistantView: View {
   private var translation: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Text("全文翻译 · 简体中文").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.purple)
+        Text("全文翻译 · 简体中文").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.accent)
         Spacer()
         if let text = message.translation {
           IconButton(icon: "doc.on.doc", help: "复制译文") {
@@ -107,12 +108,20 @@ struct MailAssistantView: View {
   @ViewBuilder private var attachment: some View {
     if let file = selectedAttachment {
       if mailAttachments.count > 1 {
-        Picker(
-          "选择附件",
-          selection: Binding(get: { selectedAttachment?.id ?? "" }, set: { attachmentId = $0 })
-        ) {
-          ForEach(mailAttachments) { item in Text(item.name).tag(item.id) }
-        }.pickerStyle(.menu)
+        HStack(spacing: 10) {
+          Text("选择附件").font(.system(size: 11)).foregroundStyle(Palette.muted)
+          ChoiceMenu(title: file.name, help: "选择附件：\(file.name)") {
+            ForEach(mailAttachments) { item in
+              Button {
+                attachmentId = item.id
+              } label: {
+                Label(
+                  menuTitle(item.name), systemImage: item.id == file.id ? "checkmark" : "doc.text")
+              }
+            }
+          }
+          Spacer(minLength: 0)
+        }
       }
       HStack(spacing: 9) {
         Image(systemName: file.isImage ? "photo" : "doc.text").foregroundStyle(Palette.blue)
@@ -128,10 +137,17 @@ struct MailAssistantView: View {
         ActionButton(title: file.analysis == nil ? "理解这个附件" : "重新理解", icon: "sparkles", kind: .ai) {
           store.generate(task: "attachment", message: message, attachment: file)
         }.disabled(!file.canAnalyze || store.busy.contains("agent"))
+        if let analysis = file.analysis {
+          IconButton(icon: "doc.on.doc", help: "复制理解结果") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(analysis, forType: .string)
+          }
+        }
         Text("结合本封邮件内容分析").font(.system(size: 10)).foregroundStyle(Palette.muted)
       }
       if let analysis = file.analysis {
-        Text(analysis).font(.system(size: 13)).lineSpacing(6).textSelection(.enabled)
+        Divider().overlay(Palette.softBorder)
+        AnalysisDocumentView(text: analysis)
       } else {
         Text(file.canAnalyze ? "提炼摘要、关键数据和行动建议。文档或图片会发送至已配置的 AI 服务。" : "此附件暂不支持 AI 理解，可预览或下载原文件。")
           .font(.system(size: 12)).foregroundStyle(Palette.muted)

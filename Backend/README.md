@@ -28,7 +28,7 @@ npm start
 npm test
 ```
 
-当前工作区包含 59 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
+当前工作区包含 61 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
 
 ## 接口
 
@@ -83,7 +83,9 @@ npm test
 
 ## AI 接口和附件理解
 
-按照 [DeepSeek Responses API](https://api-docs.deepseek.com/zh-cn/api/create-response/) 发起请求：单封邮件默认非流式，智能整理使用 `stream: true` 的 SSE，读取 `response.completed` 完整结果，支持分块 UTF-8、保活事件和中断检测。通过 `instructions` 提供任务提示词，`input` 提供用户数据，`reasoning.effort` 传递 `low`、`high` 或 `max`，`text.format` 使用 JSON 模式。不发送温度、token 上限或原 Chat Completions 的参数。只读取完成响应中 assistant 消息的 `output_text`，忽略思考内容；响应未完成时保留已有结果；整理任务会按已完成数量标为 `partial` 或 `failed`。
+按照 [DeepSeek Responses API](https://api-docs.deepseek.com/zh-cn/api/create-response/) 发起请求：单封邮件与智能整理均使用 `stream: true` 的 SSE，读取 `response.completed` 完整结果，支持分块 UTF-8、保活事件和中断检测；仍兼容服务商返回普通 JSON 响应。通过 `instructions` 提供任务提示词，`input` 提供用户数据，`reasoning.effort` 传递 `low`、`high` 或 `max`，`text.format` 使用 JSON 模式。不发送温度、token 上限或原 Chat Completions 的参数。只读取完成响应中 assistant 消息的 `output_text`，忽略思考内容；响应未完成时保留已有结果；整理任务会按已完成数量标为 `partial` 或 `failed`。
+
+单封总结、回复和翻译会附带本邮件各附件的名称、最多 16,000 字符提取文本及最多 16,000 字符已有分析，超过时分别标记截取。上下文整体按有效 JSON 序列化，不再对序列化结果直接裁切。网络断流会返回明确的重试提示，不使用部分输出覆盖原总结、译文或附件结果。
 
 默认使用 `https://api.deepseek.com`、`deepseek-flash`、`high`、120 秒。超时范围为 10 至 600 秒，涵盖 Files 上传和 Responses 请求；客户端另留处理时间。旧配置启动时补齐 `effort` 和提示词，去掉旧的温度及 token 设置，保留自定义服务商、模型和提示词。
 
