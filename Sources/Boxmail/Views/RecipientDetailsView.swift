@@ -5,6 +5,7 @@ struct RecipientDetailsView: View {
   let cc: String
   @ViewState<Bool> private var expanded = false
   @ViewState<CGFloat> private var contentHeight = 44
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Button {
@@ -12,9 +13,12 @@ struct RecipientDetailsView: View {
       } label: {
         HStack(spacing: 6) {
           Text("发送至 \(to)").lineLimit(1).truncationMode(.tail)
-          Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 9))
+          Image(systemName: "chevron.down").font(.system(size: 9))
+            .rotationEffect(.degrees(expanded ? -180 : 0)).accessibilityHidden(true)
         }.font(.system(size: 11)).foregroundStyle(Palette.muted).contentShape(Rectangle())
-      }.buttonStyle(.plain).help(expanded ? "收起收件人" : "展开完整收件人与抄送")
+      }.buttonStyle(ControlFeedback()).controlFocus()
+        .accessibilityValue(expanded ? "已展开" : "已收起")
+        .help(expanded ? "收起收件人" : "展开完整收件人与抄送")
       if expanded {
         ScrollView {
           VStack(alignment: .leading, spacing: 12) {
@@ -28,10 +32,10 @@ struct RecipientDetailsView: View {
         }.frame(height: min(120, max(36, contentHeight)))
           .onPreferenceChange(RecipientHeight.self) { contentHeight = $0 }
           .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7))
-          .overlay(RoundedRectangle(cornerRadius: 7).stroke(Palette.softBorder))
           .accessibilityLabel("收件人与抄送名单")
+          .transition(UIMotion.reveal(reduceMotion))
       }
-    }
+    }.animation(UIMotion.disclosure(reduceMotion), value: expanded)
   }
   private func addresses(_ title: String, _ value: String) -> some View {
     VStack(alignment: .leading, spacing: 5) {

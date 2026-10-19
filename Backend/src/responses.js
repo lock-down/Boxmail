@@ -1,11 +1,11 @@
 import { aiConfig, ServiceError } from './validation.js';
 
 const formats = {
-  summary: '{"points":["要点"],"todos":[{"title":"待办","due":"截止时间或空字符串"}],"keyInfo":[{"label":"关键信息","value":"值"}]}',
+  summary: '{"overview":"一小段内容概要","points":[],"todos":[{"title":"需要用户处理的事项","due":"原文截止时间或空字符串"}],"keyInfo":[],"nextSteps":[{"title":"短建议","action":"reply、attachments 或 note","prompt":"仅 reply 填写起草回复的要求，其他留空"}]}',
   reply: '{"subject":"主题","body":"回复正文"}',
   compose: '{"subject":"主题","body":"邮件正文"}',
   classify: '{"items":[{"id":"输入邮件ID","category":"工作项目、订阅资讯、账单票据、社交通知、个人往来或未分类","reason":"简短依据"}]}',
-  attachment: '{"text":"用中文 Markdown 说明，分别使用二级标题组织文件主题、主要结论、关键数据、注意事项、行动建议；列表每项单独一行，不要把编号列表挤在同一段"}',
+  attachment: '{"text":"简洁的中文 Markdown；用二级标题区分主题，列表每项独占一行，关联数据可用 Markdown 表格，不使用外层代码围栏"}',
   translate: '{"text":"译文"}',
 };
 
@@ -81,7 +81,7 @@ export async function completion(configInput, apiKey, task, content, images = []
     if (error instanceof SyntaxError)
       throw new ServiceError('AI 服务返回的响应格式不正确，请重试', 502);
     if (error instanceof TypeError || error.message === 'terminated')
-      throw new ServiceError('与 AI 服务的连接已中断，未保存不完整结果。请重试；多附件邮件可先逐个理解附件后再总结。', 502);
+      throw new ServiceError('与 AI 服务的连接已中断，未保存不完整结果。请重试；多附件邮件可先批量理解附件后再总结。', 502);
     throw error;
   } finally {
     // Expiration also bounds retention if cleanup cannot reach the service.

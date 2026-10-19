@@ -18,6 +18,7 @@ struct ComposerView: View {
   @ViewState<Bool> private var confirmSend = false
   @ViewState<Task<Void, Never>?> private var autosave: Task<Void, Never>?
   @FocusState private var focusedAddress: String?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   init(store: MailStore, initial: MailDraft) {
     self.store = store
     self.initial = initial
@@ -26,7 +27,7 @@ struct ComposerView: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 10) {
-        ActionButton(title: sending ? "正在发送…" : "发送", icon: "paperplane.fill", kind: .primary) {
+        ActionButton(title: sending ? "正在发送…" : "发送", icon: "paperplane", kind: .primary) {
           confirmSend = true
         }.disabled(
           sending || draft.status == "uncertain" || draft.to.isEmpty
@@ -39,7 +40,9 @@ struct ComposerView: View {
         Spacer()
         Text(saveError ?? (saving ? "正在保存…" : saved ? "草稿已保存到本机" : "编辑中 · 自动保存")).font(
           .system(size: 11)
-        ).foregroundStyle(saveError == nil ? Palette.muted : .red)
+        ).foregroundStyle(saveError == nil ? Palette.muted : Palette.amber)
+          .contentTransition(.opacity)
+          .animation(UIMotion.feedback(reduceMotion), value: saved)
         ActionButton(title: "保存并关闭") {
           Task {
             do {
@@ -85,10 +88,10 @@ struct ComposerView: View {
                 ForEach(draft.attachmentIds, id: \.self) { id in
                   if let a = store.attachments.first(where: { $0.id == id }) {
                     HStack {
-                      Image(systemName: "doc").foregroundStyle(Palette.blue)
+                      AttachmentIcon(attachment: a, size: 19)
                       VStack(alignment: .leading, spacing: 3) {
                         Text(a.name).font(.system(size: 11)).lineLimit(1)
-                        Text(fileSize(a.size)).font(.system(size: 9)).foregroundStyle(Palette.muted)
+                        Text(fileSize(a.size)).font(UIType.small).foregroundStyle(Palette.muted)
                       }
                       IconButton(icon: "xmark", help: "移除附件") {
                         draft.attachmentIds.removeAll { $0 == id }
@@ -103,8 +106,12 @@ struct ComposerView: View {
         Divider()
         ScrollView {
           VStack(alignment: .leading, spacing: 18) {
-            Label("AI 写作助手", systemImage: "sparkles").font(.system(size: 15, weight: .semibold))
-              .foregroundStyle(Palette.ink)
+            HStack(spacing: 8) {
+              Image(systemName: "sparkles").foregroundStyle(Palette.accent)
+                .symbolEffect(.pulse, options: .repeating,
+                  isActive: store.busy.contains("compose-ai") && !reduceMotion)
+              Text("AI 写作助手").font(.system(size: 15, weight: .semibold))
+            }
             Text("描述要写的内容，或对现有正文提出修改要求").font(.system(size: 12)).foregroundStyle(Palette.muted)
               .lineSpacing(4)
             PlainTextEditor(
@@ -112,7 +119,7 @@ struct ComposerView: View {
             ).frame(height: 136).background(
               .white, in: RoundedRectangle(cornerRadius: 8)
             ).clipShape(RoundedRectangle(cornerRadius: 8))
-              .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.border))
+              .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.softBorder))
             Text("语气").font(.system(size: 11)).foregroundStyle(Palette.muted)
             Picker("语气", selection: $tone) {
               ForEach(["正式", "亲切", "简洁", "专业"], id: \.self) { Text($0) }
@@ -122,23 +129,24 @@ struct ComposerView: View {
               ForEach(["简短", "适中", "详细"], id: \.self) { Text($0) }
             }.pickerStyle(.segmented).labelsHidden()
             HStack {
-              ActionButton(title: "生成草稿", icon: "sparkles", kind: .ai) { generate() }.disabled(
+              ActionButton(title: store.busy.contains("compose-ai") ? "正在拟稿…" : "生成草稿", icon: "sparkles", kind: .ai) { generate() }.disabled(
                 prompt.isEmpty || store.busy.contains("agent"))
               if store.busy.contains("agent") { ProgressView().controlSize(.small) }
             }
             if let generated {
-              Divider()
-              Text("AI 生成草稿").font(.system(size: 13, weight: .semibold))
-              Text(generated.subject ?? "").font(.system(size: 12, weight: .medium))
-              Text(generated.body ?? "").font(.system(size: 12)).lineSpacing(5).textSelection(
-                .enabled)
-              ActionButton(title: "插入到正文", icon: "text.insert", kind: .softAI) {
-                draft.subject = generated.subject ?? draft.subject
-                draft.body = generated.body ?? draft.body
-              }
+              VStack(alignment: .leading, spacing: 14) {
+                Divider()
+                Text("AI 生成草稿").font(UIType.section)
+                Text(generated.subject ?? "").font(.system(size: 13, weight: .medium))
+                Text(generated.body ?? "").font(UIType.body).lineSpacing(6).textSelection(.enabled)
+                ActionButton(title: "插入到正文", icon: "text.insert", kind: .softAI) {
+                  draft.subject = generated.subject ?? draft.subject
+                  draft.body = generated.body ?? draft.body
+                }
+              }.transition(UIMotion.reveal(reduceMotion))
             }
-          }.padding(20)
-        }.frame(width: 310).background(Palette.canvas)
+          }.padding(22).animation(UIMotion.disclosure(reduceMotion), value: generated != nil)
+        }.frame(width: 320).background(Palette.canvas)
       }.disabled(sending || draft.status == "uncertain")
     }.frame(width: 1080, height: 720).background(.white).tint(Palette.blue)
       .interactiveDismissDisabled()
@@ -165,12 +173,12 @@ struct ComposerView: View {
       Text(title).font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
         width: 52, alignment: .trailing)
       TextField(title == "主题" ? "填写邮件主题" : "邮箱地址，多个地址用逗号分隔", text: text).textFieldStyle(.plain)
-        .font(.system(size: 13, weight: title == "主题" ? .medium : .regular)).padding(.leading, 10)
+        .font(.system(size: title == "主题" ? 14 : 13, weight: title == "主题" ? .medium : .regular)).padding(.leading, 10)
         .focused($focusedAddress, equals: title).accessibilityLabel(title)
-    }.padding(.horizontal, 20).frame(height: 40).overlay(alignment: .bottom) {
+    }.padding(.horizontal, 20).frame(height: title == "主题" ? 46 : 40).overlay(alignment: .bottom) {
       Rectangle().fill(focusedAddress == title ? Palette.blue : Palette.softBorder).frame(
         height: focusedAddress == title ? 2 : 1)
-    }
+    }.animation(UIMotion.feedback(reduceMotion), value: focusedAddress == title)
   }
   private func scheduleSave() {
     guard draft.status == "draft" else { return }

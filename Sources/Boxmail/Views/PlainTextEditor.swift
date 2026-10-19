@@ -72,6 +72,9 @@ struct PlainTextEditor: NSViewRepresentable {
     }
     textView.textColor = NSColor(Palette.ink)
     textView.insertionPointColor = NSColor(Palette.blue)
+    textView.selectedTextAttributes = [
+      .backgroundColor: NSColor(Palette.blueSoft), .foregroundColor: NSColor(Palette.ink),
+    ]
     if textView.textContainerInset != inset { textView.textContainerInset = inset }
     textView.placeholder = placeholder
     textView.isEditable = enabled
@@ -116,7 +119,7 @@ private final class PlaceholderTextView: NSTextView {
     guard string.isEmpty, !hasMarkedText(), !placeholder.isEmpty else { return }
     let attributes: [NSAttributedString.Key: Any] = [
       .font: font ?? .systemFont(ofSize: 12),
-      .foregroundColor: NSColor(Palette.muted).withAlphaComponent(0.7),
+      .foregroundColor: NSColor(Palette.muted),
       .paragraphStyle: defaultParagraphStyle ?? NSParagraphStyle.default,
     ]
     let origin = textContainerOrigin

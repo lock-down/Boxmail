@@ -18,6 +18,7 @@ struct SettingsView: View {
   @ViewState<Bool> private var editingAccount = false
   @ViewState<Bool> private var loading = false
   @ViewState<MailAccount?> private var removingAccount: MailAccount?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let tabs = ["常用", "账号", "写邮件", "阅读邮件", "反垃圾", "高级", "AI 助手"]
   var body: some View {
     VStack(spacing: 0) {
@@ -45,7 +46,9 @@ struct SettingsView: View {
                   store.settingsTab == tab ? Palette.accentSoft : .clear,
                   in: RoundedRectangle(cornerRadius: 7))
             }.buttonStyle(ControlFeedback(selected: store.settingsTab == tab))
+              .controlFocus()
               .accessibilityAddTraits(store.settingsTab == tab ? .isSelected : [])
+              .animation(UIMotion.selection(reduceMotion), value: store.settingsTab == tab)
           }
           Spacer()
           Text(
@@ -57,8 +60,8 @@ struct SettingsView: View {
           VStack(alignment: .leading, spacing: 20) {
             HStack {
               VStack(alignment: .leading, spacing: 8) {
-                Text(store.settingsTab).font(.system(size: 22, weight: .semibold)).tracking(-0.3)
-                Text(subtitle).font(.system(size: 12)).foregroundStyle(Palette.muted).lineSpacing(4)
+                Text(store.settingsTab).font(UIType.title).tracking(-0.3)
+                Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(4)
               }
               Spacer()
               if store.settingsTab == "AI 助手" {
@@ -89,7 +92,7 @@ struct SettingsView: View {
               .frame(maxWidth: .infinity, alignment: .leading).background(
                 Palette.blueSoft, in: RoundedRectangle(cornerRadius: 7))
             }
-          }.frame(maxWidth: 740, alignment: .leading).padding(26).frame(
+          }.lineSpacing(4).frame(maxWidth: 740, alignment: .leading).padding(28).frame(
             maxWidth: .infinity, alignment: .leading)
         }.id(store.settingsTab).background(Palette.canvas)
       }
@@ -192,10 +195,10 @@ struct SettingsView: View {
           }.frame(width: 120)
         }
         Text("超时可设为 10 至 600 秒。图片和 PDF 理解请使用支持视觉输入的模型，如 deepseek-flash。")
-          .font(.system(size: 10)).foregroundStyle(Palette.muted)
+          .font(UIType.small).foregroundStyle(Palette.muted)
       }
       SectionCard(title: "系统默认提示词", icon: "curlybraces") {
-        HStack(spacing: 6) {
+        WrappingFlowLayout(spacing: 6) {
           ForEach(
             [
               ("summary", "邮件总结"), ("reply", "自动回复"), ("classify", "智能整理"), ("attachment", "附件解析"),
@@ -212,10 +215,11 @@ struct SettingsView: View {
           text: Binding(
             get: { config.prompts[promptTab] ?? AIPromptDefaults.values[promptTab] ?? "" },
             set: { config.prompts[promptTab] = $0 })
-        ).font(.system(size: 12)).frame(height: 140).padding(9).scrollContentBackground(.hidden)
+        ).font(UIType.body).frame(height: 160).padding(12).scrollContentBackground(.hidden)
           .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+          .id(promptTab)
         Text("已预设每类任务的提示词，可自定义语气和分析要求。清空后保存会恢复默认。邮件内容、图片和文档内容会发送至你配置的 AI 服务。").font(
-          .system(size: 10)
+          .system(size: 11)
         )
         .foregroundStyle(Palette.muted)
         HStack {
@@ -232,11 +236,13 @@ struct SettingsView: View {
     VStack(alignment: .leading, spacing: 16) {
       ForEach(store.accounts) { a in
         HStack(spacing: 10) {
-          SenderAvatar(name: a.name, size: 34)
+          SenderAvatar(name: a.name, size: 34).fixedSize()
           VStack(alignment: .leading, spacing: 4) {
             Text(a.name).font(.system(size: 13, weight: .semibold))
+              .lineLimit(1).truncationMode(.middle).help(a.name)
             Text(a.email).font(.system(size: 11)).foregroundStyle(Palette.muted)
-          }
+              .lineLimit(1).truncationMode(.middle).help(a.email)
+          }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
           Spacer()
           if a.isDemo {
             Tag(text: "演示数据")
@@ -251,8 +257,7 @@ struct SettingsView: View {
             }
             ActionButton(title: "移除") { removingAccount = a }
           }
-        }.padding(16).background(.white, in: RoundedRectangle(cornerRadius: 9))
-          .overlay(RoundedRectangle(cornerRadius: 9).stroke(Palette.softBorder))
+        }.padding(18).background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
       }
       ActionButton(title: "添加邮箱", icon: "plus", kind: .primary) {
         account = MailAccount()
@@ -300,7 +305,7 @@ struct SettingsView: View {
             "SMTP", host: $account.smtpHost, port: $account.smtpPort, tls: $account.smtpTLS,
             sslPort: 465, startTLSPort: 587)
           Text("SSL/TLS 与 STARTTLS 勾选项互斥。QQ、163 等邮箱需先启用 IMAP/SMTP，并生成客户端授权码。").font(
-            .system(size: 10)
+            .system(size: 11)
           ).foregroundStyle(Palette.muted)
           HStack {
             ActionButton(title: "测试连接", icon: "bolt") { testMail() }.disabled(loading)

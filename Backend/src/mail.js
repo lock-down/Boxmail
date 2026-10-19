@@ -82,13 +82,17 @@ export async function syncAccount(
   repo,
   account,
   password,
-  { clientFactory = clientFor } = {},
+  { clientFactory = clientFor, batchSize = 200, folder: requestedFolder, signal } = {},
 ) {
   const client = clientFactory(account, password);
   let count = 0;
   let repaired = 0;
   let skipped = 0;
+  let currentSync;
+  const abort = () => client.close();
+  signal?.addEventListener('abort', abort, { once: true });
   try {
+    signal?.throwIfAborted();
     try { await client.connect(); }
     catch (error) { throw mailServiceError(error, 'IMAP', account); }
     const folders = await client.list();
@@ -110,6 +114,7 @@ export async function syncAccount(
       try {
         if (String(client.mailbox.uidValidity) !== mutation.uidValidity) {
           repo.remove('mutation', mutation.id);
+          repo.event('sync', '文件夹身份已改变，已取消旧的远端操作，避免误改邮件');
           continue;
         }
         if (mutation.flag) {
@@ -155,176 +160,141 @@ export async function syncAccount(
       }
     }
     for (const [folder, remotePath] of Object.entries(account.folders).filter(
-      ([f]) =>
-        ['inbox', 'sent', 'trash', 'drafts', 'archive', 'spam'].includes(f),
+      ([f]) => ['inbox', 'sent', 'trash', 'drafts', 'archive', 'spam'].includes(f)
+        && (!requestedFolder || requestedFolder === f),
     )) {
+      signal?.throwIfAborted();
+      const syncId = createHash('sha256').update(`${account.id}:${remotePath}`).digest('hex');
+      const previous = repo.get('sync', syncId);
+      currentSync = { ...previous, id: syncId, accountId: account.id, folder, remotePath,
+        status: 'running', lastError: null, updatedAt: new Date().toISOString() };
+      repo.put('sync', currentSync);
       const lock = await client.getMailboxLock(remotePath, { readOnly: true });
       try {
         const validity = String(client.mailbox.uidValidity);
-        for (const old of repo
-          .list('message')
-          .filter(
-            (m) =>
-              m.accountId === account.id &&
-              m.remotePath === remotePath &&
-              m.uidValidity !== validity,
-          ))
-          repo.remove('message', old.id);
-        if (!client.mailbox.exists) {
-          for (const old of repo
-            .list('message')
-            .filter(
-              (m) => m.accountId === account.id && m.remotePath === remotePath,
-            ))
+        repo.transaction(() => {
+          for (const old of repo.list('message').filter(m => m.accountId === account.id
+            && m.remotePath === remotePath && m.uidValidity !== validity)) {
+            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: old });
             repo.remove('message', old.id);
-          continue;
-        }
-        const start = Math.max(1, client.mailbox.exists - 199);
+          }
+        });
+        // Finish the metadata pass before reconciling deletions or issuing another IMAP command.
         const fetched = [];
-        for await (const remote of client.fetch(
-          `${start}:*`,
-          { uid: true, flags: true, size: true, internalDate: true },
-          { uid: false },
-        ))
-          fetched.push(remote);
-        const seen = new Set(fetched.map((m) => m.uid));
-        const smallestUID = Math.min(...seen);
-        for (const old of repo
-          .list('message')
-          .filter(
-            (m) =>
-              m.accountId === account.id &&
-              m.remotePath === remotePath &&
-              (start === 1 || m.uid >= smallestUID) &&
-              !seen.has(m.uid),
-          ))
-          repo.remove('message', old.id);
-        // Old cached messages can lie outside the current 200-message sync window.
-        for (const legacy of repo.list('message').filter(m =>
-          m.accountId === account.id && m.remotePath === remotePath && m.uidValidity === validity
-          && m.bodyVersion !== MAIL_BODY_VERSION && !seen.has(m.uid))) {
-          const remote = await client.fetchOne(legacy.uid,
-            { uid: true, flags: true, size: true, internalDate: true }, { uid: true });
-          if (remote) fetched.push(remote);
+        if (client.mailbox.exists) {
+          for await (const remote of client.fetch('1:*',
+            { uid: true, flags: true, size: true, internalDate: true, envelope: true }, { uid: false })) {
+            signal?.throwIfAborted();
+            fetched.push(remote);
+          }
         }
-        for (const remote of fetched) {
-          if (remote.size > 25 * 1024 * 1024) {
-            skipped++;
-            continue;
+        signal?.throwIfAborted();
+        const seen = new Set(fetched.map(m => m.uid));
+        const cached = new Map(repo.list('message').filter(m => m.accountId === account.id
+          && m.remotePath === remotePath && m.uidValidity === validity).map(m => [m.uid, m]));
+        repo.transaction(() => {
+          for (const [uid, old] of cached) if (!seen.has(uid)) {
+            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: old });
+            repo.remove('message', old.id); cached.delete(uid);
           }
-          const id = createHash('sha256')
-            .update(`${account.id}:${remotePath}:${validity}:${remote.uid}`)
-            .digest('hex');
+          for (const remote of fetched) {
+            const old = cached.get(remote.uid);
+            if (!old) continue;
+            const unreadPending = repo.get('mutation', `${old.id}:unread`);
+            const starPending = repo.get('mutation', `${old.id}:starred`);
+            const updated = { ...old,
+              unread: unreadPending ? !unreadPending.value : !remote.flags.has('\\Seen'),
+              starred: starPending ? starPending.value : remote.flags.has('\\Flagged') };
+            repo.put('message', updated); cached.set(remote.uid, updated);
+          }
+        });
+        const missing = fetched.filter(remote => !cached.has(remote.uid)
+          || cached.get(remote.uid).bodyVersion !== MAIL_BODY_VERSION
+          || cached.get(remote.uid).headersVersion !== 1).sort((a,b) => b.uid-a.uid);
+        currentSync = { ...currentSync, uidValidity: validity, total: fetched.length,
+          downloaded: cached.size, remaining: missing.length, hasMore: missing.length > 0 };
+        repo.put('sync', currentSync);
+        for (const remote of missing.slice(0, Math.min(200, Math.max(1, batchSize)))) {
+          signal?.throwIfAborted();
+          const id = createHash('sha256').update(`${account.id}:${remotePath}:${validity}:${remote.uid}`).digest('hex');
           const old = repo.get('message', id);
-          if (old) {
-            const unreadPending = repo.get('mutation', `${id}:unread`),
-              starPending = repo.get('mutation', `${id}:starred`);
-            repo.put('message', {
-              ...old,
-              unread: unreadPending
-                ? !unreadPending.value
-                : !remote.flags.has('\\Seen'),
-              starred: starPending
-                ? starPending.value
-                : remote.flags.has('\\Flagged'),
-            });
-            if (old.bodyVersion === MAIL_BODY_VERSION) continue;
-          }
-          const full = await client.fetchOne(
-            remote.uid,
-            { source: true },
-            { uid: true },
-          );
-          if (!full?.source) {
+          let parsed;
+          if (remote.size <= 25 * 1024 * 1024) {
+            const full = await client.fetchOne(remote.uid, { source: true }, { uid: true });
+            if (!full?.source) {
+              // A message can disappear between listing and downloading. Retry on the next pass.
+              skipped++; continue;
+            }
+            parsed = await simpleParser(full.source, { skipHtmlToText: true, skipTextToHtml: true });
+          } else {
             skipped++;
-            continue;
+            parsed = { ...remote.envelope, text: '该邮件超过 25 MB，暂未下载正文，请在邮箱服务商查看原邮件。',
+              from: { value: remote.envelope?.from || [] },
+              to: { text: (remote.envelope?.to || []).map(x => x.address).join(', ') },
+              cc: { text: (remote.envelope?.cc || []).map(x => x.address).join(', ') }, attachments: [] };
           }
-          const parsed = await simpleParser(full.source, {
-            skipHtmlToText: true,
-            skipTextToHtml: true,
-          });
           const from = parsed.from?.value[0];
           const content = mailBody(parsed);
+          const headers = { headersVersion: 1, replyTo: parsed.replyTo?.text || '',
+            inReplyTo: parsed.inReplyTo || '',
+            references: typeof parsed.references === 'string' ? [parsed.references] : parsed.references || [] };
           if (old) {
-            repo.put('message', { ...repo.get('message', id), ...content });
+            repo.put('message', { ...repo.get('message', id), ...content, ...headers });
             repaired++;
-            continue;
+          } else {
+            const message = {
+              id, accountId: account.id, folder, remotePath, uid: remote.uid, uidValidity: validity,
+              messageId: parsed.messageId || '', sender: from?.name || from?.address || '未知发件人',
+              senderEmail: from?.address || '', to: parsed.to?.text || account.email, cc: parsed.cc?.text || '',
+              subject: parsed.subject || '(无主题)', ...content, ...headers,
+              date: (parsed.date || remote.internalDate || new Date()).toISOString(),
+              unread: !remote.flags.has('\\Seen'), starred: remote.flags.has('\\Flagged'),
+              category: '未分类', summary: null, attachmentIds: [], oversized: remote.size > 25 * 1024 * 1024,
+            };
+            const relocation = repo.list('relocation').find(r => r.accountId === account.id
+              && r.destination === remotePath && parsed.messageId && r.original.messageId === parsed.messageId);
+            const recoveries = repo.list('recovery').filter(r => r.accountId === account.id
+              && parsed.messageId && r.original.messageId === parsed.messageId);
+            const sameFolder = recoveries.filter(r => r.remotePath === remotePath);
+            const retained = relocation || (sameFolder.length === 1 ? sameFolder[0]
+              : recoveries.length === 1 ? recoveries[0] : null);
+            if (retained) {
+              message.summary = retained.original.summary;
+              message.translation = retained.original.translation;
+              message.category = retained.original.category;
+              message.attachmentIds = retained.original.attachmentIds;
+              for (const aid of message.attachmentIds) {
+                const a = repo.get('attachment', aid);
+                if (a) repo.put('attachment', { ...a, messageId: id });
+              }
+              for (const draft of repo.list('draft').filter(d => d.sourceMessageId === retained.original.id))
+                repo.put('draft', { ...draft, sourceMessageId: id });
+              for (const job of repo.list('job').filter(j => j.messageId === retained.original.id))
+                repo.put('job', { ...job, messageId: id });
+              repo.remove(relocation ? 'relocation' : 'recovery', retained.id);
+            } else {
+              for (const a of parsed.attachments || []) {
+                const saved = await saveAttachment(repo, id, a.filename || '附件', a.content, a.contentType);
+                message.attachmentIds.push(saved.id);
+              }
+            }
+            const localSent = repo.list('message').find(m => m.accountId === account.id
+              && m.id.startsWith('sent-') && parsed.messageId && m.messageId === parsed.messageId);
+            if (localSent) repo.remove('message', localSent.id);
+            repo.put('message', message); count++;
           }
-          const message = {
-            id,
-            accountId: account.id,
-            folder,
-            remotePath,
-            uid: remote.uid,
-            uidValidity: validity,
-            messageId: parsed.messageId || '',
-            sender: from?.name || from?.address || '未知发件人',
-            senderEmail: from?.address || '',
-            to: parsed.to?.text || account.email,
-            cc: parsed.cc?.text || '',
-            subject: parsed.subject || '(无主题)',
-            ...content,
-            date: (
-              parsed.date ||
-              remote.internalDate ||
-              new Date()
-            ).toISOString(),
-            unread: !remote.flags.has('\\Seen'),
-            starred: remote.flags.has('\\Flagged'),
-            category: '未分类',
-            summary: null,
-            attachmentIds: [],
-          };
-          const relocation = repo
-            .list('relocation')
-            .find(
-              (r) =>
-                r.accountId === account.id &&
-                r.destination === remotePath &&
-                parsed.messageId &&
-                r.original.messageId === parsed.messageId,
-            );
-          if (relocation) {
-            message.summary = relocation.original.summary;
-            message.translation = relocation.original.translation;
-            message.category = relocation.original.category;
-            message.attachmentIds = relocation.original.attachmentIds;
-            for (const aid of message.attachmentIds) {
-              const a = repo.get('attachment', aid);
-              if (a) repo.put('attachment', { ...a, messageId: id });
-            }
-            for (const draft of repo
-              .list('draft')
-              .filter((d) => d.sourceMessageId === relocation.original.id))
-              repo.put('draft', { ...draft, sourceMessageId: id });
-            repo.remove('relocation', relocation.id);
-          } else
-            for (const a of parsed.attachments) {
-              const saved = await saveAttachment(
-                repo,
-                id,
-                a.filename || '附件',
-                a.content,
-                a.contentType,
-              );
-              message.attachmentIds.push(saved.id);
-            }
-          const localSent = repo
-            .list('message')
-            .find(
-              (m) =>
-                m.accountId === account.id &&
-                m.id.startsWith('sent-') &&
-                parsed.messageId &&
-                m.messageId === parsed.messageId,
-            );
-          if (localSent) repo.remove('message', localSent.id);
-          repo.put('message', message);
-          count++;
+          cached.set(remote.uid, repo.get('message', id));
+          currentSync = { ...currentSync, downloaded: cached.size,
+            remaining: Math.max(0, currentSync.remaining - 1),
+            beforeUID: Math.min(...cached.keys()), highestUID: Math.max(...cached.keys()),
+            updatedAt: new Date().toISOString() };
+          currentSync.hasMore = currentSync.remaining > 0;
+          repo.put('sync', currentSync);
         }
-      } finally {
-        lock.release();
-      }
+        currentSync = { ...currentSync, status: currentSync.hasMore ? 'partial' : 'completed',
+          updatedAt: new Date().toISOString() };
+        repo.put('sync', currentSync);
+      } finally { lock.release(); }
     }
     account.lastSync = new Date().toISOString();
     repo.put('account', account);
@@ -333,7 +303,14 @@ export async function syncAccount(
       `${account.email}：新增 ${count} 封，补齐 ${repaired} 封正文，跳过 ${skipped} 个超限邮件`,
     );
     return { count, repaired, skipped, ok: true };
+  } catch (error) {
+    if (currentSync) repo.put('sync', { ...currentSync,
+      status: signal?.aborted ? 'paused' : 'failed',
+      lastError: signal?.aborted ? '同步已中断，下次将继续未完成的邮件' : '同步未完成，请检查网络与邮箱配置后重试',
+      updatedAt: new Date().toISOString() });
+    throw error;
   } finally {
+    signal?.removeEventListener('abort', abort);
     await client.logout().catch(() => client.close());
   }
 }
@@ -427,7 +404,7 @@ export async function sendDraft(
     text: draft.body,
     attachments,
     inReplyTo: draft.inReplyTo || undefined,
-    references: draft.inReplyTo || undefined,
+    references: draft.references?.length ? draft.references : draft.inReplyTo || undefined,
     messageId: `<${draft.id}@boxmail.local>`,
     disableFileAccess: true,
     disableUrlAccess: true,

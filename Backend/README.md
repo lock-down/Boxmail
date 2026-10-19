@@ -1,6 +1,6 @@
 # Boxmail 本机后端
 
-版本 **0.0.4**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
+版本 **0.0.8**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
 
 ## 启动和测试
 
@@ -28,7 +28,7 @@ npm start
 npm test
 ```
 
-当前工作区包含 61 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
+当前工作区包含 87 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
 
 ## 接口
 
@@ -104,7 +104,7 @@ DeepSeek 目前只在 `deepseek-flash` 支持图片输入，选择 `deepseek-v4-
 
 翻译结果写入所属邮件的 `translation`，同步和跨文件夹移动保留译文。客户端的附件任务同时传入 `messageId`、`attachmentId`，后端校验归属；任务保存两者关联，并把所属邮件主题、发件人及最多 5,000 字正文加入附件理解上下文。
 
-SQLite 使用 WAL 模式，当前 `user_version` 为 `1`。`records` 表按 `kind` 和 `id` 保存 JSON，`events` 表保存活动记录；附件文件存入数据目录的 `attachments/`。应用版本与数据库结构版本分别管理，后续结构变化需要补充迁移逻辑。
+SQLite 使用 WAL 模式，当前 `user_version` 为 `2`。首次升级会在 `backups/` 写入一致性数据库备份，再以事务创建邮件账号日期和远端 UID 查询索引；不会每次启动重置结构版本，较新版本数据库会拒绝打开。`records` 表按 `kind` 和 `id` 保存 JSON，`events` 表保存活动记录；附件文件存入数据目录的 `attachments/`。应用版本与数据库结构版本分别管理，后续结构变化需要补充迁移逻辑。
 
 后端不会把邮箱密码或 API Key 保存到数据库；客户端从钥匙串读取后，在任务请求中传入。邮件缓存和附件为本机明文数据，文件访问权限不能替代加密。
 
@@ -120,4 +120,37 @@ SQLite 使用 WAL 模式，当前 `user_version` 为 `1`。`records` 表按 `kin
 
 发送必须显式确认。草稿状态包括 `draft`、`sending`、`sent` 和 `uncertain`：发送成功后重复请求不会再次发送，结果不明确的草稿禁止自动重试。启动时把中断的发送标为 `uncertain`，把中断的单封 AI 任务标为失败，后台整理任务标为 `paused` 并保留建议和已完成 ID。SMTP 接受后归档失败会返回提示，不能据此再次发送。
 
-全量同步、OAuth 和服务器草稿同步尚未实现。真实服务验证和版本提交流程见 [开发文档](../docs/DEVELOPMENT.md)。
+历史同步采用可恢复的分批回填，每个文件夹每次最多下载 200 封，后续同步继续。每轮完整元数据校准用于识别旧邮件的状态和删除变化，暂未采用 IDLE 或 CONDSTORE 优化。服务器草稿同步尚未实现；Gmail、Outlook 专用接入及 OAuth 已排除在当前开发计划之外。真实服务验证和版本提交流程见 [开发文档](../docs/DEVELOPMENT.md)。
+
+## 0.0.6 接口补充
+
+- `GET /state?compact=1`：保留用于总览、计数和附件导航的轻量邮件索引；不返回邮件正文、HTML、译文、附件提取文本或附件理解全文。兼容旧客户端的 `/state` 仍返回完整数据。
+- `GET /messages?accountId=...&folder=inbox&filter=...&q=...&limit=100&offset=0`：分页列表、总数及 `nextOffset`；limit 为 1 至 200。关键词搜索仍为 SQLite 子串查询，尚未接入 FTS。
+- `GET /messages/:id`：完整邮件和 `bodyLoaded: true`。
+- `POST /messages/:id/reply-draft`：`all`、`forward`，根据所属账户生成并保存草稿；处理 Reply-To、原 To/Cc、自身地址排除、去重与 References。
+- `POST /sync`：新增 `background: true` 和可选 `folder`，立即返回后台任务受理结果；不传 background 时保留等待完成行为。邮箱凭证仅在任务运行期间使用。
+- `GET /sync-status`：运行中的账号、各文件夹进度及本次运行结果；进度存入 `sync` 记录，关闭中断会转为可继续状态。
+- `GET /attachments/:id/metadata`：按需读取文本和理解结果。
+- `GET /attachments/:id/preview`：XLSX 原格式 HTML，本机生成，不执行脚本、加载远程资源或计算公式。其余格式由原生客户端预览原文件。
+
+收信保存 Reply-To、In-Reply-To 和 References。UIDVALIDITY 变化或检测到远端移动时，原本机附加信息会存入 `recovery` 记录；仅在同账号的 Message-ID 可唯一匹配时重新关联，歧义记录保留待恢复。发送继续使用明确确认和结果不确定时禁止自动重试的机制。
+
+附件中心使用 `GET /attachments/search?accountId=...&q=...` 查询完整提取文本和理解结果，只返回匹配 ID；轻量附件记录仅包含各 160 字符的预览片段，避免把完整附件文本装入列表。
+
+
+## 0.0.7 本封邮件附件批量理解
+
+- `POST /messages/:id/attachments/analyze`：传入当前 `accountId` 与运行时 `apiKey`，立即返回后台 `attachmentBatch` 任务。默认处理本封邮件全部未理解附件，`force: true` 明确重新处理全部。重复提交同一邮件返回现有运行任务，客户端不需逐个选文件。模型地址、提示词与超时使用已保存设置。
+- `GET /jobs/:id`：`attachmentItems` 按邮件附件顺序返回 `id`、`name`、`status` 与 `error`。单项状态为 `pending`、`running`、`completed`、`existing`、`failed`、`unsupported`；`progress.completed` 包含已有结果复用项。
+- `POST /jobs/:id/pause`：中断当前请求，保留已保存结果。`POST /jobs/:id/retry` 携带运行时 `apiKey`，仅继续失败或未完成附件，已完成与不支持项不重复请求。应用重启把未完成批量任务恢复为暂停。
+
+每封邮件依序处理附件，每个请求独立使用配置超时和所属邮件上下文；某项失败后继续后续项。结果必须完整且非空才写入附件，失败不覆盖原有理解结果。重试原任务不会纳入后来新增的附件；新建批量任务会重新确定当前附件范围。不支持的格式可预览、下载。API Key 不写入任务记录；附件所属邮件及账户在入队和执行前均检查，运行期间禁止移除该账户或同时单独重写同封附件。
+
+
+## 0.0.8 精简总结与下一步建议
+
+总结响应新增 `overview` 和 `nextSteps`，保留兼容的 `points`、`todos`、`keyInfo`。新响应可以只提供有效 `overview`；后端补齐兼容字段。旧模型响应仍可仅提供非空 `points`，无效或空白摘要不会覆盖已有总结。
+
+`nextSteps` 每项为 `{title, action, prompt}`，最多保存 4 项。支持 `reply`、`attachments`、`note`：仅带起草要求的 `reply` 可衔接回复预览，仅有本封附件时支持 `attachments`，其他值降为文字提醒。总结生成本身不执行建议；用户点击后才请求相应操作，回复仍先预览、使用后创建草稿、发送前确认。模型不能通过建议引入发送、删除等任意操作。
+
+`DefaultPrompts.json` 更新总结及附件理解默认提示词。启动时只替换与 0.0.7 及以前默认值完全相同的配置，保留自定义内容、模型地址、超时与其他设置。已生成的总结不自动重写，重新生成时使用当前提示词。

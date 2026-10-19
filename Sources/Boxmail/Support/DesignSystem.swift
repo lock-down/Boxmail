@@ -5,16 +5,28 @@ import SwiftUI
 typealias ViewState<Value> = SwiftUI.State<Value>
 
 enum Palette {
-  static let blue = Color(hex: 0x3567AF), blueSoft = Color(hex: 0xEAF0F9)
+  static let blue = Color(hex: 0x3567AF), blueSoft = Color(hex: 0xEBF1FA)
   static let accent = blue, accentSoft = blueSoft
-  static let chrome = Color(hex: 0xF5F7FA), sidebar = Color(hex: 0xF1F4F8),
-    canvas = Color(hex: 0xF7F9FC), border = Color(hex: 0xDCE2EB), softBorder = Color(hex: 0xEBEFF5)
-  static let ink = Color(hex: 0x202A3B), muted = Color(hex: 0x637086),
+  static let chrome = Color(hex: 0xF8F9FB), sidebar = Color(hex: 0xF3F5F8),
+    canvas = Color(hex: 0xF7F8FA), paper = Color.white,
+    border = Color(hex: 0xD8DFE8), softBorder = Color(hex: 0xE9EDF2)
+  static let ink = Color(hex: 0x232D3D), muted = Color(hex: 0x606E82),
     success = Color(hex: 0x28745B), amber = Color(hex: 0x98651F)
 }
 enum UILayout {
   static let sidebar: CGFloat = 216
   static let reading: CGFloat = 860
+  static let document: CGFloat = 920
+  static let pageInset: CGFloat = 28
+  static let radius: CGFloat = 12
+}
+enum UIType {
+  static let title = Font.system(size: 24, weight: .semibold)
+  static let heading = Font.system(size: 17, weight: .semibold)
+  static let section = Font.system(size: 14, weight: .semibold)
+  static let body = Font.system(size: 13)
+  static let caption = Font.system(size: 12)
+  static let small = Font.system(size: 11)
 }
 extension Color {
   init(hex: UInt32) {
@@ -46,13 +58,15 @@ struct ControlFeedback: ButtonStyle {
           RoundedRectangle(cornerRadius: corner).fill(
             configuration.isPressed
               ? Palette.ink.opacity(filled ? 0.16 : 0.08)
-              : hovered && enabled ? Palette.ink.opacity(filled ? 0.07 : 0.035) : .clear
+              : hovered && enabled
+                ? (selected ? Palette.blue : Palette.ink).opacity(filled ? 0.08 : 0.045) : .clear
           ).allowsHitTesting(false)
         }
+        .scaleEffect(configuration.isPressed && filled && !reduceMotion ? 0.98 : 1)
         .opacity(enabled ? 1 : 0.45)
         .onHover { hovered = $0 }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.13), value: hovered)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.09), value: configuration.isPressed)
+        .animation(UIMotion.feedback(reduceMotion), value: hovered)
+        .animation(UIMotion.feedback(reduceMotion), value: configuration.isPressed)
     }
   }
 }
@@ -74,12 +88,8 @@ struct ActionButton: View {
         .foregroundStyle(filled ? .white : kind == .softAI ? Palette.accent : Palette.ink)
         .padding(.horizontal, 12).frame(height: 32)
         .background(
-          filled ? Palette.blue : kind == .softAI ? Palette.accentSoft : .white,
+          filled ? Palette.blue : kind == .softAI ? Palette.accentSoft : .clear,
           in: RoundedRectangle(cornerRadius: 7)
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: 7).stroke(
-            filled ? .clear : kind == .softAI ? Palette.blue.opacity(0.15) : Palette.border)
         )
         .contentShape(RoundedRectangle(cornerRadius: 7))
     }.buttonStyle(ControlFeedback(filled: filled)).focused($focused)
@@ -94,12 +104,19 @@ struct IconButton: View {
   let icon: String
   let help: String
   var color: Color = Palette.muted
+  var size: CGFloat = 32
+  var active = false
   let action: () -> Void
   @FocusState private var focused: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     Button(action: action) {
       Image(systemName: icon).font(.system(size: 14, weight: .regular)).foregroundStyle(color)
-        .frame(width: 32, height: 32).contentShape(RoundedRectangle(cornerRadius: 7))
+        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+        .symbolEffect(.bounce, value: active && !reduceMotion)
+        .symbolEffectsRemoved(reduceMotion)
+        .frame(width: size, height: size).contentShape(RoundedRectangle(cornerRadius: 7))
+        .animation(UIMotion.feedback(reduceMotion), value: icon)
     }.buttonStyle(ControlFeedback()).focused($focused)
       .overlay(
         RoundedRectangle(cornerRadius: 8).stroke(focused ? Palette.blue : .clear, lineWidth: 2)
@@ -131,9 +148,9 @@ struct ChoiceMenu<Content: View>: View {
         Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium))
           .foregroundStyle(Palette.muted)
       }.foregroundStyle(Palette.ink).padding(.horizontal, 10).frame(height: 32)
-        .background(.white, in: RoundedRectangle(cornerRadius: 7))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Palette.border))
+        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7))
     }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+      .controlFocus()
       .help(help.isEmpty ? title : help).accessibilityLabel(help.isEmpty ? title : help)
   }
 }
@@ -147,6 +164,7 @@ struct FilterButton: View {
   var compact = false
   let action: () -> Void
   @FocusState private var focused: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     Button(action: action) {
       Text(title).font(.system(size: compact ? 11 : 12, weight: selected ? .semibold : .regular))
@@ -159,13 +177,14 @@ struct FilterButton: View {
         RoundedRectangle(cornerRadius: 7).stroke(focused ? Palette.blue : .clear, lineWidth: 2)
       )
       .accessibilityAddTraits(selected ? .isSelected : [])
+      .animation(UIMotion.selection(reduceMotion), value: selected)
   }
 }
 struct Tag: View {
   var text: String
   var ai = false
   var body: some View {
-    Text(text).font(.system(size: 10, weight: .medium)).lineLimit(1)
+    Text(text).font(.system(size: 11, weight: .medium)).lineLimit(1)
       .foregroundStyle(ai ? Palette.accent : Palette.muted).padding(.horizontal, 7).padding(
         .vertical, 3
       )
@@ -188,13 +207,10 @@ struct EmptyState: View {
   var icon = "tray"
   var body: some View {
     VStack(spacing: 12) {
-      Image(systemName: icon).font(.system(size: 27, weight: .light)).foregroundStyle(Palette.muted)
-        .frame(width: 66, height: 66).background(
-          Palette.sidebar, in: RoundedRectangle(cornerRadius: 20)
-        )
-        .padding(.bottom, 4)
-      Text(title).font(.system(size: 17, weight: .semibold))
-      Text(subtitle).font(.system(size: 12)).foregroundStyle(Palette.muted).lineSpacing(4)
+      Image(systemName: icon).font(.system(size: 32, weight: .light)).foregroundStyle(Palette.muted)
+        .frame(height: 42).padding(.bottom, 8).accessibilityHidden(true)
+      Text(title).font(UIType.heading)
+      Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(5)
         .multilineTextAlignment(.center).frame(maxWidth: 340)
     }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
   }
@@ -204,14 +220,15 @@ struct PageHeading: View {
   let subtitle: String
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
-      Text(title).font(.system(size: 23, weight: .semibold)).tracking(-0.4)
-      Text(subtitle).font(.system(size: 12)).foregroundStyle(Palette.muted).lineSpacing(3)
+      Text(title).font(UIType.title).tracking(-0.4)
+      Text(subtitle).font(UIType.body).foregroundStyle(Palette.muted).lineSpacing(4)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 }
 extension View {
   func workspacePage() -> some View {
-    frame(maxWidth: .infinity, alignment: .leading).padding(28)
+    frame(maxWidth: .infinity, alignment: .leading).padding(UILayout.pageInset)
   }
 }
 struct SectionCard<Content: View>: View {
@@ -221,13 +238,15 @@ struct SectionCard<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack(spacing: 9) {
-        if !icon.isEmpty { Image(systemName: icon).foregroundStyle(Palette.muted).frame(width: 18) }
-        Text(title).font(.system(size: 14, weight: .semibold))
+        if !icon.isEmpty {
+          Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Palette.muted)
+            .frame(width: 18).accessibilityHidden(true)
+        }
+        Text(title).font(UIType.section)
       }
       content()
     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-      .background(.white, in: RoundedRectangle(cornerRadius: 10))
-      .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.softBorder))
+      .background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
   }
 }
 func displayTime(_ iso: String) -> String {

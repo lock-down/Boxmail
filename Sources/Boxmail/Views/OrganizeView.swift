@@ -6,6 +6,7 @@ struct OrganizeView: View {
   @ViewState<String> private var scope = "unclassified"
   @ViewState<Int> private var limit = 50
   @ViewState<String?> private var category: String?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private let categories = ["工作项目", "订阅资讯", "账单票据", "社交通知", "个人往来", "未分类"]
   var latest: AgentJob? { store.latestOrganization }
   var inbox: [MailMessage] { store.accountMessages.filter { $0.folder == "inbox" } }
@@ -22,8 +23,7 @@ struct OrganizeView: View {
           PageHeading(title: "智能整理", subtitle: "按主题整理收件箱，确认建议后再应用分类")
           Spacer()
           Label(store.currentAccount?.email ?? "当前账户", systemImage: "tray")
-            .font(.system(size: 11)).foregroundStyle(Palette.muted).padding(9)
-            .background(.white, in: RoundedRectangle(cornerRadius: 7))
+            .font(UIType.caption).foregroundStyle(Palette.muted).padding(.top, 6)
         }
         VStack(alignment: .leading, spacing: 15) {
           HStack(spacing: 18) {
@@ -44,8 +44,7 @@ struct OrganizeView: View {
           }
           Text(hasReview ? "先确认已有建议，或继续补齐未完成的邮件。" : "分批在后台分析，整理期间可以继续阅读和回复邮件。")
             .font(.system(size: 11)).foregroundStyle(Palette.muted)
-        }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 10))
-          .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.softBorder))
+        }.padding(20).background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
         if let error = store.organizeError {
           Label(error, systemImage: "exclamationmark.circle").font(.system(size: 12))
             .foregroundStyle(Palette.amber)
@@ -99,15 +98,15 @@ struct OrganizeView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 128))], spacing: 8) {
           ForEach(categories, id: \.self) { value in
             Button {
-              category = category == value ? nil : value
+              withAnimation(UIMotion.selection(reduceMotion)) { category = category == value ? nil : value }
             } label: {
               HStack {
                 Image(systemName: value == "账单票据" ? "doc.text" : "folder").foregroundStyle(
-                  Palette.accent)
+                  category == value ? Palette.accent : Palette.muted).font(.system(size: 13))
                 Text(value).font(.system(size: 12, weight: .medium))
                 Spacer()
                 Text("\(inbox.filter { $0.category == value }.count)").font(
-                  .system(size: 14, weight: .semibold)
+                  .system(size: 12, weight: .medium)
                 ).monospacedDigit()
               }.padding(.horizontal, 12).frame(height: 42).frame(maxWidth: .infinity).contentShape(
                 Rectangle()
@@ -116,10 +115,8 @@ struct OrganizeView: View {
                 category == value ? Palette.accentSoft : .white,
                 in: RoundedRectangle(cornerRadius: 8)
               )
-              .overlay(
-                RoundedRectangle(cornerRadius: 8).stroke(
-                  category == value ? Palette.accent.opacity(0.3) : Palette.border))
             }.buttonStyle(ControlFeedback(selected: category == value))
+              .controlFocus()
               .accessibilityAddTraits(category == value ? .isSelected : [])
           }
         }
@@ -138,7 +135,7 @@ struct OrganizeView: View {
                 Text(displayTime(mail.date)).font(.system(size: 10)).foregroundStyle(Palette.muted)
                   .frame(width: 80, alignment: .trailing)
               }.foregroundStyle(Palette.ink).padding(16).contentShape(Rectangle())
-            }.buttonStyle(ControlFeedback(corner: 0))
+            }.buttonStyle(ControlFeedback(corner: 0)).controlFocus(corner: 0)
             Divider().overlay(Palette.softBorder)
           }
           if filtered.isEmpty {
@@ -177,9 +174,11 @@ struct OrganizeView: View {
           ProgressView(value: Double(progress.completed), total: Double(max(1, progress.total)))
             .tint(
               Palette.accent)
+            .animation(UIMotion.selection(reduceMotion), value: progress.completed)
         }
         HStack {
           Text("已分析 \(progress.completed) / \(progress.total) 封")
+            .contentTransition(reduceMotion ? .identity : .numericText())
           Spacer()
           Text(running ? "正在分析第 \(max(1, progress.batch)) 批" : "建议保存在本机")
         }.font(.system(size: 11)).monospacedDigit().foregroundStyle(Palette.muted)

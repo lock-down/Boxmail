@@ -80,9 +80,9 @@ async function apiFixture(t) {
 async function mockAI(t, respond) {
   const requests = [];
   const server = http.createServer(async (req, res) => {
-    let data = '';
-    for await (const c of req) data += c;
-    const body = JSON.parse(data);
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     requests.push(body);
     res.setHeader('Content-Type', 'application/json');
     res.end(
@@ -203,6 +203,24 @@ test('AI summary produces persisted todos and sends untrusted mail as user data'
   assert.equal(ai.requests[0].temperature, undefined);
   assert.equal(ai.requests[0].max_output_tokens, undefined);
 });
+test('compact summary contract persists next steps without executing suggested actions', async t => {
+  const repo = await fixture(t);
+  repo.put('message', message);
+  const ai = await mockAI(t, () => ({
+    overview: '路线图评审需要在周五前确认排期。', todos: [{ title: '确认排期', due: '周五' }],
+    nextSteps: [{ title: '起草排期回复', action: 'reply', prompt: '起草确认排期的回复，不声称已经确认。' }],
+  }));
+  const job = await runAgent(repo, { task: 'summary', messageId: message.id, config: ai.config });
+  const summary = repo.get('message', message.id).summary;
+  assert.equal(summary.overview, '路线图评审需要在周五前确认排期。');
+  assert.equal(summary.nextSteps[0].action, 'reply');
+  assert.equal(job.status, 'completed');
+  assert.match(ai.requests[0].instructions, /内容概要、待处理、您可继续/);
+  assert.match(ai.requests[0].instructions, /"overview"/);
+  assert.equal(repo.list('draft').length, 0);
+  assert.equal(repo.list('job').length, 1);
+});
+
 test('AI replies create reviewable drafts without sending', async (t) => {
   const repo = await fixture(t);
   repo.put('message', message);

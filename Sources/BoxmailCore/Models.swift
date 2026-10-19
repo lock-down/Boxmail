@@ -44,11 +44,20 @@ public struct MailMessage: Codable, Identifiable, Hashable {
   public var bodyVersion: Int?
   public var uid: Int?
   public var translation: String?
+  public var replyTo, inReplyTo: String?
+  public var references: [String]?
+  public var bodyLoaded: Bool?
 }
 public struct MailSummary: Codable, Hashable {
   public var points: [String]
   public var todos: [MailTodo]
   public var keyInfo: [KeyInfo]
+  public var overview: String?
+  public var nextSteps: [SummaryNextStep]?
+}
+public struct SummaryNextStep: Codable, Hashable, Identifiable {
+  public var title, action, prompt: String
+  public var id: String { action + "\u{1f}" + title }
 }
 public struct MailTodo: Codable, Identifiable, Hashable {
   public var id, title, due: String
@@ -59,6 +68,9 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
   public var id, messageId, name, contentType, path, text, parseError, date: String
   public var size: Int
   public var analysis: String?
+  public var hasExtractedText, hasAnalysis: Bool?
+  public var textPreview, analysisPreview: String?
+  public var isAnalyzed: Bool { hasAnalysis == true || analysis != nil }
   public var isImage: Bool {
     ["jpg", "jpeg", "png", "gif", "webp"].contains((name as NSString).pathExtension.lowercased())
       || ["image/jpeg", "image/png", "image/gif", "image/webp"].contains(contentType)
@@ -66,14 +78,17 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
   public var isPDF: Bool {
     (name as NSString).pathExtension.lowercased() == "pdf" || contentType == "application/pdf"
   }
+  public var isSpreadsheet: Bool { (name as NSString).pathExtension.lowercased() == "xlsx" }
   public var canAnalyze: Bool {
-    isImage || isPDF || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    isImage || isPDF || hasExtractedText == true
+      || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 }
 public struct MailDraft: Codable, Identifiable, Hashable {
   public var id, accountId, to, cc, bcc, subject, body, status, updatedAt: String
   public var attachmentIds: [String]
   public var inReplyTo, sourceMessageId: String?
+  public var references: [String]?
   public init(accountId: String, to: String = "", subject: String = "", body: String = "") {
     id = UUID().uuidString
     self.accountId = accountId
@@ -114,6 +129,13 @@ public struct AgentJob: Codable, Identifiable {
   public var preview: Bool?
   public var result: AgentResult?
   public var progress: OrganizeProgress?
+  public var attachmentItems: [AttachmentBatchItem]?
+}
+public struct AttachmentBatchItem: Codable, Identifiable {
+  public var id, name, status: String
+  public var error: String?
+  public var isAnalyzed: Bool { ["completed", "existing"].contains(status) }
+  public var isFinished: Bool { isAnalyzed || ["failed", "unsupported"].contains(status) }
 }
 public struct OrganizeProgress: Codable {
   public var total, completed, failed, batchSize, batch: Int
@@ -153,6 +175,27 @@ public struct AppSnapshot: Codable {
   public var settings: SettingsData
   public var events: [AuditEvent]
   public var pendingMutations: Int
+  public var sync: MailSyncSnapshot?
+}
+public struct MailPage: Codable {
+  public var messages: [MailMessage]
+  public var total: Int
+  public var nextOffset: Int?
+}
+public struct MailSyncFolder: Codable, Identifiable {
+  public var id, accountId, folder, status: String
+  public var total, downloaded, remaining: Int?
+  public var hasMore: Bool?
+  public var lastError: String?
+}
+public struct MailSyncResult: Codable {
+  public var accountId, status: String
+  public var error: String?
+}
+public struct MailSyncSnapshot: Codable {
+  public var runningAccounts: [String]
+  public var folders: [MailSyncFolder]
+  public var results: [MailSyncResult]
 }
 public enum MailDestination: String, CaseIterable, Identifiable {
   case inbox, starred, drafts, sent, attachments, trash, summary, replies, organize, analysis,

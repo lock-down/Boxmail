@@ -1,16 +1,21 @@
 import AppKit
 import BoxmailCore
+import PDFKit
 import SwiftUI
 
 struct AttachmentsView: View {
   @Bindable var store: MailStore
   @ViewState<String> private var query = ""
   @ViewState<String> private var type = "全部"
+  @ViewState<Set<String>> private var matchingIDs = []
+  @ViewState<String> private var matchedQuery = ""
+  @ViewState<String?> private var queryError: String?
+  @ViewState<Bool> private var searching = false
+  var searchKey: String { store.accountId + "\u{1f}" + query }
   var filtered: [MailAttachment] {
     store.accountAttachments.filter { a in
-      (query.isEmpty
-        || (a.name + " " + a.text + " " + (a.analysis ?? "")).localizedCaseInsensitiveContains(
-          query))
+      (query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || (matchedQuery == searchKey && matchingIDs.contains(a.id)))
         && (type == "全部"
           || (type == "图片" ? a.isImage : a.name.lowercased().hasSuffix(type.lowercased())))
     }
@@ -20,7 +25,7 @@ struct AttachmentsView: View {
       HStack {
         PageHeading(title: "附件中心", subtitle: "查找、预览和下载附件，在原邮件中使用 AI 理解")
         Spacer()
-        Tag(text: "\(store.accountAttachments.filter{$0.analysis != nil}.count) 个 AI 已解析", ai: true)
+        Tag(text: "\(store.accountAttachments.filter(\.isAnalyzed).count) 个 AI 已解析", ai: true)
       }
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 16) {
@@ -38,39 +43,43 @@ struct AttachmentsView: View {
         Spacer()
         Text("支持 PDF、文档、表格和图片理解").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }
+      if searching { ProgressView("正在搜索附件内容…").controlSize(.small) }
+      if let queryError {
+        HStack {
+          Text(queryError).font(.system(size: 12)).foregroundStyle(Palette.amber)
+          ActionButton(title: "重试", icon: "arrow.clockwise") { Task { await searchAttachments() } }
+        }
+      }
       ScrollView {
         LazyVGrid(
-          columns: [GridItem(.adaptive(minimum: 260, maximum: 350), spacing: 16)], spacing: 16
+          columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 16
         ) {
           ForEach(filtered) { attachment in
             VStack(alignment: .leading, spacing: 14) {
               HStack {
-                Image(
-                  systemName: attachment.isImage
-                    ? "photo" : attachment.isPDF ? "doc.richtext" : "doc.text"
-                ).font(.system(size: 24)).foregroundStyle(Palette.blue).frame(width: 40, height: 44)
-                  .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 8))
+                AttachmentIcon(attachment: attachment, size: 27)
                 Spacer()
-                if attachment.analysis != nil { Tag(text: "AI 已解析", ai: true) }
+                if attachment.isAnalyzed { Tag(text: "AI 已解析", ai: true) }
               }
-              Text(attachment.name).font(.system(size: 13, weight: .semibold)).lineLimit(2)
+              Text(attachment.name).font(.system(size: 14, weight: .semibold)).lineLimit(2)
+                .frame(minHeight: 36, alignment: .topLeading)
                 .help(attachment.name)
               Text(store.messages.first { $0.id == attachment.messageId }?.subject ?? "邮件附件").font(
                 .system(size: 11)
               ).foregroundStyle(Palette.muted).lineLimit(1)
-              Text(
-                attachment.analysis
+              Text(AITextStyle.preview(
+                attachment.analysis ?? attachment.analysisPreview ?? attachment.textPreview
                   ?? (attachment.text.isEmpty
                     ? (attachment.isImage
                       ? "图片可直接交给模型理解" : attachment.isPDF ? "PDF 页面可直接交给模型理解" : "可打开原文件查看")
                     : attachment.text.replacingOccurrences(of: "\n", with: " "))
-              ).font(.system(size: 12)).foregroundStyle(Palette.muted).lineLimit(3).frame(
-                height: 50, alignment: .top)
+              )).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(3).lineSpacing(4).frame(
+                height: 56, alignment: .top)
               Text(fileSize(attachment.size)).font(.system(size: 11)).monospacedDigit()
                 .foregroundStyle(Palette.muted)
               Divider().overlay(Palette.softBorder)
               HStack(spacing: 7) {
-                ActionButton(title: "预览", icon: "doc.text") {
+                ActionButton(title: "预览", icon: "doc.text", kind: .softAI) {
                   store.previewAttachment = attachment
                 }
                 if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
@@ -81,46 +90,68 @@ struct AttachmentsView: View {
                 Spacer(minLength: 0)
                 IconButton(icon: "arrow.down.to.line", help: "下载附件") { store.download(attachment) }
               }
-            }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 10)).overlay(
-              RoundedRectangle(cornerRadius: 10).stroke(Palette.border))
+            }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+              .background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
           }
         }
-        if filtered.isEmpty {
+        if filtered.isEmpty && !searching && queryError == nil {
           EmptyState(title: "没有匹配的附件", subtitle: "同步邮箱后，邮件附件会在这里集中显示。", icon: "paperclip").frame(
             height: 300)
         }
       }
     }.workspacePage().background(Palette.canvas)
+      .task(id: searchKey) { await searchAttachments() }
+  }
+  private func searchAttachments() async {
+    let key = searchKey
+    queryError = nil
+    guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      matchingIDs = []
+      matchedQuery = key
+      searching = false
+      return
+    }
+    searching = true
+    defer { if key == searchKey { searching = false } }
+    do {
+      try await Task.sleep(for: .milliseconds(180))
+      var parameters = URLComponents()
+      parameters.queryItems = [
+        URLQueryItem(name: "accountId", value: store.accountId),
+        URLQueryItem(name: "q", value: query),
+      ]
+      let result: AttachmentSearchResponse = try await BackendService.shared.request(
+        "/attachments/search?\(parameters.percentEncodedQuery ?? "")")
+      try Task.checkCancellation()
+      guard key == searchKey else { return }
+      matchingIDs = Set(result.ids)
+      matchedQuery = key
+    } catch is CancellationError {
+    } catch { if key == searchKey { queryError = error.localizedDescription } }
   }
   private var searchField: some View {
-    HStack(spacing: 9) {
-      Image(systemName: "magnifyingglass").foregroundStyle(Palette.muted)
-      TextField("搜索附件名称或内容", text: $query).textFieldStyle(.plain).font(.system(size: 12))
-    }.padding(.horizontal, 12).frame(height: 34)
-      .background(.white, in: RoundedRectangle(cornerRadius: 7))
-      .overlay(RoundedRectangle(cornerRadius: 7).stroke(Palette.border))
+    SearchField(placeholder: "搜索附件名称或内容", text: $query)
   }
   private var typeFilters: some View {
-    HStack(spacing: 4) {
-      ForEach(["全部", "PDF", "DOCX", "XLSX", "TXT", "图片"], id: \.self) { value in
-        FilterButton(title: value, selected: type == value, compact: true) { type = value }
-      }
-    }.fixedSize()
+    FilterBar(values: ["全部", "PDF", "DOCX", "XLSX", "TXT", "图片"], selection: $type, compact: true)
   }
 }
 struct AttachmentPreviewView: View {
   @Bindable var store: MailStore
   let attachmentId: String
   @Environment(\.dismiss) private var dismiss
-  @ViewState<NSImage?> private var previewImage: NSImage?
+  @ViewState<AttachmentPreviewFile?> private var previewFile: AttachmentPreviewFile?
+  @ViewState<String?> private var workbookHTML: String?
+  @ViewState<Bool> private var previewLoading = false
   @ViewState<String> private var previewError = ""
-  @ViewState<String> private var tab = "analysis"
+  @ViewState<String> private var tab = "原文件预览"
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var attachment: MailAttachment? { store.attachments.first { $0.id == attachmentId } }
   var body: some View {
     VStack(spacing: 0) {
       if let attachment {
         HStack {
-          Image(systemName: "doc.text").foregroundStyle(Palette.blue)
+          AttachmentIcon(attachment: attachment, size: 20)
           Text(attachment.name).font(.system(size: 15, weight: .semibold))
             .lineLimit(1).truncationMode(.middle).help(attachment.name)
           Text(fileSize(attachment.size)).font(.system(size: 11)).foregroundStyle(Palette.muted)
@@ -133,9 +164,8 @@ struct AttachmentPreviewView: View {
           IconButton(icon: "xmark", help: "关闭") { dismiss() }
         }.padding(20)
         Divider()
-        HStack(spacing: 6) {
-          FilterButton(title: "AI 理解", selected: tab == "analysis") { tab = "analysis" }
-          FilterButton(title: "原文内容", selected: tab == "original") { tab = "original" }
+        HStack(spacing: 12) {
+          FilterBar(values: ["原文件预览", "AI 理解"], selection: $tab)
           Spacer()
           if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
             Text("来自：\(mail.subject)").font(.system(size: 11)).foregroundStyle(Palette.muted)
@@ -147,66 +177,65 @@ struct AttachmentPreviewView: View {
           }
         }.padding(.horizontal, 20).padding(.vertical, 12).background(Palette.chrome)
         Divider()
-        ScrollView {
-          VStack(alignment: .leading, spacing: 20) {
-            if tab == "analysis" {
-              if let analysis = attachment.analysis {
-                HStack {
-                  Label("附件理解", systemImage: "sparkles").font(.system(size: 17, weight: .semibold))
-                  Spacer()
-                  IconButton(icon: "doc.on.doc", help: "复制理解结果") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(analysis, forType: .string)
+        if tab == "原文件预览" {
+          originalPreview(attachment)
+        } else {
+          ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+              if tab == "AI 理解" {
+                if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
+                  HStack {
+                    ActionButton(
+                      title: attachment.isAnalyzed ? "重新理解这个附件" : "理解这个附件",
+                      icon: "sparkles", kind: .ai
+                    ) { store.generate(task: "attachment", message: mail, attachment: attachment) }
+                      .disabled(
+                        !attachment.canAnalyze || store.busy.contains("agent")
+                          || store.attachmentBatch(for: mail)?.status == "running")
+                    if store.attachmentBatch(for: mail)?.status == "running" {
+                      Text("正在批量理解本封邮件附件…").font(.system(size: 11)).foregroundStyle(Palette.muted)
+                    }
+                    Spacer()
+                  }
+                  if let error = store.mailAIErrors[mail.id] {
+                    Text(error).font(.system(size: 12)).foregroundStyle(Palette.amber)
                   }
                 }
-                AnalysisDocumentView(text: analysis)
-              } else {
-                EmptyState(
-                  title: "还没有理解结果", subtitle: "回到原邮件后，可结合来信理解这个附件。",
-                  icon: "doc.text.magnifyingglass")
+                if let analysis = attachment.analysis {
+                  HStack {
+                    Label("附件理解", systemImage: "sparkles").font(
+                      .system(size: 17, weight: .semibold))
+                    Spacer()
+                    CopyButton(help: "复制理解结果") {
+                      NSPasteboard.general.clearContents()
+                      NSPasteboard.general.setString(analysis, forType: .string)
+                    }
+                  }
+                  AnalysisDocumentView(text: analysis).transition(UIMotion.reveal(reduceMotion))
+                } else {
+                  EmptyState(
+                    title: "还没有理解结果", subtitle: "可理解这个附件，或在原邮件中一键批量理解全部附件。",
+                    icon: "doc.text.magnifyingglass")
+                }
               }
-            } else {
-              HStack {
-                Text(attachment.isImage ? "图片预览" : "附件原文").font(
-                  .system(size: 17, weight: .semibold))
-                Spacer()
-                Tag(text: attachment.isImage ? "原始图片" : "本机提取文本")
-              }
-              if attachment.isImage, let image = previewImage {
-                Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 580)
-              } else if attachment.isImage && previewError.isEmpty {
-                ProgressView("正在加载图片…")
-              } else {
-                Text(
-                  attachment.text.isEmpty
-                    ? (attachment.isPDF
-                      ? "可打开原文件查看 PDF 全部页面，或回到邮件中使用 AI 理解。"
-                      : previewError.isEmpty ? "可打开原文件查看完整内容。" : previewError)
-                    : attachment.text.replacingOccurrences(
-                      of: "\\n(?:[ \\t]*\\n){2,}", with: "\n\n", options: .regularExpression)
-                )
-                .font(.system(size: 13)).lineSpacing(6).textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true).frame(
-                  maxWidth: .infinity, alignment: .leading)
-              }
-            }
-          }.frame(maxWidth: 900, alignment: .leading).padding(28).frame(
-            maxWidth: .infinity, alignment: .top)
+            }.frame(maxWidth: UILayout.document, alignment: .leading).padding(28).frame(
+              maxWidth: .infinity, alignment: .top)
+          }
         }
       }
     }.frame(width: 1080, height: 720).background(.white).tint(Palette.blue)
+      .animation(UIMotion.disclosure(reduceMotion), value: tab)
       .task(id: attachmentId) {
-        tab = attachment?.analysis == nil ? "original" : "analysis"
-        guard attachment?.isImage == true else { return }
-        do {
-          let file: FileResponse = try await BackendService.shared.request(
-            "/attachments/\(attachmentId)")
-          guard let data = Data(base64Encoded: file.content), let image = NSImage(data: data) else {
-            previewError = "图片预览不可用，可打开原文件查看。"
-            return
-          }
-          previewImage = image
-        } catch { previewError = "图片预览加载失败，可打开原文件查看。" }
+        tab = "原文件预览"
+        await store.loadAttachment(attachmentId)
+      }
+      .task(id: "\(attachmentId)-\(tab)") {
+        guard tab == "原文件预览", previewFile == nil, workbookHTML == nil else { return }
+        await loadOriginal()
+      }
+      .onDisappear {
+        previewFile?.remove()
+        previewFile = nil
       }
       .alert(
         "解析未完成",
@@ -217,4 +246,61 @@ struct AttachmentPreviewView: View {
         Text(store.error ?? "")
       }
   }
+  @ViewBuilder private func originalPreview(_ attachment: MailAttachment) -> some View {
+    if let workbookHTML {
+      WorkbookAttachmentView(html: workbookHTML).frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else if let previewFile {
+      OriginalAttachmentView(url: previewFile.url, isPDF: attachment.isPDF)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .id(previewFile.url)
+      HStack {
+        Text(attachment.isPDF ? "PDF 原文件 · 可滚动查看全部页面" : "系统原文件预览 · 保留文档格式、表格与图片")
+          .font(.system(size: 11)).foregroundStyle(Palette.muted)
+        Spacer()
+        Text("特殊格式可使用上方“打开原文件”查看").font(.system(size: 11)).foregroundStyle(Palette.muted)
+      }.padding(.horizontal, 20).padding(.vertical, 10).background(Palette.chrome)
+    } else if previewLoading {
+      ProgressView("正在加载原文件…").frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else {
+      VStack(spacing: 14) {
+        EmptyState(title: "暂时无法预览原文件", subtitle: previewError, icon: "doc")
+        ActionButton(title: "重新加载", icon: "arrow.clockwise") { Task { await loadOriginal() } }
+      }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+  private func loadOriginal() async {
+    previewLoading = true
+    previewError = ""
+    defer { previewLoading = false }
+    do {
+      if attachment?.isSpreadsheet == true {
+        let preview: WorkbookPreviewResponse = try await BackendService.shared.request(
+          "/attachments/\(attachmentId)/preview")
+        try Task.checkCancellation()
+        workbookHTML = preview.html
+        return
+      }
+      let file: FileResponse = try await BackendService.shared.request(
+        "/attachments/\(attachmentId)")
+      try Task.checkCancellation()
+      guard let data = Data(base64Encoded: file.content) else {
+        throw BackendService.shared.failure("原文件数据无效，请重新下载附件。")
+      }
+      let saved = try AttachmentPreviewFile(name: file.name, data: data)
+      if attachment?.isPDF == true {
+        guard let pdf = PDFDocument(url: saved.url), !pdf.isLocked else {
+          saved.remove()
+          throw BackendService.shared.failure("PDF 已加密或文件损坏，请使用“打开原文件”在原应用中查看。")
+        }
+      }
+      if Task.isCancelled {
+        saved.remove()
+        return
+      }
+      previewFile = saved
+    } catch is CancellationError {
+    } catch { previewError = error.localizedDescription }
+  }
 }
+private struct WorkbookPreviewResponse: Decodable { let html: String }
+private struct AttachmentSearchResponse: Decodable { let ids: [String] }

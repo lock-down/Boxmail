@@ -8,6 +8,7 @@ struct MailReplyView: View {
   @ViewState<ReplyPreset?> private var selectedPreset: ReplyPreset?
   @ViewState<String> private var request = ""
   @ViewState<Set<String>> private var hiddenPreviews = []
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var preview: AgentJob? {
     guard
       let latest = store.jobs.first(where: {
@@ -39,10 +40,9 @@ struct MailReplyView: View {
                 selectedPreset == preset ? Palette.accentSoft : .white,
                 in: RoundedRectangle(cornerRadius: 7)
               )
-              .overlay(
-                RoundedRectangle(cornerRadius: 7).stroke(
-                  selectedPreset == preset ? Palette.accent.opacity(0.3) : Palette.border))
           }.buttonStyle(ControlFeedback(selected: selectedPreset == preset)).help(preset.detail)
+            .controlFocus()
+            .animation(UIMotion.selection(reduceMotion), value: selectedPreset == preset)
             .accessibilityAddTraits(selectedPreset == preset ? .isSelected : [])
             .disabled(store.busy.contains("agent"))
         }
@@ -53,7 +53,7 @@ struct MailReplyView: View {
         Spacer()
         if selectedPreset != nil {
           Button("改为自定义") { selectedPreset = nil }
-            .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(Palette.accent)
+            .buttonStyle(.plain).font(UIType.small).foregroundStyle(Palette.accent)
             .disabled(store.busy.contains("agent"))
         }
       }
@@ -63,7 +63,7 @@ struct MailReplyView: View {
       )
       .textFieldStyle(.plain).lineLimit(2...4).font(.system(size: 12)).padding(10)
       .background(.white, in: RoundedRectangle(cornerRadius: 6))
-      .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.border))
+      .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.softBorder))
       HStack {
         ActionButton(title: "生成回复预览", icon: "sparkles", kind: .ai) { generate() }
           .disabled(
@@ -81,7 +81,7 @@ struct MailReplyView: View {
             )
             .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.accent)
             Spacer()
-            IconButton(icon: "doc.on.doc", help: "复制回复预览") {
+            CopyButton(help: "复制回复预览") {
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(result.body ?? "", forType: .string)
             }
@@ -101,9 +101,10 @@ struct MailReplyView: View {
               .disabled(store.busy.contains("agent"))
             Spacer(minLength: 0)
           }
-          Text("使用后可在草稿中继续编辑，发送前仍需确认。").font(.system(size: 10)).foregroundStyle(Palette.muted)
-        }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 8))
-          .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.border))
+          Text("使用后可在草稿中继续编辑，发送前仍需确认。").font(UIType.small).foregroundStyle(Palette.muted)
+        }.padding(.top, 16)
+          .overlay(alignment: .top) { Rectangle().fill(Palette.border).frame(height: 1) }
+          .transition(UIMotion.reveal(reduceMotion))
       }
       if !relatedDrafts.isEmpty {
         Text("本封邮件的 AI 回复草稿").font(.system(size: 11, weight: .medium)).foregroundStyle(
@@ -119,13 +120,21 @@ struct MailReplyView: View {
           }.padding(10).background(.white, in: RoundedRectangle(cornerRadius: 6))
         }
       }
-    }.onAppear {
-      if let latest = store.jobs.first(where: {
+    }.animation(UIMotion.disclosure(reduceMotion), value: preview?.id)
+      .onAppear {
+      if store.summaryReplyRequest?.messageId != message.id, let latest = store.jobs.first(where: {
         $0.task == "reply" && $0.preview == true && $0.messageId == message.id
           && $0.status == "completed"
       }) {
         selectedPreset = latest.replyPreset.flatMap(ReplyPreset.init(rawValue:))
       }
+    }.onChange(of: store.summaryReplyRequest?.id, initial: true) { _, _ in
+      if let request = store.summaryReplyRequest, request.messageId == message.id {
+        self.request = request.prompt
+        selectedPreset = nil
+      }
+    }.onDisappear {
+      if store.summaryReplyRequest?.messageId == message.id { store.summaryReplyRequest = nil }
     }
   }
   private func generate() {

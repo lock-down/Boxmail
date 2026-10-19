@@ -91,6 +91,8 @@ test('SMTP sends Chinese MIME through verified TLS exactly once after approval',
     body: '陈经理，您好。请在周五前确认。',
     attachmentIds: [],
     status: 'draft',
+    inReplyTo: '<previous@example.com>',
+    references: ['<root@example.com>', '<previous@example.com>'],
   });
   await assert.rejects(
     sendDraft(repo, 'd1', 'mail-app-password', false),
@@ -112,6 +114,8 @@ test('SMTP sends Chinese MIME through verified TLS exactly once after approval',
   assert.equal(parsed.subject, '排期确认');
   assert.match(parsed.text, /周五前确认/);
   assert.equal(parsed.bcc, undefined);
+  assert.equal(parsed.inReplyTo, '<previous@example.com>');
+  assert.deepEqual(parsed.references, ['<root@example.com>', '<previous@example.com>']);
   assert.equal(repo.get('draft', 'd1').status, 'sent');
   const again = await sendDraft(repo, 'd1', 'mail-app-password', true, {
     storeSent,

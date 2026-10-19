@@ -4,13 +4,10 @@ import { completion } from './responses.js';
 import { modelAttachment } from './attachments.js';
 import { REVIEWABLE } from './organizer.js';
 import { REPLY_PRESETS } from './reply-presets.js';
+import { buildReplyDraft } from './reply.js';
+import { summaryResult } from './summary.js';
 export { completion } from './responses.js';
 
-function strings(v) {
-  return Array.isArray(v)
-    ? v.filter((x) => typeof x === 'string').slice(0, 12)
-    : [];
-}
 export async function runAgent(repo, input) {
   const message = input.messageId ? repo.get('message', input.messageId) : null;
   if (input.messageId && !message) throw new ServiceError('邮件不存在', 404);
@@ -78,6 +75,7 @@ export async function runAgent(repo, input) {
     accountId: input.accountId || message?.accountId || null,
     messageId: input.messageId || (task === 'attachment' ? repo.get('attachment', input.attachmentId)?.messageId : null) || null,
     attachmentId: input.attachmentId || null,
+    ...(input.parentJobId ? { parentJobId: input.parentJobId } : {}),
     ...(task === 'reply' ? { replyPreset: input.replyPreset || null, preview: input.preview === true } : {}),
     createdAt: new Date().toISOString(),
     result: null,
@@ -85,6 +83,7 @@ export async function runAgent(repo, input) {
   };
   repo.put('job', job);
   try {
+    input.signal?.throwIfAborted();
     let images = [];
     if (task === 'attachment') {
       const prepared = await modelAttachment(repo, input.attachmentId);
@@ -95,33 +94,12 @@ export async function runAgent(repo, input) {
         context.pageOrder = '输入图片按照文档页码从第 1 页开始依次排列';
       }
     }
+    input.signal?.throwIfAborted();
     const result = await completion(input.config, input.apiKey, task, context, images,
-      { additionalInstructions: preset?.instruction, stream: true });
+      { additionalInstructions: preset?.instruction, stream: true, signal: input.signal });
+    input.signal?.throwIfAborted();
     if (task === 'summary') {
-      if (!strings(result.points).length)
-        throw new ServiceError('摘要格式不正确', 502);
-      const summary = {
-        points: strings(result.points),
-        todos: Array.isArray(result.todos)
-          ? result.todos
-              .filter((t) => typeof t.title === 'string')
-              .slice(0, 12)
-              .map((t) => ({
-                id: randomUUID(),
-                title: t.title,
-                due: String(t.due || ''),
-                done: false,
-              }))
-          : [],
-        keyInfo: Array.isArray(result.keyInfo)
-          ? result.keyInfo
-              .filter(
-                (x) =>
-                  typeof x.label === 'string' && typeof x.value === 'string',
-              )
-              .slice(0, 10)
-          : [],
-      };
+      const summary = summaryResult(result, message);
       const current = repo.get('message', message.id);
       if (!current)
         throw new ServiceError('邮件已移动，请在新文件夹中重新总结', 409);
@@ -132,7 +110,7 @@ export async function runAgent(repo, input) {
         throw new ServiceError('邮件草稿格式不正确', 502);
       job.result = { subject: result.subject, body: result.body };
       if (task === 'reply' && !job.preview) {
-        const draft = replyDraft(message, result);
+        const draft = replyDraft(message, result, repo.get('account', message.accountId));
         repo.put('draft', draft);
         job.result.draftId = draft.id;
       }
@@ -159,11 +137,15 @@ export async function runAgent(repo, input) {
       job.result = { items: [...unique.values()], previous: [] };
       job.status = 'needsApproval';
     } else {
-      if (typeof result.text !== 'string')
+      if (typeof result.text !== 'string' || !result.text.trim())
         throw new ServiceError('解析内容格式不正确', 502);
       job.result = { text: result.text };
       if (task === 'attachment') {
         const a = repo.get('attachment', input.attachmentId);
+        const current = repo.get('message', repo.get('job', job.id)?.messageId);
+        if (!a || (message && (!current?.attachmentIds.includes(a.id) || a.messageId !== current.id)))
+          throw new ServiceError('附件已移动或移除，请重新打开邮件后重试。', 409);
+        job.messageId = current?.id || job.messageId;
         repo.put('attachment', { ...a, analysis: result.text });
       } else if (task === 'translate') {
         const current = repo.get('message', message.id);
@@ -182,12 +164,8 @@ export async function runAgent(repo, input) {
     throw e;
   }
 }
-function replyDraft(message, result) {
-  return {
-    id: randomUUID(), accountId: message.accountId, to: message.senderEmail, cc: '', bcc: '',
-    subject: result.subject, body: result.body, attachmentIds: [], inReplyTo: message.messageId || '',
-    status: 'draft', updatedAt: new Date().toISOString(), sourceMessageId: message.id,
-  };
+function replyDraft(message, result, account) {
+  return buildReplyDraft(message, account, { subject: result.subject, body: result.body });
 }
 
 export function useReplyPreview(repo, id) {
@@ -203,7 +181,7 @@ export function useReplyPreview(repo, id) {
     }
     const message = repo.get('message', job.messageId);
     if (!message) throw new ServiceError('原邮件不存在，请重新打开邮件生成回复', 404);
-    const draft = replyDraft(message, job.result);
+    const draft = replyDraft(message, job.result, repo.get('account', message.accountId));
     repo.put('draft', draft);
     job.result.draftId = draft.id;
     repo.put('job', job);

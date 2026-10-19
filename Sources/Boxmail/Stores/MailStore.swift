@@ -1,5 +1,6 @@
 import AppKit
 import BoxmailCore
+import Network
 import Observation
 import SwiftUI
 
@@ -30,11 +31,36 @@ import SwiftUI
   var mailAIErrors: [String: String] = [:]
   var activeAIMessageId: String?
   var activeAIAttachmentId: String?
+  var summaryReplyRequest: SummaryReplyRequest?
+  var attachmentResultsMessageId: String?
   var organizeError: String?
+  var attachmentBatchErrors: [String: String] = [:]
+  var attachmentBatchPolling: Task<Void, Never>?
+  var pageMessages: [MailMessage] = []
+  var pageTotal = 0
+  var nextOffset: Int?
+  var pageKey = ""
+  var pageGeneration = UUID()
+  var listLoading = false
+  var listError: String?
+  var detailError: String?
+  var detailCache: [String: MailMessage] = [:]
+  var attachmentCache: [String: MailAttachment] = [:]
+  var detailGeneration = UUID()
+  var syncSnapshot: MailSyncSnapshot?
+  var pinnedMessageId: String?
+  var pinnedQueryKey = ""
+  var wakeObserver: NSObjectProtocol?
+  var networkMonitor: NWPathMonitor?
+  var lastNetworkSatisfied: Bool?
+  var externalPreviewFiles: [AttachmentPreviewFile] = []
   private var polling: Task<Void, Never>?
   private var organizePolling: Task<Void, Never>?
   var currentAccount: MailAccount? { accounts.first { $0.id == accountId } }
-  var selectedMessage: MailMessage? { messages.first { $0.id == selectedMessageId } }
+  var selectedMessage: MailMessage? {
+    guard let id = selectedMessageId else { return nil }
+    return detailCache[id] ?? messages.first { $0.id == id }
+  }
   var accountMessages: [MailMessage] { messages.filter { $0.accountId == accountId } }
   var unreadInboxMessages: [MailMessage] {
     accountMessages.filter { $0.folder == "inbox" && $0.unread }
@@ -44,30 +70,14 @@ import SwiftUI
     return attachments.filter { ids.contains($0.id) }
   }
   var filteredMessages: [MailMessage] {
-    accountMessages.filter { m in
-      let inFolder: Bool
-      if !search.isEmpty {
-        inFolder = true
-      } else {
-        switch destination {
-        case .starred: inFolder = m.starred && m.folder != "trash"
-        case .summary: inFolder = m.summary != nil && m.folder != "trash"
-        case .replies, .analysis: inFolder = m.folder == "inbox"
-        default: inFolder = m.folder == destination.rawValue
-        }
-      }
-      let searchable =
-        [m.subject, m.sender, m.senderEmail, m.body, m.category]
-        + m.attachmentIds.compactMap { id in
-          attachments.first { $0.id == id }.map {
-            $0.name + " " + $0.text + " " + ($0.analysis ?? "")
-          }
-        }
-      return inFolder
-        && (search.isEmpty || searchable.contains { $0.localizedCaseInsensitiveContains(search) })
-        && (filter != "未读" || m.unread) && (filter != "有附件" || !m.attachmentIds.isEmpty)
-        && (filter != "AI 已总结" || m.summary != nil)
+    guard pageKey == mailQueryKey else { return [] }
+    if pinnedQueryKey == mailQueryKey, let id = pinnedMessageId,
+      !pageMessages.contains(where: { $0.id == id }),
+      let message = messages.first(where: { $0.id == id })
+    {
+      return [message] + pageMessages
     }
+    return pageMessages
   }
   func load() async {
     do {
@@ -81,6 +91,7 @@ import SwiftUI
       }) {
         await syncAll(silent: true)
       }
+      startSyncMonitoring()
       polling = Task {
         while !Task.isCancelled {
           try? await Task.sleep(for: .seconds(settings.preferences.syncMinutes * 60))
@@ -90,19 +101,31 @@ import SwiftUI
     } catch { self.error = error.localizedDescription }
   }
   func refresh() async throws {
-    let state: AppSnapshot = try await BackendService.shared.request("/state")
+    let state: AppSnapshot = try await BackendService.shared.request("/state?compact=1")
     accounts = state.accounts
     messages = state.messages
     drafts = state.drafts
-    attachments = state.attachments
+    let keptAttachments = Set(
+      (selectedMessage?.attachmentIds ?? []) + [previewAttachment?.id].compactMap { $0 })
+    attachmentCache = attachmentCache.filter { keptAttachments.contains($0.key) }
+    attachments = state.attachments.map { attachmentCache[$0.id] ?? $0 }
     jobs = state.jobs
     events = state.events
     settings = state.settings
     pendingMutations = state.pendingMutations
+    syncSnapshot = state.sync
+    let ids = Set(messages.map(\.id))
+    detailCache = detailCache.filter { ids.contains($0.key) }
     if !accounts.contains(where: { $0.id == accountId }) {
       accountId = accounts.first(where: { !$0.isDemo })?.id ?? accounts.first?.id ?? ""
     }
+    await loadMessages(reset: true, preserveSelection: true)
+    if let id = selectedMessageId, !ids.contains(id) {
+      selectedMessageId = filteredMessages.first?.id
+    }
+    await loadSelectedMessage()
     watchOrganizer()
+    watchAttachmentBatches()
   }
   func action(_ name: String, _ operation: @escaping @MainActor () async throws -> Void) {
     guard !busy.contains(name) else { return }
@@ -128,6 +151,7 @@ import SwiftUI
   func select(_ message: MailMessage) {
     if selectedMessageId != message.id { mailAITab = message.summary == nil ? nil : .summary }
     selectedMessageId = message.id
+    detailError = nil
     if message.unread && settings.preferences.markRead { update(message, ["unread": false]) }
   }
   func openMail(_ message: MailMessage, tab: MailAITab? = nil) {
@@ -135,6 +159,8 @@ import SwiftUI
     destination = MailDestination(rawValue: message.folder) ?? .inbox
     search = ""
     filter = "全部"
+    pinnedMessageId = message.id
+    pinnedQueryKey = mailQueryKey
     select(message)
     mailAITab = tab
   }
@@ -152,11 +178,11 @@ import SwiftUI
         "/messages/\(message.id)", method: "PATCH", body: changes)
     }
   }
-  func syncAll(silent: Bool = false) async {
+  func syncAll(silent: Bool = false, folder: String? = nil) async {
     guard !busy.contains("sync") else { return }
     busy.insert("sync")
     defer { busy.remove("sync") }
-    let real = accounts.filter { !$0.isDemo }
+    let real = accounts.filter { !$0.isDemo && (folder == nil || $0.id == accountId) }
     if real.isEmpty {
       if !silent {
         showSettings = true
@@ -165,12 +191,17 @@ import SwiftUI
       return
     }
     var failures: [String] = []
+    var started = Set<String>()
     for account in real {
       do {
         let password = try KeychainService.read("mail-\(account.id)", allowInteraction: !silent)
         credentialAuthorizationAccounts.remove(account.id)
-        try await BackendService.shared.perform(
-          "/sync", body: ["accountId": account.id, "password": password])
+        var input: [String: Any] = [
+          "accountId": account.id, "password": password, "background": true,
+        ]
+        if let folder { input["folder"] = folder }
+        try await BackendService.shared.perform("/sync", body: input)
+        started.insert(account.id)
       } catch {
         if KeychainService.requiresAuthorization(error) {
           credentialAuthorizationAccounts.insert(account.id)
@@ -179,34 +210,45 @@ import SwiftUI
         failures.append("\(account.email)：\(error.localizedDescription)")
       }
     }
-    do { try await refresh() } catch { failures.append(error.localizedDescription) }
+    do {
+      while !started.isEmpty && !Task.isCancelled {
+        let snapshot: MailSyncSnapshot = try await BackendService.shared.request(
+          "/sync-status", timeout: 10)
+        syncSnapshot = snapshot
+        try await refresh()
+        if !snapshot.runningAccounts.contains(where: { started.contains($0) }) {
+          for result in snapshot.results
+          where started.contains(result.accountId) && result.status == "failed" {
+            let name = accounts.first { $0.id == result.accountId }?.email ?? "邮箱"
+            failures.append("\(name)：\(result.error ?? "同步未完成")")
+          }
+          break
+        }
+        try await Task.sleep(for: .seconds(1))
+      }
+      try await refresh()
+    } catch is CancellationError {
+      return
+    } catch { failures.append(error.localizedDescription) }
     if !failures.isEmpty {
-      error = failures.joined(separator: "\n")
+      if !silent { error = failures.joined(separator: "\n") }
     } else if !silent {
-      notice = "邮箱同步完成"
+      notice = currentSyncFolder?.hasMore == true ? "本批同步完成，可在列表底部继续加载历史邮件。" : "邮箱同步完成"
     }
   }
   func newDraft(reply: MailMessage? = nil, forward: Bool = false, all: Bool = false) {
-    var draft = MailDraft(
-      accountId: accountId,
-      body: settings.preferences.signature.isEmpty ? "" : "\n\n" + settings.preferences.signature)
     if let reply {
-      draft.subject = (forward ? "Fwd: " : "Re: ") + reply.subject
-      draft.to = forward ? "" : reply.senderEmail
-      draft.inReplyTo = reply.messageId
-      draft.sourceMessageId = reply.id
-      if all {
-        draft.cc = reply.cc.split(separator: ",").map {
-          String($0).trimmingCharacters(in: .whitespaces)
-        }.filter { $0 != currentAccount?.email }.joined(separator: ", ")
+      action("compose-reply") {
+        let draft: MailDraft = try await BackendService.shared.request(
+          "/messages/\(reply.id)/reply-draft", method: "POST",
+          body: ["all": all, "forward": forward])
+        self.composer = draft
       }
-      if forward {
-        draft.body =
-          "\n\n---------- 转发邮件 ----------\n发件人：\(reply.sender) <\(reply.senderEmail)>\n日期：\(reply.date)\n主题：\(reply.subject)\n\n\(reply.body)"
-        draft.attachmentIds = reply.attachmentIds
-      }
+    } else {
+      composer = MailDraft(
+        accountId: accountId,
+        body: settings.preferences.signature.isEmpty ? "" : "\n\n" + settings.preferences.signature)
     }
-    composer = draft
   }
   func runAI(
     task: String, message: MailMessage? = nil, attachment: MailAttachment? = nil,
@@ -288,7 +330,7 @@ import SwiftUI
       self.replaceJob(updated)
     }
   }
-  private func replaceJob(_ job: AgentJob) {
+  func replaceJob(_ job: AgentJob) {
     jobs.removeAll { $0.id == job.id }
     jobs.append(job)
     jobs.sort { $0.createdAt > $1.createdAt }
@@ -332,12 +374,12 @@ import SwiftUI
         throw BackendService.shared.failure("附件数据无效")
       }
       if preview {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-          "BoxmailPreview", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(attachment.id + "-" + file.name)
-        try data.write(to: url)
-        NSWorkspace.shared.open(url)
+        let original = try AttachmentPreviewFile(name: file.name, data: data)
+        guard NSWorkspace.shared.open(original.url) else {
+          original.remove()
+          throw BackendService.shared.failure("没有可打开此格式的应用，请下载后选择合适的应用。")
+        }
+        self.externalPreviewFiles.append(original)
       } else {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = file.name
@@ -348,6 +390,10 @@ import SwiftUI
   func stop() {
     polling?.cancel()
     organizePolling?.cancel()
+    attachmentBatchPolling?.cancel()
+    networkMonitor?.cancel()
+    externalPreviewFiles.forEach { $0.remove() }
+    if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     KeychainService.clearSession()
     BackendService.shared.stop()
   }

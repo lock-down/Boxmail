@@ -13,7 +13,10 @@ import Foundation
     return URLSession(configuration: config)
   }()
   var dataDirectory: URL {
-    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    if let path = ProcessInfo.processInfo.environment["BOXMAIL_DATA"], path.hasPrefix("/") {
+      return URL(fileURLWithPath: path, isDirectory: true)
+    }
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("Boxmail", isDirectory: true)
   }
   func start() async throws {
@@ -33,6 +36,9 @@ import Foundation
     environment["BOXMAIL_DATA"] = dataDirectory.path
     environment["BOXMAIL_TOKEN"] = token
     environment["BOXMAIL_PORT"] = String(port)
+    if let demoEnabled = Bundle.main.object(forInfoDictionaryKey: "BoxmailDemoDataEnabled") as? Bool {
+      environment["BOXMAIL_DEMO"] = demoEnabled ? "1" : "0"
+    }
     child.environment = environment
     child.standardOutput = FileHandle.nullDevice
     child.standardError = FileHandle.nullDevice
@@ -41,7 +47,7 @@ import Foundation
     for _ in 0..<60 {
       guard child.isRunning else { throw failure("本机邮件服务启动失败") }
       do {
-        let _: AppSnapshot = try await request("/state", timeout: 1)
+        let _: AppSnapshot = try await request("/state?compact=1", timeout: 1)
         return
       } catch { try await Task.sleep(for: .milliseconds(100)) }
     }

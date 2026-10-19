@@ -4,6 +4,7 @@ import SwiftUI
 struct SidebarView: View {
   @Bindable var store: MailStore
   @ViewState<Bool> private var showAccounts = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
       ScrollView {
@@ -14,28 +15,29 @@ struct SidebarView: View {
             Label("写邮件", systemImage: "square.and.pencil").font(
               .system(size: 13, weight: .semibold)
             )
-            .frame(maxWidth: .infinity).frame(height: 36).foregroundStyle(.white).background(
+            .frame(maxWidth: .infinity).frame(height: 38).foregroundStyle(.white).background(
               Palette.blue, in: RoundedRectangle(cornerRadius: 8))
-          }.buttonStyle(ControlFeedback(filled: true)).padding(.bottom, 8)
+          }.buttonStyle(ControlFeedback(filled: true)).controlFocus().padding(.bottom, 10)
           Button {
             showAccounts.toggle()
           } label: {
             HStack(spacing: 8) {
-              SenderAvatar(name: store.currentAccount?.name ?? "Boxmail", size: 30)
+              SenderAvatar(name: store.currentAccount?.name ?? "Boxmail", size: 30).fixedSize()
               VStack(alignment: .leading, spacing: 3) {
                 Text(store.currentAccount?.name ?? "添加邮箱账号").font(
                   .system(size: 12, weight: .semibold)
-                ).lineLimit(1)
+                ).lineLimit(1).truncationMode(.middle)
+                  .help(store.currentAccount?.name ?? "添加邮箱账号")
                 Text(store.currentAccount?.email ?? "连接你的邮箱").font(.system(size: 11))
                   .foregroundStyle(
                     Palette.muted
-                  ).lineLimit(1)
-              }
-              Spacer()
+                  ).lineLimit(1).truncationMode(.middle)
+                  .help(store.currentAccount?.email ?? "连接你的邮箱")
+              }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
               Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundStyle(
-                Palette.muted)
+                Palette.muted).frame(width: 12)
             }.padding(.horizontal, 7).frame(height: 58).contentShape(Rectangle())
-          }.buttonStyle(ControlFeedback())
+          }.buttonStyle(ControlFeedback()).controlFocus()
             .popover(isPresented: $showAccounts) {
               VStack(alignment: .leading, spacing: 10) {
                 ForEach(store.accounts) { account in
@@ -46,22 +48,23 @@ struct SidebarView: View {
                     showAccounts = false
                   } label: {
                     HStack(spacing: 10) {
-                      SenderAvatar(name: account.name, size: 30)
+                      SenderAvatar(name: account.name, size: 30).fixedSize()
                       VStack(alignment: .leading, spacing: 4) {
                         Text(account.name).font(.system(size: 13, weight: .medium))
+                          .lineLimit(1).truncationMode(.middle).help(account.name)
                         Text(account.email).font(.system(size: 11)).foregroundStyle(Palette.muted)
-                      }
-                      Spacer()
-                      if account.id == store.accountId {
-                        Image(systemName: "checkmark").foregroundStyle(Palette.blue)
-                      }
+                          .lineLimit(1).truncationMode(.middle).help(account.email)
+                      }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
+                      Image(systemName: "checkmark").foregroundStyle(Palette.blue).frame(width: 18)
+                        .opacity(account.id == store.accountId ? 1 : 0).accessibilityHidden(true)
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(9)
                       .background(
                         account.id == store.accountId ? Palette.blueSoft : .clear,
                         in: RoundedRectangle(cornerRadius: 7)
                       )
                       .contentShape(Rectangle())
-                  }.buttonStyle(ControlFeedback())
+                  }.buttonStyle(ControlFeedback()).controlFocus()
+                    .accessibilityAddTraits(account.id == store.accountId ? .isSelected : [])
                 }
                 Divider()
                 Button("添加邮箱账号…") {
@@ -69,7 +72,7 @@ struct SidebarView: View {
                   store.settingsTab = "账号"
                   store.showSettings = true
                 }.buttonStyle(.plain).foregroundStyle(Palette.blue)
-              }.padding(14).frame(width: 280)
+              }.padding(12).frame(width: 360)
             }
           sectionTitle("邮箱")
           ForEach([MailDestination.inbox, .starred, .drafts, .sent, .attachments, .trash, .archive])
@@ -80,7 +83,7 @@ struct SidebarView: View {
           ForEach([MailDestination.summary, .organize]) { destination in
             row(destination)
           }
-          Text("翻译、附件理解和回复请打开邮件")
+          Label("打开邮件可使用更多 AI 功能", systemImage: "info.circle")
             .font(.system(size: 11)).foregroundStyle(Palette.muted).lineSpacing(3)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(
               .top, 8)
@@ -114,12 +117,11 @@ struct SidebarView: View {
           ).font(.system(size: 11)).foregroundStyle(Palette.muted)
         }
         Spacer()
-        IconButton(icon: "gearshape", help: "设置") { store.showSettings = true }
-      }.padding(.horizontal, 14).padding(.bottom, 12)
+      }.padding(.horizontal, 16).padding(.vertical, 16)
     }.background(Palette.sidebar)
   }
   private func sectionTitle(_ text: String) -> some View {
-    Text(text).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted).frame(
+    Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.muted).frame(
       maxWidth: .infinity, alignment: .leading
     ).padding(.leading, 10).padding(.top, 10).padding(.bottom, 6)
   }
@@ -141,7 +143,7 @@ struct SidebarView: View {
       store.navigate(destination)
     } label: {
       HStack(spacing: 9) {
-        Image(systemName: destination.icon).font(.system(size: 14)).frame(width: 16)
+        Image(systemName: destination.icon).font(.system(size: 14, weight: .regular)).frame(width: 18)
           .foregroundStyle(selected ? Palette.blue : Palette.muted)
         Text(destination.title).font(.system(size: 13, weight: selected ? .semibold : .regular))
         Spacer()
@@ -150,14 +152,16 @@ struct SidebarView: View {
         }
         if count(destination) > 0 {
           Text(String(count(destination))).font(.system(size: 11, weight: .medium))
-            .monospacedDigit().foregroundStyle(
+            .monospacedDigit().contentTransition(reduceMotion ? .identity : .numericText()).foregroundStyle(
               selected ? Palette.blue : Palette.muted)
         }
       }.foregroundStyle(selected ? Palette.blue : Palette.ink)
-        .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 34)
+        .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 36)
         .contentShape(Rectangle()).background(
           selected ? Palette.blueSoft : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-    }.buttonStyle(ControlFeedback(selected: selected)).accessibilityAddTraits(
+    }.buttonStyle(ControlFeedback(selected: selected)).controlFocus().accessibilityAddTraits(
       selected ? .isSelected : [])
+      .animation(UIMotion.selection(reduceMotion), value: selected)
+      .animation(UIMotion.selection(reduceMotion), value: count(destination))
   }
 }

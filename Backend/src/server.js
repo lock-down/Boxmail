@@ -13,8 +13,11 @@ import { testAccount, syncAccount, updateMessage, sendDraft } from './mail.js';
 import { runAgent, approveClassification, useReplyPreview, completion } from './agent.js';
 import { saveAttachment, attachmentBytes } from './attachments.js';
 import { seedDemo } from './demo.js';
-import { DEFAULT_AI } from './ai-settings.js';
+import { DEFAULT_AI, upgradeDefaultPrompts } from './ai-settings.js';
 import { Organizer } from './organizer.js';
+import { createReplyDraft } from './reply.js';
+import { workbookPreview } from './workbook-preview.js';
+import { AttachmentBatch } from './attachment-batch.js';
 
 export async function startServer({
   directory,
@@ -35,11 +38,22 @@ export async function startServer({
   for (const j of repo.list('job').filter((j) => j.status === 'running'))
     repo.put('job', {
       ...j,
-      status: j.task === 'classify' && j.messageIds ? 'paused' : 'failed',
+      status: (j.task === 'classify' && j.messageIds) || j.task === 'attachmentBatch' ? 'paused' : 'failed',
+      ...(j.task === 'attachmentBatch' ? { attachmentItems: j.attachmentItems.map(item =>
+        item.status === 'running' ? { ...item, status: 'pending', error: null } : item) } : {}),
       error: '应用关闭中断了任务，已完成的结果已保留，请重试',
     });
   const locks = new Set();
+  const syncTasks = new Map();
+  for (const progress of repo.list('sync').filter(p => p.status === 'running'))
+    repo.put('sync', { ...progress, status: 'paused', lastError: '应用关闭中断了同步，可继续加载未完成的邮件' });
+  function syncStatus() {
+    return { runningAccounts: [...syncTasks].filter(([, task]) => task.status === 'running').map(([id]) => id),
+      folders: repo.list('sync'),
+      results: [...syncTasks].map(([accountId, task]) => ({ accountId, status: task.status, error: task.error || null })) };
+  }
   const organizer = new Organizer(repo, organizerComplete ? { complete: organizerComplete } : {});
+  const attachmentBatch = new AttachmentBatch(repo, { run: agentRun });
   const defaults = {
     id: 'settings',
     ai: { ...DEFAULT_AI, prompts: { ...DEFAULT_AI.prompts } },
@@ -58,22 +72,23 @@ export async function startServer({
   if (!repo.get('settings', 'settings')) repo.put('settings', defaults);
   // Normalize existing 0.0.1 settings without losing custom prompts or providers.
   const saved = repo.get('settings', 'settings');
-  let savedAI = { ...DEFAULT_AI, ...saved.ai };
+  let savedAI = { ...DEFAULT_AI, ...saved.ai, prompts: upgradeDefaultPrompts(saved.ai?.prompts) };
   if (!saved.ai.effort && !saved.ai.model && saved.ai.baseURL === 'https://api.openai.com/v1')
     savedAI = { ...savedAI, baseURL: DEFAULT_AI.baseURL, model: DEFAULT_AI.model };
   repo.put('settings', { ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, ai: aiConfig(savedAI, { requireModel: false }) });
-  function state() {
+  function state(compact = false) {
     return {
       accounts: repo.list('account'),
-      messages: repo.search(''),
+      messages: compact ? repo.messageHeaders() : repo.search(''),
       drafts: repo.list('draft').filter((d) => d.status !== 'sent'),
-      attachments: repo.list('attachment'),
+      attachments: compact ? repo.attachmentHeaders() : repo.list('attachment'),
       jobs: repo
         .list('job')
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       settings: repo.get('settings', 'settings'),
       events: repo.events(),
       pendingMutations: repo.list('mutation').length,
+      sync: syncStatus(),
     };
   }
   const server = http.createServer(async (req, res) => {
@@ -113,7 +128,22 @@ export async function startServer({
           throw new ServiceError('请求格式错误');
       }
       let result;
-      if (req.method === 'GET' && route === '/state') result = state();
+      if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1');
+      else if (req.method === 'GET' && route === '/sync-status') result = syncStatus();
+      else if (req.method === 'GET' && route === '/messages') {
+        const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 100);
+        if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200)
+          throw new ServiceError('分页参数无效');
+        result = repo.messagePage({ accountId: url.searchParams.get('accountId'),
+          folder: url.searchParams.get('folder'), filter: url.searchParams.get('filter'),
+          query: url.searchParams.get('q') || '', offset, limit });
+      } else if (req.method === 'GET' && /^\/messages\/[^/]+$/.test(route)) {
+        result = repo.get('message', route.split('/')[2]);
+        if (!result) throw new ServiceError('邮件不存在或已移动，请刷新列表', 404);
+        result = { ...result, bodyLoaded: true };
+      } else if (req.method === 'POST' && /^\/messages\/[^/]+\/reply-draft$/.test(route)) {
+        result = createReplyDraft(repo, route.split('/')[2], { all: body.all === true, forward: body.forward === true });
+      }
       else if (req.method === 'GET' && route === '/search')
         result = {
           messages: repo.search(
@@ -132,7 +162,7 @@ export async function startServer({
         result = { id: a.id, ok: true };
       } else if (req.method === 'DELETE' && route.startsWith('/accounts/')) {
         const id = route.split('/')[2];
-        if (locks.has(id) || locks.has('agent') || organizer.busy(id))
+        if (locks.has(id) || locks.has('agent') || organizer.busy(id) || attachmentBatch.busy(id))
           throw new ServiceError('账户正在执行任务，请完成后再移除', 409);
         const candidates = new Set(
           [...repo.list('message'), ...repo.list('draft')]
@@ -147,6 +177,8 @@ export async function startServer({
             'mutation',
             'job',
             'relocation',
+            'sync',
+            'recovery',
           ])
             for (const v of repo.list(kind).filter((x) => x.accountId === id))
               repo.remove(kind, v.id);
@@ -165,14 +197,32 @@ export async function startServer({
         }
         result = { ok: true };
       } else if (req.method === 'POST' && route === '/sync') {
+        if (body.folder && !['inbox','sent','trash','drafts','archive','spam'].includes(body.folder))
+          throw new ServiceError('请选择有效的邮件文件夹');
         const a = repo.get('account', body.accountId);
         if (!a || a.isDemo) throw new ServiceError('请先添加真实邮箱');
         if (locks.has(a.id)) throw new ServiceError('该账户正在同步', 409);
         locks.add(a.id);
-        try {
-          result = await mailSync(repo, a, body.password);
-        } finally {
-          locks.delete(a.id);
+        const controller = new AbortController();
+        const task = { status: 'running', controller };
+        syncTasks.set(a.id, task);
+        const run = async () => {
+          try {
+            const result = await mailSync(repo, a, body.password, {
+              folder: body.folder || undefined, signal: controller.signal });
+            task.status = 'completed'; return result;
+          } catch (error) {
+            task.status = controller.signal.aborted ? 'paused' : 'failed';
+            task.error = error instanceof ServiceError ? error.message : '同步未完成，请检查网络与邮箱配置后重试';
+            throw error;
+          } finally { locks.delete(a.id); }
+        };
+        task.promise = run();
+        if (body.background === true) {
+          task.promise.catch(() => {});
+          result = { ok: true, status: 'running' };
+        } else {
+          result = await task.promise;
         }
       } else if (req.method === 'PATCH' && route.startsWith('/messages/')) {
         const id = route.split('/')[2],
@@ -224,6 +274,9 @@ export async function startServer({
         if (!r.ok)
           throw new ServiceError(`模型列表请求失败：HTTP ${r.status}`, 502);
         result = { models: (await r.json()).data?.map((m) => m.id) || [] };
+      } else if (req.method === 'POST' && /^\/messages\/[^/]+\/attachments\/analyze$/.test(route)) {
+        if (locks.has('agent')) throw new ServiceError('AI 正在执行任务，请等待完成', 409);
+        result = attachmentBatch.start({ ...body, messageId: route.split('/')[2], config: repo.get('settings', 'settings').ai });
       } else if (req.method === 'POST' && (route === '/organize' || (route === '/agent' && body.task === 'classify'))) {
         result = organizer.start({ ...body, config: repo.get('settings', 'settings').ai });
       } else if (req.method === 'GET' && /^\/jobs\/[^/]+$/.test(route)) {
@@ -232,13 +285,21 @@ export async function startServer({
       } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/draft$/.test(route)) {
         result = useReplyPreview(repo, route.split('/')[2]);
       } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/pause$/.test(route)) {
-        result = await organizer.pause(route.split('/')[2]);
+        const id = route.split('/')[2];
+        result = await (repo.get('job', id)?.task === 'attachmentBatch' ? attachmentBatch : organizer).pause(id);
       } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/retry$/.test(route)) {
         const id = route.split('/')[2], job = repo.get('job', id);
         if (!job) throw new ServiceError('任务不存在', 404);
-        result = organizer.start({ accountId: job.accountId, apiKey: body.apiKey,
+        if (job.task === 'attachmentBatch' && locks.has('agent'))
+          throw new ServiceError('AI 正在执行任务，请等待完成', 409);
+        result = (job.task === 'attachmentBatch' ? attachmentBatch : organizer).start({ accountId: job.accountId, apiKey: body.apiKey,
           config: repo.get('settings', 'settings').ai }, id);
       } else if (req.method === 'POST' && route === '/agent') {
+        if (body.task === 'attachment') {
+          const messageId = repo.get('attachment', body.attachmentId)?.messageId;
+          if (messageId && attachmentBatch.active(messageId))
+            throw new ServiceError('本封邮件正在批量理解附件，请等待完成后再单独理解。', 409);
+        }
         if (locks.has('agent'))
           throw new ServiceError('AI 正在执行任务，请等待完成', 409);
         locks.add('agent');
@@ -278,6 +339,7 @@ export async function startServer({
             repo.get('attachment', a),
           ),
           inReplyTo: String(body.inReplyTo || ''),
+          references: Array.isArray(body.references) ? body.references.filter(v => typeof v === 'string' && /^<[^<>\s]+>$/.test(v)).slice(-100) : [],
           status: 'draft',
           updatedAt: new Date().toISOString(),
           sourceMessageId: body.sourceMessageId || null,
@@ -306,6 +368,16 @@ export async function startServer({
           Buffer.from(body.content, 'base64'),
           body.contentType,
         );
+      } else if (req.method === 'GET' && route === '/attachments/search') {
+        const query = (url.searchParams.get('q') || '').slice(0,4000);
+        result = { ids: repo.searchAttachmentIDs(query, url.searchParams.get('accountId') || '') };
+      } else if (req.method === 'GET' && /^\/attachments\/[^/]+\/preview$/.test(route)) {
+        const a = await attachmentBytes(repo, route.split('/')[2]);
+        if (!a.metadata.name.toLowerCase().endsWith('.xlsx')) throw new ServiceError('此格式请使用系统原文件预览');
+        result = { html: await workbookPreview(a.buffer) };
+      } else if (req.method === 'GET' && /^\/attachments\/[^/]+\/metadata$/.test(route)) {
+        result = repo.get('attachment', route.split('/')[2]);
+        if (!result) throw new ServiceError('附件不存在', 404);
       } else if (req.method === 'GET' && route.startsWith('/attachments/')) {
         const a = await attachmentBytes(repo, route.split('/')[2]);
         result = {
@@ -335,7 +407,10 @@ export async function startServer({
     repo,
     port: server.address().port,
     close: async () => {
+      for (const task of syncTasks.values()) if (task.status === 'running') task.controller.abort();
+      await Promise.allSettled([...syncTasks.values()].map(task => task.promise));
       await organizer.close();
+      await attachmentBatch.close();
       await new Promise((resolve) => server.close(resolve));
       repo.close();
     },

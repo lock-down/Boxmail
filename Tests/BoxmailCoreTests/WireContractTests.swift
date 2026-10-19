@@ -11,7 +11,20 @@ import Testing
   #expect(job.result?.items?.first?.category == "工作项目")
   #expect(job.status == "needsApproval")
   #expect(job.preview == nil)
+  #expect(job.attachmentItems == nil)
   #expect(job.replyPreset == nil)
+}
+
+@Test func attachmentBatchContractPreservesPerFileProgressAndErrors() throws {
+  let data = Data(
+    #"{"id":"b1","task":"attachmentBatch","status":"partial","createdAt":"2026-10-19T01:00:00Z","messageId":"m1","accountId":"a1","progress":{"total":4,"completed":2,"failed":1,"batchSize":1,"batch":1},"attachmentItems":[{"id":"a1","name":"已有.docx","status":"existing","error":null},{"id":"a2","name":"本次.xlsx","status":"completed","error":null},{"id":"a3","name":"失败.pdf","status":"failed","error":"理解超时"},{"id":"a4","name":"归档.zip","status":"unsupported","error":"暂不支持"}]}"#
+      .utf8)
+  let job = try JSONDecoder().decode(AgentJob.self, from: data)
+  #expect(job.attachmentItems?.filter(\.isAnalyzed).count == 2)
+  #expect(job.attachmentItems?.allSatisfy(\.isFinished) == true)
+  #expect(job.attachmentItems?[2].error == "理解超时")
+  let roundTrip = try JSONDecoder().decode(AgentJob.self, from: JSONEncoder().encode(job))
+  #expect(roundTrip.attachmentItems?.map(\.status) == ["existing", "completed", "failed", "unsupported"])
 }
 
 @Test func replyPreviewContractRetainsAttitudeAndExplicitDraftAssociation() throws {
@@ -34,7 +47,22 @@ import Testing
       .utf8)
   let message = try JSONDecoder().decode(MailMessage.self, from: data)
   #expect(message.summary?.todos.first?.done == false)
+  #expect(message.summary?.overviewText == "项目排期已确认")
+  #expect(message.summary?.nextSteps == nil)
   #expect(message.messageId == nil)
+}
+
+@Test func compactSummaryRetainsSuggestedActionsAndCopiesAllSections() throws {
+  let raw = #"{"overview":"报名需回复邮件，10月22日11点前提交。","points":[],"todos":[{"id":"t1","title":"提交应答资料","due":"10月22日11点","done":false}],"keyInfo":[{"label":"联系人","value":"项目联系人"}],"nextSteps":[{"title":"起草报名回复","action":"reply","prompt":"请起草待审核回复，不声称已提交附件。"},{"title":"核对附件要求","action":"attachments","prompt":""},{"title":"核算报价并盖章","action":"note","prompt":""}]}"#
+  let summary = try JSONDecoder().decode(MailSummary.self, from: Data(raw.utf8))
+  #expect(summary.overviewText == "报名需回复邮件，10月22日11点前提交。")
+  #expect(summary.nextSteps?.map(\.action) == ["reply", "attachments", "note"])
+  #expect(summary.plainText.contains("内容概要："))
+  #expect(summary.plainText.contains("[ ] 提交应答资料（10月22日11点）"))
+  #expect(summary.plainText.contains("您可继续："))
+  #expect(summary.plainText.contains("联系人：项目联系人"))
+  let decoded = try JSONDecoder().decode(MailSummary.self, from: JSONEncoder().encode(summary))
+  #expect(decoded == summary)
 }
 
 @Test func decodeBackgroundOrganizationProgress() throws {
@@ -46,4 +74,18 @@ import Testing
   #expect(job.progress?.total == 2)
   #expect(job.result?.items?.count == 1)
   #expect(job.status == "partial")
+}
+
+@Test func pagedHeadersAndPersistentSyncProgressDecodeWithoutLoadingBody() throws {
+  let raw =
+    #"{"messages":[{"id":"m1","accountId":"a1","folder":"inbox","sender":"A","senderEmail":"a@example.com","to":"me@example.com","cc":"","subject":"测试","body":"","preview":"摘要","date":"2026-10-19T00:00:00Z","category":"未分类","unread":true,"starred":false,"attachmentIds":[],"bodyLoaded":false,"replyTo":"reply@example.com","references":["<root@example.com>"]}],"total":1005,"nextOffset":100}"#
+  let page = try JSONDecoder().decode(MailPage.self, from: Data(raw.utf8))
+  #expect(page.total == 1005)
+  #expect(page.messages.first?.bodyLoaded == false)
+  #expect(page.messages.first?.references == ["<root@example.com>"])
+  let sync =
+    #"{"runningAccounts":["a1"],"folders":[{"id":"s1","accountId":"a1","folder":"inbox","status":"partial","downloaded":200,"total":1005,"remaining":805,"hasMore":true}],"results":[]}"#
+  let state = try JSONDecoder().decode(MailSyncSnapshot.self, from: Data(sync.utf8))
+  #expect(state.folders.first?.remaining == 805)
+  #expect(state.folders.first?.hasMore == true)
 }

@@ -7,7 +7,7 @@ struct ContentView: View {
   var body: some View {
     VStack(spacing: 0) {
       header
-      Divider().overlay(Palette.border)
+      Divider().overlay(Palette.softBorder)
       HStack(spacing: 0) {
         SidebarView(store: store).frame(width: UILayout.sidebar)
         Divider()
@@ -37,6 +37,18 @@ struct ContentView: View {
       AttachmentPreviewView(store: store, attachmentId: attachment.id)
     }
     .sheet(isPresented: $activity) { ActivityView(store: store) }
+    .task(id: store.ready ? store.mailQueryKey : "") {
+      guard store.ready else { return }
+      do {
+        try await Task.sleep(for: .milliseconds(180))
+        try Task.checkCancellation()
+      } catch { return }
+      await store.loadMessages(reset: true, preserveSelection: store.pageKey == store.mailQueryKey)
+    }
+    .task(id: store.selectedMessageId) {
+      guard store.ready else { return }
+      await store.loadSelectedMessage()
+    }
     .alert(
       "操作未完成",
       isPresented: Binding(
@@ -65,7 +77,18 @@ struct ContentView: View {
         if let message = store.selectedMessage,
           store.filteredMessages.contains(where: { $0.id == message.id })
         {
-          MailDetailView(store: store, message: message)
+          if let error = store.detailError {
+            VStack(spacing: 14) {
+              EmptyState(title: "邮件加载未完成", subtitle: error, icon: "envelope")
+              ActionButton(title: "重新加载", icon: "arrow.clockwise") {
+                Task { await store.loadSelectedMessage() }
+              }
+            }
+          } else if message.bodyLoaded == false {
+            ProgressView("正在加载邮件正文…").frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else {
+            MailDetailView(store: store, message: message)
+          }
         } else if !store.search.isEmpty && store.filteredMessages.isEmpty {
           EmptyState(
             title: "暂无可预览内容", subtitle: "更换关键词或清除搜索，继续浏览邮件。", icon: "magnifyingglass")
@@ -87,18 +110,8 @@ struct ContentView: View {
         Text("Boxmail").font(.system(size: 13, weight: .semibold))
       }.padding(.leading, 78).frame(width: UILayout.sidebar, alignment: .leading)
       Spacer(minLength: 0)
-      HStack(spacing: 7) {
-        Image(systemName: "magnifyingglass").foregroundStyle(Palette.muted)
-        TextField("搜索邮件与附件内容", text: $store.search).textFieldStyle(.plain).onChange(
-          of: store.search
-        ) { _, _ in store.selectedMessageId = store.filteredMessages.first?.id }
-        if !store.search.isEmpty {
-          IconButton(icon: "xmark.circle.fill", help: "清除搜索") { store.search = "" }
-        }
-      }.font(.system(size: 12)).padding(.horizontal, 12)
-        .frame(minWidth: 220, idealWidth: 380, maxWidth: 480).frame(height: 32).background(
-          .white, in: RoundedRectangle(cornerRadius: 8)
-        ).overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.border))
+      SearchField(placeholder: "搜索邮件与附件内容", text: $store.search)
+        .frame(minWidth: 220, idealWidth: 380, maxWidth: 480)
       Spacer(minLength: 0)
       HStack(spacing: 6) {
         Button {
@@ -111,7 +124,7 @@ struct ContentView: View {
             Text("AI 助手").font(.system(size: 11, weight: .medium))
           }.foregroundStyle(Palette.muted).padding(.horizontal, 9).frame(height: 32)
             .contentShape(RoundedRectangle(cornerRadius: 7))
-        }.buttonStyle(ControlFeedback())
+        }.buttonStyle(ControlFeedback()).controlFocus()
           .accessibilityLabel(store.settings.ai.enabled ? "AI 助手已开启" : "AI 助手已关闭")
           .help("打开 AI 设置")
         if store.busy.contains("sync") {
@@ -124,7 +137,7 @@ struct ContentView: View {
         IconButton(icon: "bell", help: "活动记录") { activity = true }
         IconButton(icon: "gearshape", help: "设置") { store.showSettings = true }
       }.padding(.trailing, 14)
-    }.frame(height: 52).background(Palette.chrome)
+    }.frame(height: 54).background(Palette.chrome)
   }
 }
 
