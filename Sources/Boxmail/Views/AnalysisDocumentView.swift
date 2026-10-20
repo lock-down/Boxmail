@@ -51,7 +51,7 @@ struct AnalysisDocumentView: View {
         case .code:
           VStack(alignment: .leading, spacing: 8) {
             if !block.language.isEmpty { Text(block.language).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted) }
-            ScrollView(.horizontal) {
+            OverlayScrollView(.horizontal) {
               Text(verbatim: block.text).font(.system(size: 12, design: .monospaced)).lineSpacing(4)
                 .fixedSize(horizontal: true, vertical: true).padding(.bottom, 2)
             }
@@ -74,7 +74,7 @@ struct AnalysisDocumentView: View {
 private struct AnalysisTableView: View {
   let table: AnalysisTable
   var body: some View {
-    ScrollView(.horizontal) {
+    OverlayScrollView(.horizontal) {
       Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
         row(table.headers, header: true)
         ForEach(Array(table.rows.enumerated()), id: \.offset) { index, values in row(values, shaded: index.isMultiple(of: 2)) }

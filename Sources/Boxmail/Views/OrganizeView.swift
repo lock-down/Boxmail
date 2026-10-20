@@ -17,7 +17,7 @@ struct OrganizeView: View {
       && !(latest.result?.items ?? []).isEmpty
   }
   var body: some View {
-    ScrollView {
+    OverlayScrollView {
       VStack(alignment: .leading, spacing: 22) {
         HStack(alignment: .top) {
           PageHeading(title: "智能整理", subtitle: "按主题整理收件箱，确认建议后再应用分类")

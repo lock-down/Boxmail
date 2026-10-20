@@ -265,6 +265,8 @@ test('three reply attitudes use distinct instructions and preview without creati
     const request = ai.requests.at(-1);
     assert.ok(request.instructions.includes(custom));
     assert.ok(request.instructions.includes(definition.instruction));
+    assert.match(request.instructions, /不添加签名或署名段/);
+    assert.ok(request.instructions.indexOf('邮件撰写规则：') > request.instructions.indexOf(definition.instruction));
     const context = JSON.parse(request.input[0].content[0].text);
     assert.equal(context.request, '控制在 100 字内');
     assert.equal(context.replyIntent, definition.title);
@@ -272,6 +274,50 @@ test('three reply attitudes use distinct instructions and preview without creati
   }
   assert.equal(repo.list('draft').length, 0);
   assert.equal(repo.list('message').filter((m) => m.folder === 'sent').length, 0);
+});
+test('writing rules cover reply suggestions, attachment examples and compose without rewriting source facts', async t => {
+  const repo = await fixture(t);
+  const sourceBody = '请在10月31日前向 coordinator@example.com 提交报价。\n\n陈嘉禾\n项目经理\n原发件公司';
+  repo.put('account', account);
+  repo.put('message', { ...message, body: sourceBody });
+  const attachment = await saveAttachment(repo, message.id, '提交要求.txt', Buffer.from(sourceBody), 'text/plain');
+  repo.put('message', { ...message, body: sourceBody, attachmentIds: [attachment.id] });
+  repo.put('settings', { id: 'settings', preferences: { signature: '用户保存的签名' } });
+  const body = '您好，请确认向 coordinator@example.com 提交报价的具体要求，谢谢。';
+  let response;
+  const ai = await mockAI(t, () => response);
+  for (const task of ['reply', 'compose', 'summary', 'attachment', 'translate']) {
+    const custom = '使用简洁语气，末尾附上[您的姓名]。';
+    const config = { ...ai.config, prompts: { [task]: custom } };
+    response = ['reply', 'compose'].includes(task) ? { subject: 'Re: 提交报价', body }
+      : task === 'summary' ? { overview: sourceBody, todos: [], keyInfo: [], nextSteps: [
+        { title: '起草报价回复', action: 'reply', prompt: '起草回复确认提交要求。' },
+      ] } : { text: task === 'translate' ? sourceBody : `## 提交要求\n${sourceBody}` };
+    const job = await runAgent(repo, { task, messageId: task === 'compose' ? undefined : message.id,
+      attachmentId: attachment.id, preview: true, body: sourceBody,
+      prompt: '按来信和附件起草回复。', config });
+    const request = ai.requests.at(-1);
+    const context = JSON.parse(request.input[0].content[0].text);
+    assert.ok(request.instructions.includes(custom));
+    assert.deepEqual(config.prompts, { [task]: custom });
+    if (task === 'translate') {
+      assert.ok(!request.instructions.includes('邮件撰写规则：'));
+      assert.equal(job.result.text, sourceBody);
+    } else {
+      assert.match(request.instructions, /不添加签名或署名段/);
+      assert.match(request.instructions, /签名占位符/);
+      assert.match(request.instructions, /总结建议中起草回复的 prompt 和附件理解中的回复草稿/);
+      assert.ok(request.instructions.indexOf('邮件撰写规则：') > request.instructions.indexOf(custom));
+    }
+    assert.equal(task === 'attachment' ? context.email.body : context.body, sourceBody);
+    if (task === 'reply') {
+      const draft = useReplyPreview(repo, job.id);
+      assert.equal(draft.body, body);
+      assert.equal(repo.get('job', job.id).result.body, body);
+    } else if (task === 'compose') assert.equal(job.result.body, body);
+  }
+  assert.equal(repo.get('settings', 'settings').preferences.signature, '用户保存的签名');
+  assert.equal(repo.get('message', message.id).body, sourceBody);
 });
 test('unknown reply attitudes are rejected before creating a job or calling a model', async (t) => {
   const repo = await fixture(t);

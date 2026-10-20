@@ -46,6 +46,7 @@ launch_app() {
 }
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources/Runtime" "$APP_CONTENTS/Resources/Backend"
 cp "$BUILD_BINARY" "$APP_CONTENTS/MacOS/$APP_NAME"
+cp "$BUILD_DIR/BoxmailPresentationRenderer" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
 NODE_BINARY="$(command -v node)"
 if [[ ! -f "$APP_CONTENTS/Resources/Runtime/node" || "$NODE_BINARY" -nt "$APP_CONTENTS/Resources/Runtime/node" ]]; then cp "$NODE_BINARY" "$APP_CONTENTS/Resources/Runtime/node"; fi
 if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
@@ -61,7 +62,7 @@ mkdir -p "$APP_CONTENTS/Resources/Backend/Resources"
 cp Sources/BoxmailCore/Resources/DefaultPrompts.json "$APP_CONTENTS/Resources/Backend/Resources/DefaultPrompts.json"
 cp Sources/BoxmailCore/Resources/ReplyPresets.json "$APP_CONTENTS/Resources/Backend/Resources/ReplyPresets.json"
 rsync -a --delete "$BUILD_DIR/Boxmail_BoxmailCore.bundle/" "$APP_CONTENTS/Resources/Boxmail_BoxmailCore.bundle/"
-chmod +x "$APP_CONTENTS/MacOS/$APP_NAME" "$APP_CONTENTS/Resources/Runtime/node"
+chmod +x "$APP_CONTENTS/MacOS/$APP_NAME" "$APP_CONTENTS/Resources/Runtime/node" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
 if [[ ! -f "$APP_CONTENTS/Resources/Boxmail.icns" || script/generate_icon.swift -nt "$APP_CONTENTS/Resources/Boxmail.icns" ]]; then
   mkdir -p artifacts/Boxmail.iconset
   swift script/generate_icon.swift artifacts/Boxmail.iconset
@@ -80,7 +81,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleIconFile</key><string>Boxmail</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-<key>CFBundleVersion</key><string>8</string>
+<key>CFBundleVersion</key><string>12</string>
 <key>BoxmailDemoDataEnabled</key><$DEMO_DATA/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -94,11 +95,14 @@ if [[ "$SIGNING_IDENTITY" == "-" ]]; then
   echo "使用临时签名：重新构建后可能需要再次授权钥匙串。固定证书可通过 BOXMAIL_SIGNING_IDENTITY 配置。" >&2
 fi
 codesign --force --sign "$SIGNING_IDENTITY" "$APP_CONTENTS/Resources/Runtime/node"
+codesign --force --sign "$SIGNING_IDENTITY" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
 while IFS= read -r -d '' native_module; do
   codesign --force --sign "$SIGNING_IDENTITY" "$native_module"
 done < <(find "$APP_CONTENTS/Resources/Backend/node_modules" -type f \( -name '*.node' -o -name '*.dylib' \) -print0)
 codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_ID" "$APP_BUNDLE" >/dev/null
 codesign --verify --deep --strict "$APP_BUNDLE"
+# Finder shows the bundle directory's date, which does not track changes inside Contents.
+touch "$APP_BUNDLE"
 case "$MODE" in
 --package|package) echo "已生成全新安装测试 App：$APP_BUNDLE" ;;
 run) launch_app ;;

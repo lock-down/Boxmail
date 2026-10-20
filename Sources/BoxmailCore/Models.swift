@@ -71,16 +71,16 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
   public var hasExtractedText, hasAnalysis: Bool?
   public var textPreview, analysisPreview: String?
   public var isAnalyzed: Bool { hasAnalysis == true || analysis != nil }
-  public var isImage: Bool {
-    ["jpg", "jpeg", "png", "gif", "webp"].contains((name as NSString).pathExtension.lowercased())
-      || ["image/jpeg", "image/png", "image/gif", "image/webp"].contains(contentType)
+  public var kind: AttachmentKind { AttachmentKind(name: name, contentType: contentType) }
+  public var isImage: Bool { kind == .image }
+  public var isPDF: Bool { kind == .pdf }
+  public var isSpreadsheet: Bool { kind == .spreadsheet }
+  public var isPresentation: Bool { kind == .presentation }
+  public var usesWorkbookPreview: Bool {
+    (name as NSString).pathExtension.lowercased() == "xlsx"
   }
-  public var isPDF: Bool {
-    (name as NSString).pathExtension.lowercased() == "pdf" || contentType == "application/pdf"
-  }
-  public var isSpreadsheet: Bool { (name as NSString).pathExtension.lowercased() == "xlsx" }
   public var canAnalyze: Bool {
-    isImage || isPDF || hasExtractedText == true
+    isImage || isPDF || isPresentation || hasExtractedText == true
       || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 }

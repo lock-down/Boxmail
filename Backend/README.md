@@ -1,6 +1,8 @@
 # Boxmail 本机后端
 
-版本 **0.0.8**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
+版本 **0.0.11**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
+
+当前代码随本地标签 `v0.0.11` 归档，文档入口见 [文档索引](../docs/README.md)。
 
 ## 启动和测试
 
@@ -23,12 +25,15 @@ npm start
 | `BOXMAIL_TOKEN` | 必填，至少 24 字符的会话令牌，客户端每次启动自动生成 |
 | `BOXMAIL_PORT` | 监听端口，未设置或设为 `0` 时由系统分配 |
 | `BOXMAIL_DEMO` | 默认建立演示数据，设为 `0` 关闭演示数据初始化 |
+| `BOXMAIL_PRESENTATION_RENDERER` | 可选，独立后端联调时指定 PPT 原生组件路径；App 自动使用内置组件 |
 
 ```bash
 npm test
 ```
 
-当前工作区包含 87 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
+当前工作区包含 99 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。模型列表测试覆盖缓存、重启、成功替换、空列表、失败保留及服务地址隔离。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
+
+完整验证从仓库根目录执行 `./script/test.sh`，它先构建 PPT 原生渲染组件再运行后端及 Swift 测试。单独运行 `npm test` 时，原生组件不可用会跳过对应渲染测试；合成文档及测试条件见 [样例说明](test/fixtures/README.md)。
 
 ## 接口
 
@@ -46,7 +51,8 @@ npm test
 | POST | `/todos` | `messageId`、`todoId`、`done`，更新摘要待办 |
 | POST | `/settings` | `ai`、`preferences`，保存配置 |
 | POST | `/ai/test` | `config`、`apiKey`，实际请求一次模型生成 |
-| POST | `/ai/models` | `config`、`apiKey`，读取模型列表 |
+| GET | `/ai/models` | 可选查询参数 `baseURL`，读取对应地址的本机模型缓存，不访问服务商；省略时使用已保存地址 |
+| POST | `/ai/models` | `config`、`apiKey`，请求服务商模型列表，成功后替换该地址的缓存，失败保留 |
 | POST | `/agent` | `task`、`apiKey` 及任务参数；单封任务返回结果，`classify` 兼容入口返回后台任务 |
 | POST | `/organize` | `accountId`、`apiKey`、`scope`（`unclassified` / `inbox`）、`limit`（1 至 200），立即返回后台任务 |
 | GET | `/jobs/:id` | 单个任务及批次进度 |
@@ -63,6 +69,8 @@ npm test
 
 数据字段以 [Swift 数据模型](../Sources/BoxmailCore/Models.swift)、[客户端调用](../Sources/Boxmail/Stores/MailStore.swift) 和 [接口实现](src/server.js) 为准；联调新增字段时同步修改两端。`/ai/test` 访问所配置的模型服务，可能产生该服务商的调用费用。
 
+App 从“设置 > 高级 > 本机数据”保存数据位置，启动后将实际位置通过 `BOXMAIL_DATA` 传给后端。目录迁移在服务启动前由客户端完成，使用 SQLite 一致性快照并重写附件绝对路径。App 与它启动的后端共同持有目录锁，退出中的服务释放锁后才能迁移或再次启动。独立后端联调应始终使用专门的临时目录，不与正在运行的 App 共用数据目录。
+
 ## 模块和持久化
 
 | 模块 | 职责 |
@@ -76,8 +84,10 @@ npm test
 | [responses.js](src/responses.js) | Responses 请求、Files 上传、JSON / SSE 响应解析及临时文件清理 |
 | [organizer.js](src/organizer.js) | 后台分批分类、进度保存、暂停与继续 |
 | [ai-settings.js](src/ai-settings.js) | AI 默认配置和共享提示词读取 |
+| [model-catalog.js](src/model-catalog.js) | 按规范化 API 地址读取与刷新模型列表缓存，不保存密钥 |
 | [reply-presets.js](src/reply-presets.js) | 读取客户端共用的三种回复态度及其提示词 |
-| [attachments.js](src/attachments.js) | 附件保存、读取、文本提取及 PDF 页面转换 |
+| [attachments.js](src/attachments.js) | 附件保存、读取、文本提取及 PDF / PPT 共用页面转换 |
+| [presentations.js](src/presentations.js) | PPT / PPTX 系统预览、隐藏页处理、文本提取及原生组件调用 |
 | [validation.js](src/validation.js) | 账户、地址、收件人和 AI 配置校验 |
 | [demo.js](src/demo.js) | 首次启动的演示数据 |
 
@@ -91,11 +101,13 @@ npm test
 
 共享默认提示词位于 [DefaultPrompts.json](../Sources/BoxmailCore/Resources/DefaultPrompts.json)，通过构建脚本同时打包给 Swift 和 Node.js。用户编辑的提示词保存在设置中，空白值恢复为相应默认值。
 
+回复、写信、总结建议和附件理解中的邮件示例统一追加无签名的撰写规则，要求生成正文不包含署名段或签名占位符，也不复制输入中的签名段；正文与分析所需的联系人、提交邮箱和日期保留。该规则位于 `responses.js`，追加在任务提示词和回复态度之后，使用自定义提示词时同样生效；翻译与分类不追加此规则。新默认提示词同步说明要求，启动迁移同时识别 0.0.7 及以前、0.0.8 的准确默认文本，只替换未修改的默认值。自定义提示词、个人签名设置和已有草稿保留。
+
 回复任务支持可选 `replyPreset`：`interested`、`decline`、`thanks`，对应感兴趣回复、不感兴趣回复和感谢回复。态度说明位于共用的 [ReplyPresets.json](../Sources/BoxmailCore/Resources/ReplyPresets.json)，追加到用户自定义回复提示词之后；`prompt` 继续传入补充要求。未知态度会在模型调用前拒绝。
 
 客户端发送 `task: "reply"`、`messageId`、`preview: true`，任务保留 `replyPreset`、`preview`，结果只含 `subject` 和 `body`，不会创建草稿。用户选择使用内容后，`POST /jobs/:id/draft` 创建草稿并回写 `result.draftId`，保存原邮件关联和回复线程。后续重复使用保留编辑；草稿删除或已进入发送流程时返回 `409`，原邮件缺失返回 `404`。旧客户端不传 `preview: true` 时仍直接生成待审核草稿。生成失败会保留此前成功的预览。
 
-JPEG、PNG、GIF、WebP 通过 [Files API](https://api-docs.deepseek.com/zh-cn/api/create-file/) 以 `purpose=user_data` 上传，再通过 `input_image.file_id` 引用；上传设置一小时有效期，任务结束后尝试删除临时文件。PDF 使用已有 PDF 解析依赖转换页面为 PNG，无需 OCR 服务，每次最多 20 页，页面图片合计最多 25 MB；超限会提示拆分，不会静默遗漏页面。DOCX、XLSX 和文本附件提交提取内容，最多 60,000 字符，超过时在上下文中标明截断。
+JPEG、PNG、GIF、WebP 通过 [Files API](https://api-docs.deepseek.com/zh-cn/api/create-file/) 以 `purpose=user_data` 上传，再通过 `input_image.file_id` 引用；上传设置一小时有效期，任务结束后尝试删除临时文件。PDF 使用已有 PDF 解析依赖转换页面为 PNG，无需 OCR 服务，每次最多 20 页，页面图片合计最多 25 MB；超限会提示拆分，不会静默遗漏页面。PPT / PPTX（含 PPS / PPSX）先通过 macOS Quick Look 生成本机预览，由随 App 签名打包的 `BoxmailPresentationRenderer` 使用 WebKit / PDFKit 生成每页独立的 PDF，再复用同一 PNG 转换和 Files 上传流程，最多 20 页、页面图片合计最多 25 MB。PPTX 临时副本展开隐藏页并校验页数；旧 PPT 使用系统预览可见页。转换支持取消、60 秒进程超时和临时目录清理，失败不覆盖已有分析。渲染关闭文档脚本和外部网络资源，不依赖 Office、LibreOffice 或在线转换服务。新附件提取文本用于搜索，旧 PPT 在重新理解成功后补齐文本。DOCX、XLSX 和文本附件提交提取内容，最多 60,000 字符，超过时在上下文中标明截断。
 
 DeepSeek 目前只在 `deepseek-flash` 支持图片输入，选择 `deepseek-v4-pro` 解析图片会提示切换模型。其他服务商须同时支持此 Responses/Files 格式，实际兼容性需联调。
 
@@ -136,6 +148,12 @@ SQLite 使用 WAL 模式，当前 `user_version` 为 `2`。首次升级会在 `b
 收信保存 Reply-To、In-Reply-To 和 References。UIDVALIDITY 变化或检测到远端移动时，原本机附加信息会存入 `recovery` 记录；仅在同账号的 Message-ID 可唯一匹配时重新关联，歧义记录保留待恢复。发送继续使用明确确认和结果不确定时禁止自动重试的机制。
 
 附件中心使用 `GET /attachments/search?accountId=...&q=...` 查询完整提取文本和理解结果，只返回匹配 ID；轻量附件记录仅包含各 160 字符的预览片段，避免把完整附件文本装入列表。
+
+## 0.0.11 模型列表缓存
+
+`GET /ai/models?baseURL=...` 和 `POST /ai/models` 均返回 `{models: [模型名称]}`。GET 只读取本机，未缓存时返回空数组；POST 调用服务商 `/models`，要求响应 `data` 为包含有效字符串 `id` 的数组。名称移除首尾空白并去重，成功后替换完整列表，合法空数组清空列表；HTTP 失败、无效 JSON 或无效条目不修改旧缓存。
+
+记录以 `modelCatalog` 类型保存在 `records` 表中，ID 为 `aiConfig` 校验和规范化后的 API 基地址，内容只含 `id`、`models` 和 `updatedAt`。本次不改变数据库结构版本。缓存独立于 `/settings` 保存，随数据库关闭和重启保留，并随本机数据目录迁移；不存储请求中的 API Key。前端读取缓存时检查当前地址与刷新代次，避免旧请求覆盖新列表或其他服务的选项。
 
 
 ## 0.0.7 本封邮件附件批量理解

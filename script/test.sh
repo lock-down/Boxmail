@@ -5,6 +5,9 @@ cd "$ROOT_DIR"
 if [[ ! -d Backend/node_modules ]]; then
   npm ci --prefix Backend --no-fund --no-audit
 fi
+# The PPT integration tests exercise the same native renderer shipped in the App.
+swift build --product BoxmailPresentationRenderer
+export BOXMAIL_PRESENTATION_RENDERER="$(swift build --show-bin-path)/BoxmailPresentationRenderer"
 npm test --prefix Backend
 
 # Some Command Line Tools distributions do not auto-load the Testing macro plugin.

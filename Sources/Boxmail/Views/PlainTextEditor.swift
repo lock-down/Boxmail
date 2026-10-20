@@ -15,12 +15,9 @@ struct PlainTextEditor: NSViewRepresentable {
 
   func makeNSView(context: Context) -> NSScrollView {
     let scrollView = EditorScrollView()
-    scrollView.borderType = .noBorder
-    scrollView.drawsBackground = false
+    ScrollAppearance.apply(to: scrollView)
     scrollView.hasVerticalScroller = true
     scrollView.hasHorizontalScroller = false
-    scrollView.autohidesScrollers = true
-    scrollView.scrollerStyle = .overlay
 
     let textView = PlaceholderTextView(frame: scrollView.contentView.bounds)
     textView.isRichText = false
@@ -47,6 +44,7 @@ struct PlainTextEditor: NSViewRepresentable {
   }
 
   func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    ScrollAppearance.apply(to: scrollView)
     context.coordinator.text = $text
     guard let textView = scrollView.documentView as? PlaceholderTextView else { return }
     configure(textView)
@@ -98,6 +96,7 @@ struct PlainTextEditor: NSViewRepresentable {
 private final class EditorScrollView: NSScrollView {
   override func layout() {
     super.layout()
+    ScrollAppearance.apply(to: self)
     guard let textView = documentView as? NSTextView else { return }
     let viewport = contentSize
     if textView.minSize.height != viewport.height {

@@ -10,6 +10,7 @@ struct SettingsView: View {
   @ViewState<String> private var key = ""
   @ViewState<String?> private var originalKey: String?
   @ViewState<[String]> private var models: [String] = []
+  @ViewState<Int> private var modelCatalogRevision = 0
   @ViewState<String> private var promptTab = "summary"
   @ViewState<String> private var status = ""
   @ViewState<MailAccount> private var account = MailAccount()
@@ -18,6 +19,7 @@ struct SettingsView: View {
   @ViewState<Bool> private var editingAccount = false
   @ViewState<Bool> private var loading = false
   @ViewState<MailAccount?> private var removingAccount: MailAccount?
+  @ViewState<URL?> private var pendingDataDirectory = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let tabs = ["常用", "账号", "写邮件", "阅读邮件", "反垃圾", "高级", "AI 助手"]
   var body: some View {
@@ -56,7 +58,7 @@ struct SettingsView: View {
           ).font(.system(size: 11)).foregroundStyle(Palette.muted)
         }.padding(14).frame(width: 190).background(Palette.sidebar)
         Divider()
-        ScrollView {
+        OverlayScrollView {
           VStack(alignment: .leading, spacing: 20) {
             HStack {
               VStack(alignment: .leading, spacing: 8) {
@@ -129,9 +131,11 @@ struct SettingsView: View {
       .onAppear {
         config = store.settings.ai
         preferences = store.settings.preferences
+        pendingDataDirectory = BackendService.shared.pendingDataDirectory
         if store.settingsTab == "AI 助手" { loadAIKey() }
       }
       .onChange(of: store.settingsTab) { _, tab in if tab == "AI 助手" { loadAIKey() } }
+      .task(id: config.baseURL) { await loadCachedModels() }
   }
   private var subtitle: String {
     switch store.settingsTab {
@@ -163,39 +167,30 @@ struct SettingsView: View {
           Spacer()
         }
         field("API 地址", text: $config.baseURL, prompt: "https://api.deepseek.com")
-        HStack {
-          Text("API Key").font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
-            width: 76, alignment: .trailing)
-          SecureField("密钥保存在系统钥匙串", text: $key).textFieldStyle(.roundedBorder).controlSize(.large)
-          ActionButton(title: "测试连接", icon: "bolt", kind: .softAI) { testAI() }.disabled(
-            loading || config.model.isEmpty)
+        HStack(spacing: SettingsFormLayout.columnGap) {
+          SettingsFormLabel(title: "API Key")
+          SecureField("密钥保存在系统钥匙串", text: $key).settingsTextInput()
+          SettingsInlineAction(title: "测试连接", icon: "bolt") { testAI() }
+            .disabled(loading || config.model.isEmpty)
         }
-        HStack {
-          field("默认模型", text: $config.model, prompt: "deepseek-flash")
-          IconMenu(icon: "chevron.down", help: "选择已读取的模型") {
-            ForEach(models, id: \.self) { model in Button(menuTitle(model)) { config.model = model }
-            }
-          }.disabled(models.isEmpty)
-          ActionButton(title: "刷新列表", icon: "arrow.clockwise") { refreshModels() }.disabled(loading)
+        HStack(spacing: SettingsFormLayout.columnGap) {
+          SettingsFormLabel(title: "模型设置")
+          SettingsAISelectionView(model: $config.model, effort: $config.effort, models: models)
+          Spacer(minLength: 0)
+          SettingsInlineAction(title: "刷新列表", icon: "arrow.clockwise") { refreshModels() }
+            .disabled(loading)
         }
-        HStack(alignment: .top, spacing: 12) {
-          VStack(alignment: .leading, spacing: 8) {
-            Text("思考等级（effort）").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            Picker("思考等级", selection: $config.effort) {
-              Text("Low").tag("low")
-              Text("High").tag("high")
-              Text("Max").tag("max")
-            }.pickerStyle(.segmented).labelsHidden()
-          }.frame(width: 300)
-          Spacer(minLength: 12)
-          VStack(alignment: .leading, spacing: 8) {
-            Text("请求超时（秒）").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            TextField("120", value: $config.timeout, format: .number).textFieldStyle(.roundedBorder)
-              .controlSize(.large)
-          }.frame(width: 120)
+        HStack(spacing: SettingsFormLayout.columnGap) {
+          SettingsFormLabel(title: "请求超时")
+          TextField("120", value: $config.timeout, format: .number.grouping(.never))
+            .settingsTextInput().frame(width: SettingsFormLayout.portWidth)
+            .accessibilityLabel("请求超时（秒）")
+          Text("秒").font(UIType.caption).foregroundStyle(Palette.muted)
+          Spacer(minLength: 0)
         }
         Text("超时可设为 10 至 600 秒。图片和 PDF 理解请使用支持视觉输入的模型，如 deepseek-flash。")
           .font(UIType.small).foregroundStyle(Palette.muted)
+          .padding(.leading, SettingsFormLayout.labelWidth + SettingsFormLayout.columnGap)
       }
       SectionCard(title: "系统默认提示词", icon: "curlybraces") {
         WrappingFlowLayout(spacing: 6) {
@@ -211,11 +206,12 @@ struct SettingsView: View {
             }
           }
         }
-        TextEditor(
+        PlainTextEditor(
           text: Binding(
             get: { config.prompts[promptTab] ?? AIPromptDefaults.values[promptTab] ?? "" },
-            set: { config.prompts[promptTab] = $0 })
-        ).font(UIType.body).frame(height: 160).padding(12).scrollContentBackground(.hidden)
+            set: { config.prompts[promptTab] = $0 }),
+          fontSize: 13, inset: .init(width: 5, height: 5), accessibilityLabel: "AI 默认提示词"
+        ).frame(height: 160).padding(12)
           .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
           .id(promptTab)
         Text("已预设每类任务的提示词，可自定义语气和分析要求。清空后保存会恢复默认。邮件内容、图片和文档内容会发送至你配置的 AI 服务。").font(
@@ -292,19 +288,26 @@ struct SettingsView: View {
           field("账户名称", text: $account.name, prompt: "你的姓名")
           field("邮箱地址", text: $account.email, prompt: "you@example.com")
           field("登录用户名", text: $account.username, prompt: "留空时使用邮箱地址")
-          HStack {
-            Text("授权码").font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
-              width: 76, alignment: .trailing)
-            SecureField("邮箱应用密码 / 授权码", text: $password).textFieldStyle(.roundedBorder).controlSize(
-              .large)
+          HStack(spacing: SettingsFormLayout.columnGap) {
+            SettingsFormLabel(title: "授权码")
+            SecureField("邮箱应用密码 / 授权码", text: $password).settingsTextInput()
           }
-          serverFields(
-            "IMAP", host: $account.imapHost, port: $account.imapPort, tls: $account.imapTLS,
-            sslPort: 993, startTLSPort: 143)
-          serverFields(
-            "SMTP", host: $account.smtpHost, port: $account.smtpPort, tls: $account.smtpTLS,
-            sslPort: 465, startTLSPort: 587)
-          Text("SSL/TLS 与 STARTTLS 勾选项互斥。QQ、163 等邮箱需先启用 IMAP/SMTP，并生成客户端授权码。").font(
+          VStack(spacing: SettingsFormLayout.columnGap) {
+            HStack(spacing: SettingsFormLayout.columnGap) {
+              Color.clear.frame(width: SettingsFormLayout.labelWidth, height: 1)
+                .accessibilityHidden(true)
+              Text("服务器地址").frame(maxWidth: .infinity, alignment: .leading)
+              Text("端口").frame(width: SettingsFormLayout.portWidth, alignment: .leading)
+              Text("加密方式").frame(width: SettingsFormLayout.menuWidth, alignment: .leading)
+            }.font(UIType.small).foregroundStyle(Palette.muted)
+            serverFields(
+              "IMAP", host: $account.imapHost, port: $account.imapPort, tls: $account.imapTLS,
+              sslPort: 993, startTLSPort: 143)
+            serverFields(
+              "SMTP", host: $account.smtpHost, port: $account.smtpPort, tls: $account.smtpTLS,
+              sslPort: 465, startTLSPort: 587)
+          }
+          Text("在下拉框中选择 SSL/TLS 或 STARTTLS。QQ、163 等邮箱需先启用 IMAP/SMTP，并生成客户端授权码。").font(
             .system(size: 11)
           ).foregroundStyle(Palette.muted)
           HStack {
@@ -329,9 +332,8 @@ struct SettingsView: View {
   }
   private var composeSettings: some View {
     SectionCard(title: "邮件签名", icon: "signature") {
-      TextEditor(text: $preferences.signature).font(.system(size: 13)).frame(height: 190).padding(
-        10
-      ).scrollContentBackground(.hidden).background(
+      PlainTextEditor(text: $preferences.signature, fontSize: 13, inset: .init(width: 5, height: 5),
+        accessibilityLabel: "邮件签名").frame(height: 190).padding(10).background(
         Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
       Text("新邮件会自动附上签名。草稿在停止输入后自动保存到本机；发送前始终需要确认。").font(.system(size: 12)).foregroundStyle(
         Palette.muted)
@@ -359,21 +361,7 @@ struct SettingsView: View {
   }
   private var advancedSettings: some View {
     VStack(spacing: 16) {
-      SectionCard(title: "本机数据", icon: "externaldrive") {
-        Text(BackendService.shared.dataDirectory.path).font(.system(size: 12)).textSelection(
-          .enabled)
-        Text("邮件正文、附件、草稿、AI 结果与活动记录存于 SQLite 和本机附件目录。授权码与 API Key 保存在系统钥匙串。").font(
-          .system(size: 12)
-        ).foregroundStyle(Palette.muted)
-        HStack {
-          ActionButton(title: "打开数据目录", icon: "folder") {
-            NSWorkspace.shared.open(BackendService.shared.dataDirectory)
-          }
-          Text("\(store.messages.count) 封邮件 · \(store.attachments.count) 个附件").font(
-            .system(size: 11)
-          ).foregroundStyle(Palette.muted)
-        }
-      }
+      LocalDataSettingsView(store: store, pendingDirectory: $pendingDataDirectory)
       SectionCard(title: "运行诊断", icon: "stethoscope") {
         Text(
           "本机服务：\(store.ready ? "已连接" : "未连接")\n待同步更改：\(store.pendingMutations) 项\n应用版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"
@@ -386,27 +374,25 @@ struct SettingsView: View {
     }
   }
   private func field(_ title: String, text: Binding<String>, prompt: String = "") -> some View {
-    HStack {
-      Text(title).font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
-        width: 76, alignment: .trailing)
-      TextField(prompt, text: text).textFieldStyle(.roundedBorder).font(.system(size: 12))
-        .controlSize(.large)
+    HStack(spacing: SettingsFormLayout.columnGap) {
+      SettingsFormLabel(title: title)
+      TextField(prompt, text: text).settingsTextInput().accessibilityLabel(title)
     }
   }
   private func serverFields(
     _ name: String, host: Binding<String>, port: Binding<Int>, tls: Binding<Bool>,
     sslPort: Int, startTLSPort: Int
   ) -> some View {
-    HStack {
-      field(name + " 地址", text: host)
-      TextField("端口", value: port, format: .number).textFieldStyle(.roundedBorder).controlSize(
-        .large
-      ).font(.system(size: 12)).frame(width: 65)
-      Toggle("SSL/TLS", isOn: tls).toggleStyle(.checkbox).font(.system(size: 11)).fixedSize()
-      Toggle(
-        "STARTTLS",
-        isOn: Binding(get: { !tls.wrappedValue }, set: { tls.wrappedValue = !$0 })
-      ).toggleStyle(.checkbox).font(.system(size: 11)).fixedSize()
+    HStack(spacing: SettingsFormLayout.columnGap) {
+      SettingsFormLabel(title: name)
+      TextField("服务器地址", text: host).settingsTextInput().accessibilityLabel(name + " 地址")
+        .frame(maxWidth: .infinity)
+      TextField("端口", value: port, format: .number.grouping(.never)).settingsTextInput()
+        .frame(width: SettingsFormLayout.portWidth).accessibilityLabel(name + " 端口")
+      SettingsMenuPicker(title: name + " 加密方式", selection: tls) {
+        Text("SSL/TLS").tag(true)
+        Text("STARTTLS").tag(false)
+      }.accessibilityValue(tls.wrappedValue ? "SSL/TLS" : "STARTTLS")
     }.onChange(of: tls.wrappedValue) { oldValue, newValue in
       let oldPort = oldValue ? sslPort : startTLSPort
       if port.wrappedValue == oldPort {
@@ -419,6 +405,16 @@ struct SettingsView: View {
     Task {
       defer { loading = false }
       do {
+        if let pendingDataDirectory {
+          _ = try LocalDataStorage.validateDestination(
+            from: BackendService.shared.dataDirectory, to: pendingDataDirectory)
+        }
+        if !store.ready {
+          try BackendService.shared.scheduleDataDirectory(pendingDataDirectory)
+          status = "数据位置设置已保存，请恢复原数据目录后重新启动。"
+          if close { dismiss() }
+          return
+        }
         if originalKey.map({ key != $0 }) ?? !key.isEmpty {
           try KeychainService.save(key, account: "ai-key")
           originalKey = key
@@ -427,7 +423,8 @@ struct SettingsView: View {
           "/settings",
           body: ["ai": try jsonObject(config), "preferences": try jsonObject(preferences)])
         try await store.refresh()
-        status = "设置已保存"
+        try BackendService.shared.scheduleDataDirectory(pendingDataDirectory)
+        status = pendingDataDirectory == nil ? "设置已保存" : "设置已保存，重新打开 Boxmail 后迁移本机数据。"
         if close { dismiss() }
       } catch { status = "保存失败：\(error.localizedDescription)" }
     }
@@ -453,15 +450,42 @@ struct SettingsView: View {
     }
   }
   private func refreshModels() {
+    let requestedConfig = config
+    modelCatalogRevision += 1
+    let revision = modelCatalogRevision
     loading = true
     Task {
       defer { loading = false }
       do {
         let result: ModelsResponse = try await BackendService.shared.request(
-          "/ai/models", method: "POST", body: ["config": try jsonObject(config), "apiKey": key])
+          "/ai/models", method: "POST", body: ["config": try jsonObject(requestedConfig), "apiKey": key])
+        guard config.baseURL == requestedConfig.baseURL, modelCatalogRevision == revision else { return }
+        modelCatalogRevision += 1
         models = result.models
         status = "已读取 \(models.count) 个模型"
-      } catch { status = "获取失败：\(error.localizedDescription)" }
+      } catch {
+        if config.baseURL == requestedConfig.baseURL {
+          status = (models.isEmpty ? "获取失败：" : "获取失败，已保留原模型列表：") + error.localizedDescription
+        }
+      }
+    }
+  }
+  private func loadCachedModels() async {
+    let endpoint = config.baseURL
+    let revision = modelCatalogRevision
+    models = []
+    guard !endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    var components = URLComponents()
+    components.queryItems = [URLQueryItem(name: "baseURL", value: endpoint)]
+    do {
+      let result: ModelsResponse = try await BackendService.shared.request(
+        "/ai/models?" + (components.percentEncodedQuery ?? ""))
+      guard !Task.isCancelled, config.baseURL == endpoint, modelCatalogRevision == revision else { return }
+      models = result.models
+    } catch {
+      // A stale or cancelled cache read must not replace a newer refresh.
+      guard !Task.isCancelled, config.baseURL == endpoint, modelCatalogRevision == revision else { return }
+      models = []
     }
   }
   private func testMail() {

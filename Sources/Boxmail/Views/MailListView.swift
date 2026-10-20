@@ -48,7 +48,7 @@ struct MailListView: View {
       if store.filteredMessages.isEmpty {
         EmptyState(title: "没有匹配的邮件", subtitle: "调整筛选条件，或搜索其他关键词。", icon: "tray")
       } else {
-        ScrollView {
+        OverlayScrollView {
           LazyVStack(spacing: 0) {
             ForEach(store.filteredMessages) { message in
               Button {

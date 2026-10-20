@@ -83,7 +83,7 @@ struct ComposerView: View {
               Spacer()
               ActionButton(title: "添加附件", icon: "paperclip") { addAttachments() }
             }
-            ScrollView(.horizontal) {
+            OverlayScrollView(.horizontal) {
               HStack {
                 ForEach(draft.attachmentIds, id: \.self) { id in
                   if let a = store.attachments.first(where: { $0.id == id }) {
@@ -104,7 +104,7 @@ struct ComposerView: View {
           }.padding(16).background(.white)
         }.frame(maxWidth: .infinity)
         Divider()
-        ScrollView {
+        OverlayScrollView {
           VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 8) {
               Image(systemName: "sparkles").foregroundStyle(Palette.accent)

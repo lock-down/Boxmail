@@ -121,6 +121,23 @@ test('explicit reanalysis includes successful files, and failures retain the pre
   assert.ok(files.every(file => repo.get('attachment', file.id).analysis === '保留的旧结果'));
 });
 
+test('textless PPT and PPTX files participate in email batches, including MIME-only names', async t => {
+  const calls = [];
+  const { repo, manager, files } = await fixture(t, async (repo, input) => {
+    calls.push(input.attachmentId); succeed(repo, input);
+  }, 3);
+  const formats = [
+    ['slides.PPT', 'application/octet-stream'],
+    ['slides.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ['slides', 'application/vnd.ms-powerpoint'],
+  ];
+  files.forEach((file, index) => repo.put('attachment', { ...file, name: formats[index][0], contentType: formats[index][1], text: '' }));
+  const job = manager.start({ messageId: 'm1', config });
+  await manager.workers.get(job.id).promise;
+  assert.deepEqual(calls, files.map(file => file.id));
+  assert.equal(repo.get('job', job.id).status, 'completed');
+});
+
 test('pause and shutdown abort active work, preserve successes, and resume only unfinished files', async t => {
   const second = Promise.withResolvers();
   let block = true;

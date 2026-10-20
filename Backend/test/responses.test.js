@@ -4,7 +4,8 @@ import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { completion } from '../src/responses.js';
 import { runAgent } from '../src/agent.js';
 import { saveAttachment, modelAttachment } from '../src/attachments.js';
@@ -12,9 +13,12 @@ import { Repository } from '../src/database.js';
 import { startServer } from '../src/server.js';
 import { DEFAULT_AI, DEFAULT_PROMPTS } from '../src/ai-settings.js';
 import { aiConfig } from '../src/validation.js';
+import { presentationRendererPath } from '../src/presentations.js';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=', 'base64');
 const sessionToken = 'test-responses-session-0123456789';
+const nativePresentations = process.platform === 'darwin' && existsSync(presentationRendererPath());
+const presentationFixture = name => readFile(new URL(`fixtures/${name}`, import.meta.url));
 
 async function provider(t, options = {}) {
   const requests = [], uploads = [], deleted = [];
@@ -197,6 +201,72 @@ test('oversized PDF is rejected instead of silently analyzing a partial document
   const repo = await repository(t);
   const attachment = await saveAttachment(repo, 'm1', 'long.pdf', blankPDF(21), 'application/pdf');
   await assert.rejects(modelAttachment(repo, attachment.id), /21.*20/);
+});
+
+test('PPTX and legacy PPT render every slide through the PDF image pipeline and preserve originals',
+  { skip: !nativePresentations }, async t => {
+  const repo = await repository(t);
+  for (const name of ['two-slides.pptx', 'two-slides.ppt']) {
+    const original = await presentationFixture(name);
+    const attachment = await saveAttachment(repo, 'm1', name, original);
+    assert.match(attachment.text, /第一页/);
+    assert.match(attachment.text, /第二页/);
+    const ai = await provider(t);
+    await runAgent(repo, { task: 'attachment', attachmentId: attachment.id, config: ai.config });
+    assert.equal(ai.uploads.length, 2);
+    assert.deepEqual(ai.uploads.map(file => file.name), ['two-slides-page-1.png', 'two-slides-page-2.png']);
+    assert.notDeepEqual(ai.uploads[0].bytes, ai.uploads[1].bytes);
+    assert.ok(ai.uploads.every(file => file.bytes.length > 5000));
+    const context = JSON.parse(ai.requests[0].input[0].content[0].text);
+    assert.equal(context.inputKind, 'presentation');
+    assert.equal(context.pages, 2);
+    assert.match(context.text, /收入增长38%/);
+    assert.equal(ai.deleted.length, 2);
+    assert.deepEqual(await readFile(attachment.path), original);
+  }
+});
+
+test('image-only PPTX remains analyzable without extracted text and old attachments gain searchable text',
+  { skip: !nativePresentations }, async t => {
+  const repo = await repository(t);
+  const image = await saveAttachment(repo, 'm1', 'image-only.pptx', await presentationFixture('image-only.pptx'));
+  assert.equal(image.text, '');
+  const ai = await provider(t);
+  await runAgent(repo, { task: 'attachment', attachmentId: image.id, config: ai.config });
+  assert.equal(ai.uploads.length, 1);
+  assert.ok(ai.uploads[0].bytes.length > 1000);
+  const old = await saveAttachment(repo, 'm1', 'two-slides.pptx', await presentationFixture('two-slides.pptx'));
+  repo.put('attachment', { ...old, text: '', parseError: '旧版本不支持' });
+  await runAgent(repo, { task: 'attachment', attachmentId: old.id, config: ai.config });
+  assert.match(repo.get('attachment', old.id).text, /第二页/);
+  assert.equal(repo.get('attachment', old.id).parseError, '');
+});
+
+test('hidden PPTX slides are included in order without changing the original attachment',
+  { skip: !nativePresentations }, async t => {
+  const repo = await repository(t);
+  const original = await presentationFixture('hidden-slide.pptx');
+  const file = await saveAttachment(repo, 'm1', 'hidden-slide.pptx', original);
+  const result = await modelAttachment(repo, file.id);
+  assert.equal(result.pages, 2);
+  assert.match(result.text, /第二页/);
+  assert.deepEqual(await readFile(file.path), original);
+});
+
+test('PPT limits, corrupt files and cancellation fail before any model upload and retain existing analysis',
+  { skip: !nativePresentations }, async t => {
+  const repo = await repository(t);
+  const long = await saveAttachment(repo, 'm1', 'long.PPTX', await presentationFixture('twenty-one-slides.pptx'));
+  await assert.rejects(modelAttachment(repo, long.id), /21.*20/);
+  const broken = await saveAttachment(repo, 'm1', 'broken.pptx', Buffer.from('not a presentation'));
+  const ai = await provider(t);
+  repo.put('attachment', { ...broken, analysis: '已有理解结果' });
+  await assert.rejects(runAgent(repo, { task: 'attachment', attachmentId: broken.id, config: ai.config }), /PPT.*损坏/);
+  assert.equal(repo.get('attachment', broken.id).analysis, '已有理解结果');
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(modelAttachment(repo, long.id, { signal: controller.signal }), { name: 'AbortError' });
+  assert.equal(ai.uploads.length, 0);
 });
 
 test('document text is understood without using unsupported file input', async (t) => {

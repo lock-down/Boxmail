@@ -16,8 +16,7 @@ struct AttachmentsView: View {
     store.accountAttachments.filter { a in
       (query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         || (matchedQuery == searchKey && matchingIDs.contains(a.id)))
-        && (type == "全部"
-          || (type == "图片" ? a.isImage : a.name.lowercased().hasSuffix(type.lowercased())))
+        && matchesType(a)
     }
   }
   var body: some View {
@@ -41,7 +40,7 @@ struct AttachmentsView: View {
       HStack {
         Text("\(filtered.count) 个附件").font(.system(size: 12, weight: .medium))
         Spacer()
-        Text("支持 PDF、文档、表格和图片理解").font(.system(size: 11)).foregroundStyle(Palette.muted)
+        Text("支持 PDF、Word、表格、PPT 和图片理解").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }
       if searching { ProgressView("正在搜索附件内容…").controlSize(.small) }
       if let queryError {
@@ -50,7 +49,7 @@ struct AttachmentsView: View {
           ActionButton(title: "重试", icon: "arrow.clockwise") { Task { await searchAttachments() } }
         }
       }
-      ScrollView {
+      OverlayScrollView {
         LazyVGrid(
           columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 16
         ) {
@@ -71,7 +70,8 @@ struct AttachmentsView: View {
                 attachment.analysis ?? attachment.analysisPreview ?? attachment.textPreview
                   ?? (attachment.text.isEmpty
                     ? (attachment.isImage
-                      ? "图片可直接交给模型理解" : attachment.isPDF ? "PDF 页面可直接交给模型理解" : "可打开原文件查看")
+                      ? "图片可直接交给模型理解" : attachment.isPDF ? "PDF 页面可直接交给模型理解"
+                        : attachment.isPresentation ? "PPT 可逐页理解文字、图表和图片" : "可打开原文件查看")
                     : attachment.text.replacingOccurrences(of: "\n", with: " "))
               )).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(3).lineSpacing(4).frame(
                 height: 56, alignment: .top)
@@ -133,7 +133,18 @@ struct AttachmentsView: View {
     SearchField(placeholder: "搜索附件名称或内容", text: $query)
   }
   private var typeFilters: some View {
-    FilterBar(values: ["全部", "PDF", "DOCX", "XLSX", "TXT", "图片"], selection: $type, compact: true)
+    FilterBar(values: ["全部", "PDF", "Word", "表格", "PPT", "TXT", "图片"], selection: $type, compact: true)
+  }
+  private func matchesType(_ attachment: MailAttachment) -> Bool {
+    switch type {
+    case "PDF": return attachment.isPDF
+    case "Word": return attachment.kind == .word
+    case "表格": return attachment.isSpreadsheet
+    case "PPT": return attachment.isPresentation
+    case "TXT": return attachment.kind == .text
+    case "图片": return attachment.isImage
+    default: return true
+    }
   }
 }
 struct AttachmentPreviewView: View {
@@ -180,7 +191,7 @@ struct AttachmentPreviewView: View {
         if tab == "原文件预览" {
           originalPreview(attachment)
         } else {
-          ScrollView {
+          OverlayScrollView {
             VStack(alignment: .leading, spacing: 20) {
               if tab == "AI 理解" {
                 if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
@@ -273,7 +284,7 @@ struct AttachmentPreviewView: View {
     previewError = ""
     defer { previewLoading = false }
     do {
-      if attachment?.isSpreadsheet == true {
+      if attachment?.usesWorkbookPreview == true {
         let preview: WorkbookPreviewResponse = try await BackendService.shared.request(
           "/attachments/\(attachmentId)/preview")
         try Task.checkCancellation()

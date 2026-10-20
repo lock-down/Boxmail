@@ -85,10 +85,16 @@ export async function runAgent(repo, input) {
   try {
     input.signal?.throwIfAborted();
     let images = [];
+    let extractedText;
     if (task === 'attachment') {
-      const prepared = await modelAttachment(repo, input.attachmentId);
+      const prepared = await modelAttachment(repo, input.attachmentId, { signal: input.signal });
       images = prepared.images;
       context.inputKind = prepared.kind;
+      if (prepared.text !== undefined) {
+        extractedText = prepared.text;
+        context.text = extractedText.slice(0, 60000);
+        context.textTruncated = extractedText.length > 60000;
+      }
       if (prepared.pages) {
         context.pages = prepared.pages;
         context.pageOrder = '输入图片按照文档页码从第 1 页开始依次排列';
@@ -146,7 +152,7 @@ export async function runAgent(repo, input) {
         if (!a || (message && (!current?.attachmentIds.includes(a.id) || a.messageId !== current.id)))
           throw new ServiceError('附件已移动或移除，请重新打开邮件后重试。', 409);
         job.messageId = current?.id || job.messageId;
-        repo.put('attachment', { ...a, analysis: result.text });
+        repo.put('attachment', { ...a, ...(extractedText !== undefined ? { text: extractedText, parseError: '' } : {}), analysis: result.text });
       } else if (task === 'translate') {
         const current = repo.get('message', message.id);
         if (!current) throw new ServiceError('邮件已移动，请重新打开邮件', 409);

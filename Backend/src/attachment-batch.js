@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { aiConfig, ServiceError } from './validation.js';
 import { runAgent } from './agent.js';
+import { isPresentation } from './presentations.js';
 
 const finished = new Set(['completed', 'existing', 'unsupported']);
 const imageTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 function supported(file) {
-  return !!file.text?.trim() || file.contentType === 'application/pdf' || imageTypes.has(file.contentType)
+  return !!file.text?.trim() || isPresentation(file) || file.contentType === 'application/pdf' || imageTypes.has(file.contentType)
     || ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(path.extname(file.name).toLowerCase());
 }
 function publicError(error) {

@@ -7,7 +7,7 @@ struct SidebarView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
-      ScrollView {
+      OverlayScrollView {
         VStack(spacing: 4) {
           Button {
             store.newDraft()

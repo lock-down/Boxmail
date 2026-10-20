@@ -18,6 +18,7 @@ import { Organizer } from './organizer.js';
 import { createReplyDraft } from './reply.js';
 import { workbookPreview } from './workbook-preview.js';
 import { AttachmentBatch } from './attachment-batch.js';
+import { cachedModelCatalog, refreshModelCatalog } from './model-catalog.js';
 
 export async function startServer({
   directory,
@@ -260,20 +261,11 @@ export async function startServer({
           request: '返回 subject 和 body，内容为连接成功',
         });
         result = { ok: true };
+      } else if (req.method === 'GET' && route === '/ai/models') {
+        result = cachedModelCatalog(repo,
+          url.searchParams.get('baseURL') || repo.get('settings', 'settings').ai.baseURL);
       } else if (req.method === 'POST' && route === '/ai/models') {
-        const config = aiConfig({
-          ...body.config,
-          model: body.config.model || 'model-list',
-        });
-        const r = await fetch(`${config.baseURL}/models`, {
-          headers: body.apiKey
-            ? { Authorization: `Bearer ${body.apiKey}` }
-            : {},
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!r.ok)
-          throw new ServiceError(`模型列表请求失败：HTTP ${r.status}`, 502);
-        result = { models: (await r.json()).data?.map((m) => m.id) || [] };
+        result = await refreshModelCatalog(repo, body.config, body.apiKey);
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/attachments\/analyze$/.test(route)) {
         if (locks.has('agent')) throw new ServiceError('AI 正在执行任务，请等待完成', 409);
         result = attachmentBatch.start({ ...body, messageId: route.split('/')[2], config: repo.get('settings', 'settings').ai });

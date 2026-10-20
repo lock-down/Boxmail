@@ -5,7 +5,7 @@ import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { summaryResult } from '../src/summary.js';
 import { DEFAULT_PROMPTS, upgradeDefaultPrompts } from '../src/ai-settings.js';
-import { LEGACY_PROMPTS } from '../src/legacy-prompts.js';
+import { LEGACY_PROMPTS, V008_PROMPTS } from '../src/legacy-prompts.js';
 import { Repository } from '../src/database.js';
 import { startServer } from '../src/server.js';
 
@@ -71,4 +71,36 @@ test('startup migrates old defaults and preserves provider settings and custom p
   assert.equal(settings.ai.effort, 'max');
   assert.equal(settings.ai.timeout, 240);
   assert.equal(settings.preferences.signature, '保留签名');
+});
+
+test('0.0.8 defaults migrate all writing entry points exactly and leave custom prompts intact', () => {
+  const previous = { ...V008_PROMPTS };
+  const upgraded = upgradeDefaultPrompts(previous);
+  for (const task of Object.keys(previous)) {
+    assert.equal(upgraded[task], DEFAULT_PROMPTS[task]);
+    assert.notEqual(upgraded[task], previous[task]);
+    const custom = `${previous[task]} 请保持我的专用表达。`;
+    assert.equal(upgradeDefaultPrompts({ [task]: custom })[task], custom);
+    assert.equal(upgradeDefaultPrompts({ [task]: `\n${previous[task]}\n` })[task], DEFAULT_PROMPTS[task]);
+  }
+  assert.deepEqual(previous, V008_PROMPTS);
+  assert.deepEqual(upgradeDefaultPrompts(upgraded), upgraded);
+});
+
+test('startup upgrades 0.0.8 drafting defaults while preserving custom compose and saved signature', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'boxmail-unsigned-defaults-'));
+  const repo = new Repository(directory);
+  const custom = `${V008_PROMPTS.compose} 仅润色我提供的内容。`;
+  repo.put('settings', { id: 'settings', ai: { baseURL: 'http://127.0.0.1:12345/v1', model: 'local-model', effort: 'max',
+    timeout: 240, prompts: { ...V008_PROMPTS, compose: custom } }, preferences: { signature: '我的原有签名' } });
+  repo.close();
+  const app = await startServer({ directory, token: 'test-unsigned-token-0123456789', demo: false });
+  t.after(async () => { await app.close(); await rm(directory, { recursive: true, force: true }); });
+  const settings = app.repo.get('settings', 'settings');
+  for (const task of ['reply', 'summary', 'attachment']) assert.equal(settings.ai.prompts[task], DEFAULT_PROMPTS[task]);
+  assert.equal(settings.ai.prompts.compose, custom);
+  assert.equal(settings.ai.model, 'local-model');
+  assert.equal(settings.ai.effort, 'max');
+  assert.equal(settings.ai.timeout, 240);
+  assert.equal(settings.preferences.signature, '我的原有签名');
 });

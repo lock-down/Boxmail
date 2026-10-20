@@ -12,10 +12,7 @@ struct ContentView: View {
         SidebarView(store: store).frame(width: UILayout.sidebar)
         Divider()
         if !store.ready {
-          VStack(spacing: 14) {
-            ProgressView()
-            Text("正在启动本机邮件服务…").foregroundStyle(Palette.muted)
-          }.frame(maxWidth: .infinity, maxHeight: .infinity)
+          startupContent
         } else if !store.search.isEmpty {
           mailSplit
         } else {
@@ -69,6 +66,32 @@ struct ContentView: View {
     } message: {
       Text(store.notice ?? "")
     }
+  }
+  private var startupContent: some View {
+    VStack(spacing: 16) {
+      if let error = store.startupError {
+        Image(systemName: "externaldrive.badge.exclamationmark")
+          .font(.system(size: 30, weight: .light)).foregroundStyle(Palette.muted)
+        Text("本机服务暂时无法启动").font(UIType.heading)
+        Text(error).font(UIType.caption).foregroundStyle(Palette.muted)
+          .multilineTextAlignment(.center).textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 480)
+        HStack(spacing: 10) {
+          ActionButton(title: "打开数据设置", icon: "slider.horizontal.3") {
+            store.settingsTab = "高级"
+            store.showSettings = true
+          }
+          ActionButton(title: "重试", icon: "arrow.clockwise", kind: .primary) {
+            Task { await store.load() }
+          }
+        }
+      } else {
+        ProgressView()
+        Text(BackendService.shared.pendingDataDirectory == nil
+          ? "正在启动本机邮件服务…" : "正在迁移本机数据，请保持磁盘连接…")
+          .font(UIType.caption).foregroundStyle(Palette.muted)
+      }
+    }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
   }
   private var mailSplit: some View {
     HSplitView {
@@ -151,7 +174,7 @@ struct ActivityView: View {
         Spacer()
         IconButton(icon: "xmark", help: "关闭") { dismiss() }
       }
-      ScrollView {
+      OverlayScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
           ForEach(store.events) { event in
             HStack {

@@ -23,6 +23,8 @@ import SwiftUI
   var pendingMutations = 0
   var credentialAuthorizationAccounts: Set<String> = []
   var ready = false
+  var starting = false
+  var startupError: String?
   var showSettings = false
   var settingsTab = "AI 助手"
   var composer: MailDraft?
@@ -80,8 +82,13 @@ import SwiftUI
     return pageMessages
   }
   func load() async {
+    guard !ready, !starting else { return }
+    starting = true
+    startupError = nil
+    defer { starting = false }
     do {
       try await BackendService.shared.start()
+      if let message = BackendService.shared.startupNotice { notice = message }
       try await refresh()
       ready = true
       selectedMessageId = filteredMessages.first?.id
@@ -98,7 +105,7 @@ import SwiftUI
           if !Task.isCancelled { await syncAll(silent: true) }
         }
       }
-    } catch { self.error = error.localizedDescription }
+    } catch { startupError = error.localizedDescription }
   }
   func refresh() async throws {
     let state: AppSnapshot = try await BackendService.shared.request("/state?compact=1")
@@ -268,8 +275,10 @@ import SwiftUI
     if let attachment { input["attachmentId"] = attachment.id }
     if let replyPreset { input["replyPreset"] = replyPreset.rawValue }
     if preview { input["preview"] = true }
+    let preparationAllowance = attachment?.isPresentation == true ? 150 : 30
     let job: AgentJob = try await BackendService.shared.request(
-      "/agent", method: "POST", body: input, timeout: TimeInterval(settings.ai.timeout + 30))
+      "/agent", method: "POST", body: input,
+      timeout: TimeInterval(settings.ai.timeout + preparationAllowance))
     try await refresh()
     return job
   }

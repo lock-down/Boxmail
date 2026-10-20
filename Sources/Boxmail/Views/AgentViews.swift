@@ -8,7 +8,7 @@ struct SummaryOverviewView: View {
     store.accountMessages.filter { $0.summary != nil && $0.folder != "trash" }
   }
   var body: some View {
-    ScrollView {
+    OverlayScrollView {
       LazyVStack(alignment: .leading, spacing: 24) {
         HStack {
           PageHeading(title: "AI 摘要总览", subtitle: "把邮件要点、待办与关键信息集中在一处")
@@ -78,7 +78,7 @@ struct DraftsView: View {
   @Bindable var store: MailStore
   private var drafts: [MailDraft] { store.drafts.filter { $0.accountId == store.accountId } }
   var body: some View {
-    ScrollView {
+    OverlayScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
         HStack {
           PageHeading(title: "草稿箱", subtitle: "草稿保存在本机，确认发送后投递")

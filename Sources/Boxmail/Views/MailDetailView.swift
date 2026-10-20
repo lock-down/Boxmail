@@ -54,7 +54,7 @@ struct MailDetailView: View {
       MailAIBar(store: store, message: message)
       Divider().overlay(Palette.softBorder)
       ScrollViewReader { reader in
-        ScrollView {
+        OverlayScrollView {
           VStack(alignment: .leading, spacing: 22) {
             Text(message.subject).font(.system(size: 23, weight: .semibold)).tracking(-0.35).lineSpacing(4)
               .textSelection(.enabled)
@@ -128,7 +128,7 @@ struct AttachmentCard: View {
             } else if attachment.isAnalyzed {
               Tag(text: "AI 已解析", ai: true)
             } else if attachment.canAnalyze {
-              Tag(text: attachment.isImage || attachment.isPDF ? "可 AI 理解" : "已提取文本", ai: true)
+              Tag(text: attachment.isImage || attachment.isPDF || attachment.isPresentation ? "可 AI 理解" : "已提取文本", ai: true)
             }
           }
           if let item = batchItem, item.status == "failed", let error = item.error {
