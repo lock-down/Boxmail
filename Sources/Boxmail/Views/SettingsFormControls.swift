@@ -40,20 +40,26 @@ struct SettingsInlineAction: View {
   }
 }
 
-struct SettingsMenuPicker<Value: Hashable, Content: View>: View {
-  let title: String
-  @Binding var selection: Value
-  @ViewBuilder var content: () -> Content
-  var body: some View {
-    Picker(title, selection: $selection, content: content)
-      .pickerStyle(.menu).labelsHidden().controlSize(.large).font(UIType.caption)
-      .frame(width: SettingsFormLayout.menuWidth, height: SettingsFormLayout.controlHeight)
+private struct SettingsInputSurface: ViewModifier {
+  @FocusState private var focused: Bool
+  func body(content: Content) -> some View {
+    content.textFieldStyle(.plain).font(UIType.caption).foregroundStyle(Palette.ink)
+      .padding(.horizontal, 10).frame(height: SettingsFormLayout.controlHeight)
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7)).focused($focused)
+      .overlay(alignment: .bottom) {
+        if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 8) }
+      }
   }
 }
 
 extension View {
-  func settingsTextInput() -> some View {
-    textFieldStyle(.roundedBorder).controlSize(.large).font(UIType.caption)
-      .frame(height: SettingsFormLayout.controlHeight)
+  func settingsTextInput() -> some View { modifier(SettingsInputSurface()) }
+  func inputPlaceholder(_ text: String, visible: Bool) -> some View {
+    overlay(alignment: .leading) {
+      if visible {
+        Text(text).font(UIType.caption).foregroundStyle(Palette.muted).padding(.horizontal, 10)
+          .allowsHitTesting(false).accessibilityHidden(true)
+      }
+    }
   }
 }

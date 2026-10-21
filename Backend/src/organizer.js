@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { aiConfig, ServiceError } from './validation.js';
 import { completion } from './responses.js';
+import { categoryCatalog } from './categories.js';
 
-const categories = new Set(['工作项目', '订阅资讯', '账单票据', '社交通知', '个人往来', '未分类']);
 export const REVIEWABLE = ['needsApproval', 'partial', 'paused'];
 
 function publicError(error) {
@@ -43,6 +43,7 @@ export class Organizer {
       messageId: null, createdAt: new Date().toISOString(), error: null, scope, messageIds,
       completedIds: [], result: { items: [], previous: [] },
     };
+    job.categories = previous?.categories || categoryCatalog(this.repo);
     job.progress = { total: messageIds.length, completed: job.completedIds.length, failed: 0,
       batchSize: this.batchSize, batch: 0 };
     this.repo.put('job', job);
@@ -73,10 +74,11 @@ export class Organizer {
       this.repo.put('job', job);
       try {
         if (!context.length) throw new ServiceError('本批邮件已移动或删除');
-        const result = await this.complete(config, apiKey, 'classify', context, [], { signal, stream: true });
+        const result = await this.complete(config, apiKey, 'classify', context, [], { signal, stream: true, categories: job.categories });
         if (signal.aborted) break;
         if (!Array.isArray(result.items)) throw new ServiceError('分类格式不正确', 502);
         const ids = new Set(context.map(m => m.id));
+        const categories = new Set(job.categories.map(item => item.name));
         const valid = new Map(result.items.filter(item => item && ids.has(item.id) && categories.has(item.category))
           .map(item => [item.id, { id: item.id, category: item.category, reason: String(item.reason || '').slice(0, 300) }]));
         for (const [id, item] of valid) {

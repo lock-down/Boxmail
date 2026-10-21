@@ -20,6 +20,12 @@ import { createReplyDraft } from './reply.js';
 import { workbookPreview } from './workbook-preview.js';
 import { AttachmentBatch } from './attachment-batch.js';
 import { cachedModelCatalog, refreshModelCatalog } from './model-catalog.js';
+import { categoryCatalog, editCategory } from './categories.js';
+import { draftSearchMessage } from './draft-search.js';
+import { contactSuggestions } from './contacts.js';
+import { conversation } from './threads.js';
+import { parseSearch } from './search-query.js';
+import { createBackup, inspectBackup, restoreBackup } from './backups.js';
 
 export async function startServer({
   directory,
@@ -31,6 +37,7 @@ export async function startServer({
   mailEmptyTrash = emptyTrash,
   agentRun = runAgent,
   organizerComplete,
+  backupCreate = createBackup,
 }) {
   if (!token || token.length < 24)
     throw new Error('A session token is required');
@@ -48,6 +55,7 @@ export async function startServer({
     });
   const locks = new Set();
   const clearingTrash = new Set();
+  let maintenance = false, activeWrites = 0;
   const syncTasks = new Map();
   for (const progress of repo.list('sync').filter(p => p.status === 'running'))
     repo.put('sync', { ...progress, status: 'paused', lastError: '应用关闭中断了同步，可继续加载未完成的邮件' });
@@ -58,6 +66,10 @@ export async function startServer({
   }
   const organizer = new Organizer(repo, organizerComplete ? { complete: organizerComplete } : {});
   const attachmentBatch = new AttachmentBatch(repo, { run: agentRun });
+  function requireIdle() {
+    if (activeWrites > 1 || locks.size || repo.list('account').some(account => organizer.busy(account.id) || attachmentBatch.busy(account.id)))
+      throw new ServiceError('请等待同步、发送或 AI 任务完成后再维护本机数据', 409);
+  }
   const defaults = {
     id: 'settings',
     ai: { ...DEFAULT_AI, prompts: { ...DEFAULT_AI.prompts } },
@@ -80,6 +92,7 @@ export async function startServer({
   if (!saved.ai.effort && !saved.ai.model && saved.ai.baseURL === 'https://api.openai.com/v1')
     savedAI = { ...savedAI, baseURL: DEFAULT_AI.baseURL, model: DEFAULT_AI.model };
   repo.put('settings', { ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, ai: aiConfig(savedAI, { requireModel: false }) });
+  categoryCatalog(repo);
   function presentMessage(message) {
     if (message.folder === 'trash') return { ...message,
       restoreFolder: trashRestoreFolder(message, repo.get('account', message.accountId)) };
@@ -100,6 +113,8 @@ export async function startServer({
       events: repo.events(),
       pendingMutations: repo.list('mutation').length,
       sync: syncStatus(),
+      categories: categoryCatalog(repo),
+      searchIndex: repo.searchIndex.status(),
     };
   }
   const server = http.createServer(async (req, res) => {
@@ -117,9 +132,11 @@ export async function startServer({
       res.end(JSON.stringify({ error: '未授权访问' }));
       return;
     }
+    let countedWrite = false;
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
       const route = url.pathname;
+      if (maintenance && req.method !== 'GET') throw new ServiceError('正在备份、恢复或重建索引，请稍候', 409);
       let body = {};
       if (['POST', 'PATCH', 'PUT'].includes(req.method)) {
         let size = 0;
@@ -138,9 +155,35 @@ export async function startServer({
         if (!body || typeof body !== 'object' || Array.isArray(body))
           throw new ServiceError('请求格式错误');
       }
+      if (maintenance && req.method !== 'GET') throw new ServiceError('正在维护本机数据，请稍候', 409);
+      if (req.method !== 'GET') { activeWrites++; countedWrite = true; }
       let result;
       if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1');
       else if (req.method === 'GET' && route === '/sync-status') result = syncStatus();
+      else if (req.method === 'GET' && route === '/categories') result = { categories: categoryCatalog(repo) };
+      else if (['POST', 'PATCH', 'DELETE'].includes(req.method) && /^\/categories(?:\/[^/]+)?$/.test(route)) {
+        requireIdle();
+        result = editCategory(repo, route.split('/')[2] || null, body, req.method === 'DELETE');
+      } else if (req.method === 'GET' && route === '/contacts') {
+        result = contactSuggestions(repo, url.searchParams.get('accountId'), url.searchParams.get('q') || '', url.searchParams.get('limit'));
+      } else if (req.method === 'GET' && /^\/messages\/[^/]+\/thread$/.test(route)) {
+        result = conversation(repo, route.split('/')[2], { offset: Number(url.searchParams.get('offset') || 0), limit: Number(url.searchParams.get('limit') || 100) });
+        result.messages = result.messages.map(presentMessage);
+      } else if (req.method === 'GET' && route === '/search/parse') result = parseSearch(url.searchParams.get('q') || '');
+      else if (req.method === 'GET' && route === '/search/index') result = repo.searchIndex.status();
+      else if (req.method === 'POST' && route === '/search/rebuild') {
+        requireIdle(); maintenance = true;
+        try { result = repo.transaction(() => repo.rebuildSearch()); }
+        finally { maintenance = false; }
+      } else if (req.method === 'POST' && route === '/backups/inspect') result = await inspectBackup(body.path);
+      else if (req.method === 'POST' && ['/backups/create', '/backups/restore'].includes(route)) {
+        requireIdle(); maintenance = true;
+        try {
+          result = route.endsWith('/create') ? await backupCreate(repo, body.path)
+            : await restoreBackup(repo, body.path, body.approved, { expectedSHA256: body.sha256 });
+          if (route.endsWith('/restore')) { syncTasks.clear(); categoryCatalog(repo); }
+        } finally { maintenance = false; }
+      }
       else if (req.method === 'GET' && route === '/messages') {
         const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 100);
         if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200)
@@ -150,7 +193,8 @@ export async function startServer({
           query: url.searchParams.get('q') || '', offset, limit });
         result.messages = result.messages.map(presentMessage);
       } else if (req.method === 'GET' && /^\/messages\/[^/]+$/.test(route)) {
-        result = repo.get('message', route.split('/')[2]);
+        const id = route.split('/')[2];
+        result = repo.get('message', id) || draftSearchMessage(repo, id);
         if (!result) throw new ServiceError('邮件不存在或已移动，请刷新列表', 404);
         result = { ...presentMessage(result), bodyLoaded: true };
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/restore$/.test(route)) {
@@ -430,7 +474,7 @@ export async function startServer({
                 : '操作失败，请检查网络、邮箱配置或文件内容',
         }),
       );
-    }
+    } finally { if (countedWrite) activeWrites--; }
   });
   await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
   return {

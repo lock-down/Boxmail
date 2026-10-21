@@ -15,9 +15,9 @@ struct SidebarView: View {
             Label("写邮件", systemImage: "square.and.pencil").font(
               .system(size: 13, weight: .semibold)
             )
-            .frame(maxWidth: .infinity).frame(height: 38).foregroundStyle(.white).background(
-              Palette.blue, in: RoundedRectangle(cornerRadius: 8))
-          }.buttonStyle(ControlFeedback(filled: true)).controlFocus().padding(.bottom, 10)
+            .foregroundStyle(Palette.blue).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12).frame(height: 38).contentShape(Rectangle())
+          }.buttonStyle(ControlFeedback()).controlFocus().padding(.bottom, 10)
           Button {
             showAccounts.toggle()
           } label: {

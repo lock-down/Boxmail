@@ -32,10 +32,10 @@ struct ComposerView: View {
         }.disabled(
           sending || draft.status == "uncertain" || draft.to.isEmpty
             || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
-        ChoiceMenu(title: "发件人：\(store.accounts.first{$0.id==draft.accountId}?.email ?? "请选择")") {
-          ForEach(store.accounts) { account in
-            Button(menuTitle(account.name)) { draft.accountId = account.id }
-          }
+        HStack(spacing: 8) {
+          Text("发件人").font(UIType.caption).foregroundStyle(Palette.muted)
+          WorkflowSelection(title: "发件账户", selection: $draft.accountId,
+            options: store.accounts.map { ($0.id, $0.email) }).frame(width: 240)
         }
         Spacer()
         Text(saveError ?? (saving ? "正在保存…" : saved ? "草稿已保存到本机" : "编辑中 · 自动保存")).font(
@@ -63,9 +63,9 @@ struct ComposerView: View {
       Divider()
       HStack(spacing: 0) {
         VStack(spacing: 0) {
-          addressField("收件人", text: $draft.to)
-          addressField("抄送", text: $draft.cc)
-          addressField("密送", text: $draft.bcc)
+          recipientField("收件人", text: $draft.to, others: [draft.cc, draft.bcc]).zIndex(focusedAddress == "收件人" ? 20 : 0)
+          recipientField("抄送", text: $draft.cc, others: [draft.to, draft.bcc]).zIndex(focusedAddress == "抄送" ? 20 : 0)
+          recipientField("密送", text: $draft.bcc, others: [draft.to, draft.cc]).zIndex(focusedAddress == "密送" ? 20 : 0)
           addressField("主题", text: $draft.subject)
           if draft.status == "uncertain" {
             Text("上次发送结果待确认。请先检查服务器已发送邮箱，确认未送达后再复制内容到新草稿。").font(.system(size: 12)).foregroundStyle(
@@ -119,15 +119,11 @@ struct ComposerView: View {
             ).frame(height: 136).background(
               .white, in: RoundedRectangle(cornerRadius: 8)
             ).clipShape(RoundedRectangle(cornerRadius: 8))
-              .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.softBorder))
+
             Text("语气").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            Picker("语气", selection: $tone) {
-              ForEach(["正式", "亲切", "简洁", "专业"], id: \.self) { Text($0) }
-            }.pickerStyle(.segmented).labelsHidden()
+            FilterBar(values: ["正式", "亲切", "简洁", "专业"], selection: $tone, compact: true)
             Text("长度").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            Picker("长度", selection: $length) {
-              ForEach(["简短", "适中", "详细"], id: \.self) { Text($0) }
-            }.pickerStyle(.segmented).labelsHidden()
+            FilterBar(values: ["简短", "适中", "详细"], selection: $length, compact: true)
             HStack {
               ActionButton(title: store.busy.contains("compose-ai") ? "正在拟稿…" : "生成草稿", icon: "sparkles", kind: .ai) { generate() }.disabled(
                 prompt.isEmpty || store.busy.contains("agent"))
@@ -167,6 +163,17 @@ struct ComposerView: View {
           "收件人：\(draft.to)\n主题：\(draft.subject.isEmpty ? "无主题" : draft.subject)\n附件：\(draft.attachmentIds.count) 个"
         )
       }
+  }
+  private func recipientField(_ title: String, text: Binding<String>, others: [String]) -> some View {
+    HStack(alignment: .top) {
+      Text(title).font(UIType.caption).foregroundStyle(Palette.muted).frame(width: 52, height: 30, alignment: .trailing)
+      RecipientEntryView(title: title, accountID: draft.accountId, text: text, otherRecipients: others) { focused in
+        if focused { focusedAddress = title } else if focusedAddress == title { focusedAddress = nil }
+      }.padding(.leading, 10)
+    }.padding(.horizontal, 20).padding(.vertical, 5).frame(minHeight: 40).overlay(alignment: .bottom) {
+      Rectangle().fill(focusedAddress == title ? Palette.blue : Palette.softBorder)
+        .frame(height: focusedAddress == title ? 2 : 1)
+    }
   }
   private func addressField(_ title: String, text: Binding<String>) -> some View {
     HStack {

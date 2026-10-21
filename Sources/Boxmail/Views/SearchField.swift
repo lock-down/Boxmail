@@ -9,18 +9,19 @@ struct SearchField: View {
     HStack(spacing: 8) {
       Image(systemName: "magnifyingglass").font(.system(size: 13))
         .foregroundStyle(focused ? Palette.blue : Palette.muted).accessibilityHidden(true)
-      TextField(placeholder, text: $text).textFieldStyle(.plain).font(UIType.caption)
+      TextField("", text: $text).textFieldStyle(.plain).font(UIType.caption)
         .focused($focused).accessibilityLabel(placeholder)
+        .overlay(alignment: .leading) {
+          if text.isEmpty { Text(placeholder).font(UIType.caption).foregroundStyle(Palette.muted).allowsHitTesting(false).accessibilityHidden(true) }
+        }
       if !text.isEmpty {
         IconButton(icon: "xmark.circle.fill", help: "清除搜索", size: 24) { text = "" }
           .transition(.opacity)
       }
     }.padding(.leading, 11).padding(.trailing, text.isEmpty ? 11 : 5).frame(height: 34)
       .background(Palette.paper, in: RoundedRectangle(cornerRadius: 8))
-      .overlay {
-        RoundedRectangle(cornerRadius: 8)
-          .stroke(focused ? Palette.blue.opacity(0.7) : Palette.softBorder, lineWidth: focused ? 1.5 : 1)
-          .allowsHitTesting(false)
+      .overlay(alignment: .bottom) {
+        if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 10).allowsHitTesting(false) }
       }.animation(UIMotion.feedback(reduceMotion), value: focused)
       .animation(UIMotion.feedback(reduceMotion), value: text.isEmpty)
   }

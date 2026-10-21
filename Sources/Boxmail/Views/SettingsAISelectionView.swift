@@ -65,7 +65,8 @@ private struct SettingsCustomModelEditor: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("自定义模型").font(.system(size: 12, weight: .semibold))
-      TextField("例如 deepseek-flash", text: $draft).settingsTextInput()
+      TextField("", text: $draft).settingsTextInput()
+        .inputPlaceholder("例如 deepseek-flash", visible: draft.isEmpty)
         .focused($focused).accessibilityLabel("模型名称")
       HStack {
         Spacer()

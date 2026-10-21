@@ -6,7 +6,7 @@ public enum MailHTMLDocument {
     else { return "" }
     return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
   }
-  public static func make(html: String, fontSize: Int, allowRemoteImages: Bool) -> String {
+  public static func make(html: String, fontSize: Int, allowRemoteImages: Bool, collapseQuotes: Bool = false) -> String {
     let images = allowRemoteImages ? "data: https: http:" : "data:"
     let size = min(24, max(12, fontSize))
     return """
@@ -27,6 +27,7 @@ public enum MailHTMLDocument {
       ::-webkit-scrollbar-thumb { background: rgba(32,36,43,.3); border: 0; border-radius: 3px; box-shadow: none; }
       #mail-content .boxmail-recipient-list { max-height: 160px; overflow-y: auto; overflow-x: hidden; padding-right: 10px; overflow-wrap: anywhere; }
       #mail-content .boxmail-recipient-list:focus-visible { outline: none; background: rgba(53,103,175,.06); }
+      \(collapseQuotes ? "#mail-content blockquote, #mail-content .gmail_quote, #mail-content .yahoo_quoted { display: none !important; }" : "")
       </style></head><body><div id="mail-content">\(html)</div></body></html>
       """
   }

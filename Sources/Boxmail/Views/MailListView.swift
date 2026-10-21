@@ -77,13 +77,18 @@ struct MailListView: View {
               Button {
                 store.select(message)
               } label: {
-                MailRow(message: message, selected: message.id == store.selectedMessageId)
+                MailRow(message: message, selected: message.id == store.selectedMessageId,
+                  searchAccount: store.search.isEmpty ? nil : store.accounts.first(where: { $0.id == message.accountId })?.email)
               }.buttonStyle(
                 ControlFeedback(selected: message.id == store.selectedMessageId, corner: 0)
               )
               .accessibilityAddTraits(message.id == store.selectedMessageId ? .isSelected : [])
               .controlFocus(corner: 0)
               .contextMenu {
+                if let draftID = message.draftId {
+                  Button("继续编辑草稿") { store.editDraft(draftID) }
+                    .disabled(store.drafts.first(where: { $0.id == draftID })?.status == "sending")
+                } else {
                 Button(message.starred ? "取消星标" : "添加星标") {
                   store.update(message, ["starred": !message.starred])
                 }
@@ -91,6 +96,14 @@ struct MailListView: View {
                   store.update(message, ["unread": !message.unread])
                 }
                 Button("回复") { store.newDraft(reply: message) }
+                Menu("分类") {
+                  ForEach(store.categories) { category in
+                    Button { store.update(message, ["category": category.name]) } label: {
+                      if message.category == category.name { Label(category.name, systemImage: "checkmark") }
+                      else { Text(category.name) }
+                    }
+                  }
+                }
                 if message.folder == "trash" {
                   Button(message.restoreTitle) { store.restore(message) }
                     .disabled(emptyingTrash || store.busy.contains("message-\(message.id)"))
@@ -100,6 +113,7 @@ struct MailListView: View {
                       .disabled(store.busy.contains("message-\(message.id)"))
                   }
                   Button("移到已删除") { store.update(message, ["folder": "trash"]) }
+                }
                 }
               }
             }
@@ -122,11 +136,18 @@ struct MailListView: View {
             Task { await store.loadMessages(reset: false) }
           }.disabled(store.listLoading)
         }
-        if [.inbox, .sent, .trash, .archive].contains(store.destination) {
+        if !store.search.isEmpty {
+          Text("搜索仅覆盖本机已缓存邮件，索引会自动更新。")
+            .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+          if store.searchIndex?.partial == true {
+            Text("部分历史邮件尚未缓存，继续同步可扩大搜索范围。")
+              .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+          }
+        } else if [.inbox, .sent, .trash, .archive].contains(store.destination) {
           Text("\(store.destination.title)：本机缓存 \(store.cachedMessageCount(accountId: store.accountId, folder: store.destination.rawValue)) 封")
             .font(.system(size: 11)).foregroundStyle(Palette.muted)
         }
-        if let progress = store.currentSyncFolder {
+        if store.search.isEmpty, let progress = store.currentSyncFolder {
           if let total = progress.total {
             Text("上次同步服务器共 \(total) 封").font(.system(size: 11)).foregroundStyle(Palette.muted)
           }
@@ -140,7 +161,7 @@ struct MailListView: View {
             }.disabled(store.busy.contains("sync"))
           }
         }
-        if let failure = store.syncSnapshot?.results.first(where: {
+        if store.search.isEmpty, let failure = store.syncSnapshot?.results.first(where: {
           $0.accountId == store.accountId && $0.status == "failed"
         }), store.currentSyncFolder?.lastError == nil {
           Text(failure.error ?? "同步未完成，请重试").font(.system(size: 11))
@@ -169,6 +190,7 @@ struct MailListView: View {
 struct MailRow: View {
   let message: MailMessage
   var selected = false
+  var searchAccount: String? = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     HStack(alignment: .top, spacing: 8) {
@@ -185,8 +207,12 @@ struct MailRow: View {
         }
         Text(message.subject).font(.system(size: 13, weight: message.unread ? .semibold : .medium))
           .lineLimit(1)
-        Text(message.preview).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(2)
+        Text(message.searchSnippet ?? message.preview).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(2)
           .lineSpacing(3)
+        if let searchAccount {
+          Text("\(searchAccount) · \(MailDestination(rawValue: message.folder)?.title ?? (message.folder == "spam" ? "垃圾邮件" : message.folder))")
+            .font(UIType.small).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle)
+        }
         HStack(spacing: 6) {
           if message.category != "未分类" { Tag(text: message.category) }
           if !message.attachmentIds.isEmpty {

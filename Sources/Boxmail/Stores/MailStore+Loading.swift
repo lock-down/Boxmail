@@ -4,7 +4,7 @@ import Network
 
 extension MailStore {
   var mailQueryKey: String {
-    [accountId, destination.rawValue, filter, search].joined(separator: "\u{1f}")
+    [accountId, destination.rawValue, filter, search, String(searchAllAccounts)].joined(separator: "\u{1f}")
   }
   var currentSyncFolder: MailSyncFolder? {
     syncSnapshot?.folders.first { $0.accountId == accountId && $0.folder == destination.rawValue }
@@ -23,10 +23,11 @@ extension MailStore {
     pageGeneration = generation
     listLoading = true
     listError = nil
+    if reset && pageKey != key { pageTotal = 0; nextOffset = nil }
     defer { if pageGeneration == generation { listLoading = false } }
     var query = URLComponents()
     query.queryItems = [
-      URLQueryItem(name: "accountId", value: accountId),
+      URLQueryItem(name: "accountId", value: !search.isEmpty && searchAllAccounts ? nil : accountId),
       URLQueryItem(name: "folder", value: destination.rawValue),
       URLQueryItem(name: "q", value: search),
       URLQueryItem(name: "filter", value: filter),
@@ -89,6 +90,11 @@ extension MailStore {
       // Keep only the selected body; headers and summaries remain available for overview screens.
       detailCache = [id: full]
       for aid in full.attachmentIds { await loadAttachment(aid) }
+      if full.draftId != nil {
+        conversation = nil; conversationAnchor = nil; conversationError = nil
+        return
+      }
+      await loadConversation()
     } catch is CancellationError {
     } catch {
       if selectedMessageId == id && generation == detailGeneration {

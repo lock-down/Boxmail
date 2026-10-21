@@ -7,7 +7,8 @@ struct OrganizeView: View {
   @ViewState<Int> private var limit = 50
   @ViewState<String?> private var category: String?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  private let categories = ["工作项目", "订阅资讯", "账单票据", "社交通知", "个人往来", "未分类"]
+  @ViewState<Bool> private var managingCategories = false
+  private var categories: [String] { store.categories.map(\.name) }
   var latest: AgentJob? { store.latestOrganization }
   var inbox: [MailMessage] { store.accountMessages.filter { $0.folder == "inbox" } }
   var running: Bool { latest?.status == "running" }
@@ -19,31 +20,33 @@ struct OrganizeView: View {
   var body: some View {
     OverlayScrollView {
       VStack(alignment: .leading, spacing: 22) {
-        HStack(alignment: .top) {
-          PageHeading(title: "智能整理", subtitle: "按主题整理收件箱，确认建议后再应用分类")
-          Spacer()
-          Label(store.currentAccount?.email ?? "当前账户", systemImage: "tray")
-            .font(UIType.caption).foregroundStyle(Palette.muted).padding(.top, 6)
+        HStack(alignment: .top, spacing: 24) {
+          VStack(alignment: .leading, spacing: 10) {
+            PageHeading(title: "智能整理", subtitle: "按主题整理收件箱，确认建议后再应用分类")
+            Label(store.currentAccount?.email ?? "当前账户", systemImage: "tray")
+              .font(UIType.small).foregroundStyle(Palette.muted)
+          }
+          Spacer(minLength: 0)
+          WorkflowAction(title: "管理分类", icon: "tag") { managingCategories = true }
+            .disabled(running)
         }
-        VStack(alignment: .leading, spacing: 15) {
-          HStack(spacing: 18) {
-            ChoiceMenu(title: scope == "unclassified" ? "尚未分类的收件邮件" : "全部收件邮件", help: "整理范围") {
-              Button("尚未分类的收件邮件") { scope = "unclassified" }
-              Button("全部收件邮件") { scope = "inbox" }
-            }
-            ChoiceMenu(title: "最近 \(limit) 封", help: "邮件数量") {
-              ForEach([10, 50, 100, 200], id: \.self) { value in
-                Button("最近 \(value) 封") { limit = value }
-              }
-            }
+        VStack(alignment: .leading, spacing: 16) {
+          HStack(alignment: .bottom, spacing: 16) {
+            WorkflowField(title: "整理范围") {
+              WorkflowSelection(title: "整理范围", selection: $scope,
+                options: [("unclassified", "尚未分类的收件邮件"), ("inbox", "全部收件邮件")])
+            }.frame(width: 220)
+            WorkflowField(title: "处理数量") {
+              WorkflowSelection(title: "邮件数量", selection: $limit,
+                options: [10, 50, 100, 200].map { ($0, "最近 \($0) 封") })
+            }.frame(width: 136)
             Spacer(minLength: 0)
-            ActionButton(title: "开始整理", icon: "wand.and.stars", kind: .ai) {
+            WorkflowAction(title: "开始整理", icon: "wand.and.stars", color: Palette.blue) {
               store.organize(scope: scope, limit: limit)
-            }.disabled(
-              running || hasReview || store.busy.contains("organize-control") || inbox.isEmpty)
+            }.disabled(running || hasReview || store.busy.contains("organize-control") || inbox.isEmpty)
           }
           Text(hasReview ? "先确认已有建议，或继续补齐未完成的邮件。" : "分批在后台分析，整理期间可以继续阅读和回复邮件。")
-            .font(.system(size: 11)).foregroundStyle(Palette.muted)
+            .font(UIType.small).foregroundStyle(Palette.muted)
         }.padding(20).background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
         if let error = store.organizeError {
           Label(error, systemImage: "exclamationmark.circle").font(.system(size: 12))
@@ -58,7 +61,7 @@ struct OrganizeView: View {
               Text("\(job.result?.items?.count ?? 0) 封邮件 · 仅修改本机标签").font(.system(size: 11))
                 .foregroundStyle(Palette.muted)
               Spacer()
-              ActionButton(title: "确认应用分类", icon: "checkmark", kind: .ai) {
+              WorkflowAction(title: "确认应用分类", icon: "checkmark", color: Palette.blue) {
                 store.action("approve") {
                   try await BackendService.shared.perform("/jobs/\(job.id)/approve")
                 }
@@ -104,6 +107,7 @@ struct OrganizeView: View {
                 Image(systemName: value == "账单票据" ? "doc.text" : "folder").foregroundStyle(
                   category == value ? Palette.accent : Palette.muted).font(.system(size: 13))
                 Text(value).font(.system(size: 12, weight: .medium))
+                  .lineLimit(1).truncationMode(.middle).help(value)
                 Spacer()
                 Text("\(inbox.filter { $0.category == value }.count)").font(
                   .system(size: 12, weight: .medium)
@@ -144,6 +148,10 @@ struct OrganizeView: View {
         }.background(.white, in: RoundedRectangle(cornerRadius: 10))
       }.workspacePage()
     }.background(Palette.canvas)
+      .sheet(isPresented: $managingCategories) { CategoryManagerView(store: store).borderlessScrollers() }
+      .onChange(of: store.categories) { _, items in
+        if let category, !items.contains(where: { $0.name == category }) { self.category = nil }
+      }
   }
   private func jobStatus(_ job: AgentJob) -> some View {
     VStack(alignment: .leading, spacing: 13) {
@@ -156,15 +164,15 @@ struct OrganizeView: View {
           job.status == "applied" ? Palette.success : Palette.accent)
         Spacer()
         if running {
-          ActionButton(title: "暂停", icon: "pause") { store.pauseOrganization(job) }
+          WorkflowAction(title: "暂停", icon: "pause") { store.pauseOrganization(job) }
             .disabled(store.busy.contains("organize-control"))
         } else if ["partial", "paused", "failed"].contains(job.status), job.progress != nil {
-          ActionButton(title: "继续未完成邮件", icon: "arrow.clockwise", kind: .softAI) {
+          WorkflowAction(title: "继续未完成邮件", icon: "arrow.clockwise", color: Palette.blue) {
             store.organize(retry: job)
           }
           .disabled(store.busy.contains("organize-control"))
         } else if job.status == "applied" {
-          ActionButton(title: "撤销本次整理", icon: "arrow.uturn.backward") {
+          WorkflowAction(title: "撤销本次整理", icon: "arrow.uturn.backward") {
             store.action("undo") { try await BackendService.shared.perform("/jobs/\(job.id)/undo") }
           }.disabled(store.busy.contains("undo"))
         }

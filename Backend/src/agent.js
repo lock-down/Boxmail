@@ -6,6 +6,7 @@ import { REVIEWABLE } from './organizer.js';
 import { REPLY_PRESETS } from './reply-presets.js';
 import { buildReplyDraft } from './reply.js';
 import { summaryResult } from './summary.js';
+import { categoryCatalog } from './categories.js';
 export { completion } from './responses.js';
 
 export async function runAgent(repo, input) {
@@ -102,7 +103,8 @@ export async function runAgent(repo, input) {
     }
     input.signal?.throwIfAborted();
     const result = await completion(input.config, input.apiKey, task, context, images,
-      { additionalInstructions: preset?.instruction, stream: true, signal: input.signal });
+      { additionalInstructions: preset?.instruction, stream: true, signal: input.signal,
+        ...(task === 'classify' ? { categories: categoryCatalog(repo) } : {}) });
     input.signal?.throwIfAborted();
     if (task === 'summary') {
       const summary = summaryResult(result, message);
@@ -122,14 +124,7 @@ export async function runAgent(repo, input) {
       }
     } else if (task === 'classify') {
       const ids = new Set(context.map((m) => m.id));
-      const categories = [
-        '工作项目',
-        '订阅资讯',
-        '账单票据',
-        '社交通知',
-        '个人往来',
-        '未分类',
-      ];
+      const categories = categoryCatalog(repo).map(item => item.name);
       if (!Array.isArray(result.items))
         throw new ServiceError('分类格式不正确', 502);
       const unique = new Map(

@@ -2,7 +2,7 @@
 
 These are synthetic Boxmail test documents, with no user mail or attachment data.
 
-The fixtures ship with the local `v0.0.11` source tag. They were added during the 0.0.9 presentation work; the current test and release overview is in [the documentation index](../../../docs/README.md).
+The fixtures ship with the local `v0.0.13` source tag and are excluded from the Release app. They were added during the 0.0.9 presentation work and first archived in `v0.0.11`; the current test and release overview is in [the documentation index](../../../docs/README.md).
 
 - `two-slides.pptx`: two Chinese slides containing a deadline, a budget, a three-color embedded image and a column chart. Created with python-pptx.
 - `two-slides.ppt`: the same deck exported as PowerPoint 97 by LibreOffice, for legacy format coverage.

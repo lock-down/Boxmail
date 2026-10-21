@@ -22,6 +22,7 @@ struct SettingsSelectionMenu: NSViewRepresentable {
   func makeNSView(context: Context) -> SelectionButton {
     let button = SelectionButton(frame: .zero, pullsDown: true)
     button.isBordered = false
+    button.focusRingType = .none
     button.setAccessibilityLabel("模型与思考等级")
     return button
   }
@@ -114,15 +115,15 @@ struct SettingsSelectionMenu: NSViewRepresentable {
     var model = ""
     var effort = ""
     override var isFlipped: Bool { true }
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
 
     override func draw(_ dirtyRect: NSRect) {
       let background = NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7)
       NSColor(Palette.canvas).setFill()
       background.fill()
       if cell?.showsFirstResponder == true {
-        NSColor(Palette.blue).setStroke()
-        background.lineWidth = 2
-        background.stroke()
+        NSColor(Palette.blue).setFill()
+        NSBezierPath(rect: NSRect(x: 8, y: bounds.height - 1, width: max(0, bounds.width - 16), height: 1)).fill()
       }
       let paragraph = NSMutableParagraphStyle()
       paragraph.lineBreakMode = .byTruncatingMiddle

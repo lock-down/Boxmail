@@ -62,8 +62,7 @@ struct MailReplyView: View {
         axis: .vertical
       )
       .textFieldStyle(.plain).lineLimit(2...4).font(.system(size: 12)).padding(10)
-      .background(.white, in: RoundedRectangle(cornerRadius: 6))
-      .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.softBorder))
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 6)).controlFocus(corner: 6)
       HStack {
         ActionButton(title: "生成回复预览", icon: "sparkles", kind: .ai) { generate() }
           .disabled(

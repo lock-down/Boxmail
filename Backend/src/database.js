@@ -2,6 +2,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { SearchIndex } from './search-index.js';
+import { parseSearch, searchWhere } from './search-query.js';
+import { draftSearchPage } from './draft-search.js';
 
 export class Repository {
   constructor(directory) {
@@ -33,7 +36,9 @@ export class Repository {
         PRAGMA user_version=2;
       `));
     }
+    this.searchIndex = new SearchIndex(this);
   }
+  rebuildSearch() { return this.searchIndex.rebuild(); }
   list(kind) {
     return this.db
       .prepare('SELECT data FROM records WHERE kind=?')
@@ -79,27 +84,18 @@ export class Repository {
       .all();
   }
   search(query, accountId) {
-    const q = query.trim().toLocaleLowerCase();
-    const attachmentIDs = new Set(
-      this.list('attachment')
-        .filter((a) =>
-          `${a.name}\n${a.text || ''}\n${a.analysis || ''}`
-            .toLocaleLowerCase()
-            .includes(q),
-        )
-        .map((a) => a.messageId),
-    );
-    return this.list('message')
-      .filter(
-        (m) =>
-          (!accountId || m.accountId === accountId) &&
-          (!q ||
-            `${m.subject}\n${m.sender}\n${m.senderEmail}\n${m.body}\n${m.category}\n${JSON.stringify(m.summary || '')}`
-              .toLocaleLowerCase()
-              .includes(q) ||
-            attachmentIDs.has(m.id)),
-      )
-      .sort((a, b) => b.date.localeCompare(a.date));
+    const drafts = draftSearchPage(this, { query, accountId, limit: Number.MAX_SAFE_INTEGER });
+    if (drafts) return drafts.messages;
+    const { where, params } = this.messageWhere({ query, accountId });
+    return this.db.prepare(`SELECT m.data FROM records m WHERE ${where}
+      ORDER BY json_extract(m.data,'$.date') DESC,m.id`).all(...params).map(row => JSON.parse(row.data));
+  }
+  messageWhere({ query = '', accountId, folder, filter } = {}) {
+    const parsed = parseSearch(query);
+    const { clauses, params } = searchWhere(parsed, { accountId, folder, filter, accounts: this.list('account') });
+    const fullText = this.searchIndex.where(parsed.terms);
+    if (fullText.clause) { clauses.push(fullText.clause); params.push(...fullText.params); }
+    return { where: clauses.join(' AND '), params };
   }
   messageHeaders() {
     return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation') AS data
@@ -125,31 +121,18 @@ export class Repository {
       .all(query.trim(), accountId).map(row => row.id);
   }
   messagePage({ accountId, folder, filter, query = '', offset = 0, limit = 100 }) {
-    const clauses = ["m.kind='message'"], params = [];
-    if (accountId) { clauses.push("json_extract(m.data,'$.accountId')=?"); params.push(accountId); }
-    if (query.trim()) {
-      clauses.push(`(instr(lower(coalesce(json_extract(m.data,'$.subject'),'')||char(10)||
-        coalesce(json_extract(m.data,'$.sender'),'')||char(10)||coalesce(json_extract(m.data,'$.senderEmail'),'')||char(10)||
-        coalesce(json_extract(m.data,'$.to'),'')||char(10)||coalesce(json_extract(m.data,'$.cc'),'')||char(10)||
-        coalesce(json_extract(m.data,'$.body'),'')||char(10)||coalesce(json_extract(m.data,'$.category'),'')||char(10)||
-        coalesce(json_extract(m.data,'$.summary'),'')),lower(?))>0 OR EXISTS (
-        SELECT 1 FROM records a WHERE a.kind='attachment'
-        AND json_extract(a.data,'$.messageId')=m.id
-        AND instr(lower(coalesce(json_extract(a.data,'$.name'),'')||char(10)||
-          coalesce(json_extract(a.data,'$.text'),'')||char(10)||coalesce(json_extract(a.data,'$.analysis'),'')),lower(?))>0))`);
-      params.push(query.trim(), query.trim());
-    } else if (folder === 'starred') clauses.push("json_extract(m.data,'$.starred')=1 AND json_extract(m.data,'$.folder')!='trash'");
-    else if (folder === 'summary') clauses.push("json_type(m.data,'$.summary')='object' AND json_extract(m.data,'$.folder')!='trash'");
-    else if (folder) { clauses.push("json_extract(m.data,'$.folder')=?"); params.push(['replies','analysis'].includes(folder) ? 'inbox' : folder); }
-    if (filter === '未读') clauses.push("json_extract(m.data,'$.unread')=1");
-    if (filter === '有附件') clauses.push("json_array_length(json_extract(m.data,'$.attachmentIds'))>0");
-    if (filter === 'AI 已总结') clauses.push("json_type(m.data,'$.summary')='object'");
-    const where = clauses.join(' AND ');
+    const drafts = draftSearchPage(this, { query, accountId, folder, filter, offset, limit });
+    if (drafts) return drafts;
+    const { where, params } = this.messageWhere({ accountId, folder, filter, query });
     const total = this.db.prepare(`SELECT COUNT(*) AS total FROM records m WHERE ${where}`).get(...params).total;
     const rows = this.db.prepare(`SELECT json_remove(m.data,'$.body','$.html','$.translation') AS data
       FROM records m WHERE ${where} ORDER BY json_extract(m.data,'$.date') DESC, m.id LIMIT ? OFFSET ?`)
       .all(...params, limit, offset);
-    return { messages: rows.map(row => ({ ...JSON.parse(row.data), body: '', bodyLoaded: false })),
+    const firstTerm = parseSearch(query).terms[0];
+    return { messages: rows.map(row => {
+      const message = { ...JSON.parse(row.data), body: '', bodyLoaded: false };
+      return firstTerm ? { ...message, searchSnippet: this.searchIndex.snippet(message.id, firstTerm) } : message;
+    }),
       total, nextOffset: offset + rows.length < total ? offset + rows.length : null };
   }
   close() {

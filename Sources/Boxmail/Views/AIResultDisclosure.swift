@@ -22,7 +22,9 @@ struct AIResultDisclosure<Content: View>: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(ControlFeedback()).focused($focused)
           .accessibilityLabel(title).accessibilityValue(isExpanded ? "已展开" : "已收起").help(title)
-          .overlay(RoundedRectangle(cornerRadius: 7).stroke(focused ? Palette.accent : .clear, lineWidth: 2))
+          .overlay(alignment: .bottom) {
+            if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 12) }
+          }
         if let copy { CopyButton(help: copyHelp, action: copy).padding(.trailing, 6) }
       }
       if isExpanded {

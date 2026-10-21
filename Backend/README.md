@@ -1,8 +1,8 @@
 # Boxmail 本机后端
 
-版本 **0.0.12**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
+版本 **0.0.13**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
 
-当前代码随本地标签 `v0.0.12` 归档，文档入口见 [文档索引](../docs/README.md)。
+自定义分类、会话、联系人、全文与条件搜索、完整备份恢复随本地标签 `v0.0.13` 归档；App 构建号为 14。文档入口见 [文档索引](../docs/README.md)。
 
 ## 启动和测试
 
@@ -31,7 +31,7 @@ npm start
 npm test
 ```
 
-当前工作区包含 114 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。模型列表测试覆盖缓存、重启、成功替换、空列表、失败保留及服务地址隔离；邮件整理测试覆盖删除与归档的来源、相同 Message-ID 副本、UID 变化、待处理移动、清空未下载邮件、互斥和附件引用保留。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
+当前工作区包含 133 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。模型列表测试覆盖缓存、重启、成功替换、空列表、失败保留及服务地址隔离；邮件整理测试覆盖删除与归档的来源、相同 Message-ID 副本、UID 变化、待处理移动、清空未下载邮件、互斥和附件引用保留。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
 
 完整验证从仓库根目录执行 `./script/test.sh`，它先构建 PPT 原生渲染组件再运行后端及 Swift 测试。单独运行 `npm test` 时，原生组件不可用会跳过对应渲染测试；合成文档及测试条件见 [样例说明](test/fixtures/README.md)。
 
@@ -142,7 +142,7 @@ SQLite 使用 WAL 模式，当前 `user_version` 为 `2`。首次升级会在 `b
 ## 0.0.6 接口补充
 
 - `GET /state?compact=1`：保留用于总览、计数和附件导航的轻量邮件索引；不返回邮件正文、HTML、译文、附件提取文本或附件理解全文。兼容旧客户端的 `/state` 仍返回完整数据。
-- `GET /messages?accountId=...&folder=inbox&filter=...&q=...&limit=100&offset=0`：分页列表、总数及 `nextOffset`；limit 为 1 至 200。关键词搜索仍为 SQLite 子串查询，尚未接入 FTS。
+- `GET /messages?accountId=...&folder=inbox&filter=...&q=...&limit=100&offset=0`：分页列表、总数及 `nextOffset`；limit 为 1 至 200。本轮开发已改为全文索引及组合条件查询，单字符保留子串回退；历史阶段行为见版本记录。
 - `GET /messages/:id`：完整邮件和 `bodyLoaded: true`。
 - `POST /messages/:id/reply-draft`：`all`、`forward`，根据所属账户生成并保存草稿；处理 Reply-To、原 To/Cc、自身地址排除、去重与 References。
 - `POST /sync`：新增 `background: true` 和可选 `folder`，立即返回后台任务受理结果；不传 background 时保留等待完成行为。邮箱凭证仅在任务运行期间使用。
@@ -185,3 +185,27 @@ SQLite 使用 WAL 模式，当前 `user_version` 为 `2`。首次升级会在 `b
 `nextSteps` 每项为 `{title, action, prompt}`，最多保存 4 项。支持 `reply`、`attachments`、`note`：仅带起草要求的 `reply` 可衔接回复预览，仅有本封附件时支持 `attachments`，其他值降为文字提醒。总结生成本身不执行建议；用户点击后才请求相应操作，回复仍先预览、使用后创建草稿、发送前确认。模型不能通过建议引入发送、删除等任意操作。
 
 `DefaultPrompts.json` 更新总结及附件理解默认提示词。启动时只替换与 0.0.7 及以前默认值完全相同的配置，保留自定义内容、模型地址、超时与其他设置。已生成的总结不自动重写，重新生成时使用当前提示词。
+
+## 0.0.13：分类、会话、搜索与备份
+
+以下接口随 0.0.13 发布，验收与发布产物见 [发布说明](../docs/V0_0_13.md)：
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET / POST | `/categories` | 读取目录 / 新增分类，传入 `name` 和可选 `description` |
+| PATCH / DELETE | `/categories/:id` | 改名与说明 / 删除后将相关邮件归为未分类；任务运行时拒绝修改 |
+| GET | `/messages/:id/thread` | 返回同账户引用链会话、原邮件头、总数、`nextOffset` 和未缓存提示；支持 offset / limit |
+| GET | `/contacts?accountId=...&q=...` | 从当前账户历史和草稿推荐姓名、邮箱、使用频率及最近时间 |
+| GET | `/search/parse?q=...` | 解析关键词和条件，拒绝无效输入 |
+| GET / POST | `/search/index` / `/search/rebuild` | 读取索引状态 / 在无活动任务时重建 |
+| POST | `/backups/create` | 传入本机绝对 `path`，生成并校验完整 ZIP |
+| POST | `/backups/inspect` | 传入 `path`，校验并返回备份摘要和 SHA-256 |
+| POST | `/backups/restore` | `path`、检查得到的 `sha256` 与 `approved: true`，保留恢复前备份并恢复 |
+
+`/state` 新增 `categories` 和 `searchIndex`；`/messages` 的 q 支持关键词、双引号短语与 from / to / cc / subject / category / after / before / is / has / account / folder 条件，使用参数绑定而非执行原始查询。明确的 account 条件可选择其他账户，分页结果仍保留原始 ID 与账户。`searchSnippet` 为匹配片段，不包含模型内部格式。
+
+明确查询 `folder:drafts` 时，`/messages` 从当前本机未发送草稿读取结果，复用相同条件解析和分页规则；日期按草稿最后更新时间匹配，已发送记录排除。结果 ID 使用 `draft:` 前缀并携带 `draftId`，`GET /messages/:id` 支持读取对应草稿内容，客户端通过 `draftId` 继续编辑原草稿。该查询不增加普通邮件索引数量，尚不包含服务器草稿同步。
+
+索引通过 SQLite 触发器登记 message / attachment / job 的增量变化，搜索时补齐；双字符 n-gram 召回后核对子串，单字符回退。派生索引单独维护版本，`user_version` 仍为 2。会话只依据引用关系，联系人仅来自当前账户，分类目录与任务快照均持久化在 records 中。
+
+备份为一致性 SQLite 快照及附件流，清单逐项记录 SHA-256；恢复按清单校验路径、数量、大小、关联和数据库完整性，禁止路径穿越及未知文件。维护期间拒绝并发写入，恢复前备份失败则停止；成功后重建索引并把中断发送和任务转换为可检查状态。容量、钥匙串及历史缓存边界见 [优先功能说明](../docs/PRIORITY_WORKFLOWS.md)。

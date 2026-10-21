@@ -76,30 +76,12 @@ struct ActionButton: View {
   var icon: String? = nil
   var kind: Kind = .normal
   var action: () -> Void
-  @FocusState private var focused: Bool
   enum Kind { case normal, primary, ai, softAI }
-  private var filled: Bool { kind == .primary || kind == .ai }
   var body: some View {
-    Button(action: action) {
-      HStack(spacing: 6) {
-        if let icon { Image(systemName: icon).font(.system(size: 12, weight: .medium)) }
-        Text(title).lineLimit(1).fixedSize()
-      }.font(.system(size: 12, weight: .medium))
-        .foregroundStyle(filled ? .white : kind == .softAI ? Palette.accent : Palette.ink)
-        .padding(.horizontal, 12).frame(height: 32)
-        .background(
-          filled ? Palette.blue : kind == .softAI ? Palette.accentSoft : .clear,
-          in: RoundedRectangle(cornerRadius: 7)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 7))
-    }.buttonStyle(ControlFeedback(filled: filled)).focused($focused)
-      .overlay(
-        RoundedRectangle(cornerRadius: 9).stroke(focused ? Palette.blue : .clear, lineWidth: 2)
-          .padding(-2)
-      )
-      .accessibilityLabel(title)
+    WorkflowAction(title: title, icon: icon, color: kind == .normal ? Palette.ink : Palette.blue, action: action)
   }
 }
+
 struct IconButton: View {
   let icon: String
   let help: String
@@ -118,9 +100,9 @@ struct IconButton: View {
         .frame(width: size, height: size).contentShape(RoundedRectangle(cornerRadius: 7))
         .animation(UIMotion.feedback(reduceMotion), value: icon)
     }.buttonStyle(ControlFeedback()).focused($focused)
-      .overlay(
-        RoundedRectangle(cornerRadius: 8).stroke(focused ? Palette.blue : .clear, lineWidth: 2)
-      )
+      .overlay(alignment: .bottom) {
+        if focused { Rectangle().fill(Palette.blue).frame(width: 12, height: 1).padding(.bottom, 3).allowsHitTesting(false) }
+      }
       .help(help).accessibilityLabel(help)
   }
 }
@@ -135,23 +117,6 @@ struct IconMenu<Content: View>: View {
         .contentShape(RoundedRectangle(cornerRadius: 7))
     }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
       .frame(width: 32, height: 32).help(help).accessibilityLabel(help)
-  }
-}
-struct ChoiceMenu<Content: View>: View {
-  let title: String
-  var help = ""
-  @ViewBuilder var content: () -> Content
-  var body: some View {
-    Menu(content: content) {
-      HStack(spacing: 8) {
-        Text(menuTitle(title, limit: 26)).font(.system(size: 12)).lineLimit(1)
-        Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium))
-          .foregroundStyle(Palette.muted)
-      }.foregroundStyle(Palette.ink).padding(.horizontal, 10).frame(height: 32)
-        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7))
-    }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-      .controlFocus()
-      .help(help.isEmpty ? title : help).accessibilityLabel(help.isEmpty ? title : help)
   }
 }
 func menuTitle(_ value: String, limit: Int = 34) -> String {
@@ -173,9 +138,9 @@ struct FilterButton: View {
         .background(selected ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(RoundedRectangle(cornerRadius: 6))
     }.buttonStyle(ControlFeedback(selected: selected, corner: 6)).focused($focused)
-      .overlay(
-        RoundedRectangle(cornerRadius: 7).stroke(focused ? Palette.blue : .clear, lineWidth: 2)
-      )
+      .overlay(alignment: .bottom) {
+        if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 9).allowsHitTesting(false) }
+      }
       .accessibilityAddTraits(selected ? .isSelected : [])
       .animation(UIMotion.selection(reduceMotion), value: selected)
   }

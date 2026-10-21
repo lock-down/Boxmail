@@ -43,8 +43,11 @@ struct MailDetailView: View {
             }
           }
           IconMenu(icon: "tag", help: "分类邮件") {
-            ForEach(["工作项目", "订阅资讯", "账单票据", "社交通知", "个人往来", "未分类"], id: \.self) { category in
-              Button(category) { store.update(message, ["category": category]) }
+            ForEach(store.categories) { category in
+              Button { store.update(message, ["category": category.name]) } label: {
+                      if message.category == category.name { Label(category.name, systemImage: "checkmark") }
+                      else { Text(category.name) }
+                    }
             }
           }
           if message.folder != "trash" {
@@ -73,44 +76,7 @@ struct MailDetailView: View {
       Divider().overlay(Palette.softBorder)
       ScrollViewReader { reader in
         OverlayScrollView {
-          VStack(alignment: .leading, spacing: 22) {
-            Text(message.subject).font(.system(size: 23, weight: .semibold)).tracking(-0.35).lineSpacing(4)
-              .textSelection(.enabled)
-              .fixedSize(horizontal: false, vertical: true)
-            if message.category != "未分类" || message.starred {
-              HStack(spacing: 6) {
-                if message.category != "未分类" { Tag(text: message.category) }
-                if message.starred { Tag(text: "星标邮件") }
-              }
-            }
-            HStack(alignment: .top, spacing: 11) {
-              SenderAvatar(name: message.sender, size: 34)
-              VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                  Text(message.sender).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                  Spacer(minLength: 8)
-                  Text(displayTime(message.date)).font(.system(size: 11)).monospacedDigit()
-                    .foregroundStyle(Palette.muted).fixedSize()
-                }
-                Text(message.senderEmail).font(.system(size: 11)).foregroundStyle(Palette.muted)
-                  .textSelection(.enabled)
-                  .lineLimit(1).truncationMode(.middle)
-                RecipientDetailsView(to: message.to, cc: message.cc).id(message.id)
-              }
-            }
-            if let tab = store.mailAITab, tab != .attachment {
-              MailAssistantView(store: store, message: message, tab: tab).id("mail-assistant")
-                .transition(UIMotion.reveal(reduceMotion))
-            }
-            HStack(spacing: 12) {
-              Text("邮件原文").font(UIType.small).foregroundStyle(Palette.muted)
-              Rectangle().fill(Palette.softBorder).frame(height: 1)
-            }
-            MailBodyView(message: message, preferences: store.settings.preferences).id(message.id)
-            if !message.attachmentIds.isEmpty {
-              MailAttachmentSection(store: store, message: message).id("mail-attachments")
-            }
-          }.animation(UIMotion.disclosure(reduceMotion), value: store.mailAITab)
+          ConversationTimelineView(store: store, selected: message) { selectedContent }
             .frame(maxWidth: UILayout.reading, alignment: .leading)
             .padding(.horizontal, 30).padding(.vertical, 32).frame(
               maxWidth: .infinity, alignment: .top)
@@ -124,6 +90,46 @@ struct MailDetailView: View {
           }
       }
     }.background(.white)
+  }
+  private var selectedContent: some View {
+    VStack(alignment: .leading, spacing: 22) {
+      Text(message.subject).font(.system(size: 23, weight: .semibold)).tracking(-0.35).lineSpacing(4)
+        .textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+      if message.category != "未分类" || message.starred {
+        HStack(spacing: 6) {
+          if message.category != "未分类" { Tag(text: message.category) }
+          if message.starred { Tag(text: "星标邮件") }
+        }
+      }
+      HStack(alignment: .top, spacing: 11) {
+        SenderAvatar(name: message.sender, size: 34)
+        VStack(alignment: .leading, spacing: 5) {
+          HStack {
+            Text(message.sender).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+            Spacer(minLength: 8)
+            Text(displayTime(message.date)).font(.system(size: 11)).monospacedDigit()
+              .foregroundStyle(Palette.muted).fixedSize()
+          }
+          Text(message.senderEmail).font(.system(size: 11)).foregroundStyle(Palette.muted)
+            .textSelection(.enabled)
+            .lineLimit(1).truncationMode(.middle)
+          RecipientDetailsView(to: message.to, cc: message.cc).id(message.id)
+        }
+      }
+      if let tab = store.mailAITab, tab != .attachment {
+        MailAssistantView(store: store, message: message, tab: tab).id("mail-assistant")
+          .transition(UIMotion.reveal(reduceMotion))
+      }
+      HStack(spacing: 12) {
+        Text("邮件原文").font(UIType.small).foregroundStyle(Palette.muted)
+        Rectangle().fill(Palette.softBorder).frame(height: 1)
+      }
+      QuoteCollapsingBodyView(message: message, preferences: store.settings.preferences).id(message.id)
+      if !message.attachmentIds.isEmpty {
+        MailAttachmentSection(store: store, message: message).id("mail-attachments")
+      }
+    }.animation(UIMotion.disclosure(reduceMotion), value: store.mailAITab)
   }
 }
 struct AttachmentCard: View {

@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
   @Bindable var store: MailStore
   @ViewState<Bool> private var activity = false
+  @ViewState<Bool> private var searchFilters = false
   var body: some View {
     VStack(spacing: 0) {
       header
@@ -112,6 +113,8 @@ struct ContentView: View {
             }
           } else if message.bodyLoaded == false {
             ProgressView("正在加载邮件正文…").frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else if message.draftId != nil {
+            DraftSearchDetailView(store: store, message: message)
           } else {
             MailDetailView(store: store, message: message)
           }
@@ -136,8 +139,11 @@ struct ContentView: View {
         Text("Boxmail").font(.system(size: 13, weight: .semibold))
       }.padding(.leading, 78).frame(width: UILayout.sidebar, alignment: .leading)
       Spacer(minLength: 0)
-      SearchField(placeholder: "搜索邮件与附件内容", text: $store.search)
-        .frame(minWidth: 220, idealWidth: 380, maxWidth: 480)
+      HStack(spacing: 4) {
+        SearchField(placeholder: "搜索邮件、附件或输入条件", text: $store.search)
+        IconButton(icon: "line.3.horizontal.decrease", help: "组合条件搜索") { searchFilters = true }
+          .popover(isPresented: $searchFilters, arrowEdge: .bottom) { SearchFiltersView(store: store) }
+      }.frame(minWidth: 220, idealWidth: 420, maxWidth: 520)
       Spacer(minLength: 0)
       HStack(spacing: 6) {
         Button {

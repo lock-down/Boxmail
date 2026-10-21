@@ -135,6 +135,10 @@ struct SettingsView: View {
         if store.settingsTab == "AI 助手" { loadAIKey() }
       }
       .onChange(of: store.settingsTab) { _, tab in if tab == "AI 助手" { loadAIKey() } }
+      .onChange(of: store.restoreRevision) { _, _ in
+        config = store.settings.ai; preferences = store.settings.preferences
+        models = []; key = ""; originalKey = nil; editingAccount = false; password = ""
+      }
       .task(id: config.baseURL) { await loadCachedModels() }
   }
   private var subtitle: String {
@@ -169,7 +173,8 @@ struct SettingsView: View {
         field("API 地址", text: $config.baseURL, prompt: "https://api.deepseek.com")
         HStack(spacing: SettingsFormLayout.columnGap) {
           SettingsFormLabel(title: "API Key")
-          SecureField("密钥保存在系统钥匙串", text: $key).settingsTextInput()
+          SecureField("", text: $key).settingsTextInput()
+            .inputPlaceholder("密钥保存在系统钥匙串", visible: key.isEmpty).accessibilityLabel("API Key")
           SettingsInlineAction(title: "测试连接", icon: "bolt") { testAI() }
             .disabled(loading || config.model.isEmpty)
         }
@@ -241,7 +246,7 @@ struct SettingsView: View {
           }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
           Spacer()
           if a.isDemo {
-            Tag(text: "演示数据")
+            Tag(text: "演示数据").fixedSize()
           } else {
             ActionButton(title: "编辑") {
               account = a
@@ -290,7 +295,8 @@ struct SettingsView: View {
           field("登录用户名", text: $account.username, prompt: "留空时使用邮箱地址")
           HStack(spacing: SettingsFormLayout.columnGap) {
             SettingsFormLabel(title: "授权码")
-            SecureField("邮箱应用密码 / 授权码", text: $password).settingsTextInput()
+            SecureField("", text: $password).settingsTextInput()
+              .inputPlaceholder("邮箱应用密码 / 授权码", visible: password.isEmpty).accessibilityLabel("邮箱授权码")
           }
           VStack(spacing: SettingsFormLayout.columnGap) {
             HStack(spacing: SettingsFormLayout.columnGap) {
@@ -321,9 +327,8 @@ struct SettingsView: View {
   }
   private var generalSettings: some View {
     SectionCard(title: "邮箱同步", icon: "arrow.triangle.2.circlepath") {
-      Stepper("自动同步间隔：\(preferences.syncMinutes) 分钟", value: $preferences.syncMinutes, in: 1...60)
-        .font(.system(size: 13))
-      Text("应用打开时定期同步；每次读取各邮箱文件夹最近 200 封邮件，正文与附件保存在本机。更多历史邮件的分页同步将在后续版本加入。").font(.system(size: 12))
+      WorkflowStepper(title: "自动同步间隔", value: $preferences.syncMinutes, range: 1...60, unit: "分钟")
+      Text("应用打开时定期同步；每个文件夹每轮最多补齐 200 封正文，历史进度保存在本机，也可在列表底部继续同步历史邮件。").font(.system(size: 12))
         .foregroundStyle(Palette.muted)
       ActionButton(title: "立即同步", icon: "arrow.clockwise", kind: .primary) {
         Task { await store.syncAll() }
@@ -342,8 +347,7 @@ struct SettingsView: View {
   private var readSettings: some View {
     SectionCard(title: "阅读行为", icon: "envelope.open") {
       Toggle("打开邮件时标记为已读", isOn: $preferences.markRead).font(.system(size: 13))
-      Stepper("正文字号：\(preferences.fontSize) pt", value: $preferences.fontSize, in: 12...24).font(
-        .system(size: 13))
+      WorkflowStepper(title: "正文字号", value: $preferences.fontSize, range: 12...24, unit: "pt")
       Toggle("屏蔽远程图片", isOn: $preferences.blockRemoteImages).font(.system(size: 13))
       Text("HTML 邮件保留原文排版，内嵌图片直接展示。外部图片可在邮件中单独加载，邮件中的脚本不会执行。已读和星标更改会在下次同步时提交至服务器。").font(
         .system(size: 12)
@@ -362,6 +366,8 @@ struct SettingsView: View {
   private var advancedSettings: some View {
     VStack(spacing: 16) {
       LocalDataSettingsView(store: store, pendingDirectory: $pendingDataDirectory)
+      BackupSettingsView(store: store)
+      SearchIndexSettingsView(store: store)
       SectionCard(title: "运行诊断", icon: "stethoscope") {
         Text(
           "本机服务：\(store.ready ? "已连接" : "未连接")\n待同步更改：\(store.pendingMutations) 项\n应用版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"
@@ -376,7 +382,7 @@ struct SettingsView: View {
   private func field(_ title: String, text: Binding<String>, prompt: String = "") -> some View {
     HStack(spacing: SettingsFormLayout.columnGap) {
       SettingsFormLabel(title: title)
-      TextField(prompt, text: text).settingsTextInput().accessibilityLabel(title)
+      WorkflowTextInput(label: title, placeholder: prompt, text: text, font: UIType.caption)
     }
   }
   private func serverFields(
@@ -385,14 +391,12 @@ struct SettingsView: View {
   ) -> some View {
     HStack(spacing: SettingsFormLayout.columnGap) {
       SettingsFormLabel(title: name)
-      TextField("服务器地址", text: host).settingsTextInput().accessibilityLabel(name + " 地址")
+      WorkflowTextInput(label: name + " 地址", placeholder: "服务器地址", text: host, font: UIType.caption)
         .frame(maxWidth: .infinity)
       TextField("端口", value: port, format: .number.grouping(.never)).settingsTextInput()
         .frame(width: SettingsFormLayout.portWidth).accessibilityLabel(name + " 端口")
-      SettingsMenuPicker(title: name + " 加密方式", selection: tls) {
-        Text("SSL/TLS").tag(true)
-        Text("STARTTLS").tag(false)
-      }.accessibilityValue(tls.wrappedValue ? "SSL/TLS" : "STARTTLS")
+      WorkflowSelection(title: name + " 加密方式", selection: tls,
+        options: [(true, "SSL/TLS"), (false, "STARTTLS")]).frame(width: SettingsFormLayout.menuWidth)
     }.onChange(of: tls.wrappedValue) { oldValue, newValue in
       let oldPort = oldValue ? sslPort : startTLSPort
       if port.wrappedValue == oldPort {

@@ -8,6 +8,7 @@ struct HTMLMailBodyView: NSViewRepresentable {
   let fontSize: Int
   let allowRemoteImages: Bool
   @Binding var height: CGFloat
+  var collapseQuotes = false
 
   func makeCoordinator() -> Coordinator { Coordinator(height: $height) }
 
@@ -40,7 +41,7 @@ struct HTMLMailBodyView: NSViewRepresentable {
   func updateNSView(_ webView: WKWebView, context: Context) {
     context.coordinator.height = $height
     let document = MailHTMLDocument.make(
-      html: html, fontSize: fontSize, allowRemoteImages: allowRemoteImages)
+      html: html, fontSize: fontSize, allowRemoteImages: allowRemoteImages, collapseQuotes: collapseQuotes)
     guard document != context.coordinator.document else { return }
     context.coordinator.document = document
     webView.loadHTMLString(document, baseURL: nil)
@@ -147,6 +148,7 @@ private final class MailBodyWebView: WKWebView {
 struct MailBodyView: View {
   let message: MailMessage
   let preferences: Preferences
+  var collapseQuotes = false
   @ViewState<CGFloat> private var height: CGFloat = 240
   @ViewState<Bool> private var loadRemoteImages = false
 
@@ -161,12 +163,13 @@ struct MailBodyView: View {
         }
         HTMLMailBodyView(
           html: html, fontSize: preferences.fontSize,
-          allowRemoteImages: !preferences.blockRemoteImages || loadRemoteImages, height: $height
+          allowRemoteImages: !preferences.blockRemoteImages || loadRemoteImages, height: $height, collapseQuotes: collapseQuotes
         )
         .frame(height: height)
       }.frame(maxWidth: .infinity, alignment: .leading)
     } else {
-      Text(message.body.isEmpty ? "这封邮件没有可展示的正文。" : message.body)
+      let visible = collapseQuotes ? QuotedMailText.split(message.body).visible : message.body
+      Text(visible.isEmpty ? "这封邮件没有可展示的正文，或正文仅包含引用内容。" : visible)
         .font(.system(size: CGFloat(preferences.fontSize))).lineSpacing(7).textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true).frame(
           maxWidth: .infinity, alignment: .leading)

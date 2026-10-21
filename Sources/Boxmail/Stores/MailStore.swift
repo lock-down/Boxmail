@@ -12,6 +12,14 @@ import SwiftUI
   var jobs: [AgentJob] = []
   var events: [AuditEvent] = []
   var settings = SettingsData()
+  var categories = MailCategory.defaults
+  var searchIndex: SearchIndexStatus?
+  var searchAllAccounts = false
+  var conversation: MailConversation?
+  var conversationAnchor: String?
+  var conversationError: String?
+  var conversationBodies: [String: MailMessage] = [:]
+  var restoreRevision = 0
   var accountId = ""
   var selectedMessageId: String?
   var destination: MailDestination = .inbox
@@ -61,7 +69,7 @@ import SwiftUI
   var currentAccount: MailAccount? { accounts.first { $0.id == accountId } }
   var selectedMessage: MailMessage? {
     guard let id = selectedMessageId else { return nil }
-    return detailCache[id] ?? messages.first { $0.id == id }
+    return detailCache[id] ?? messages.first { $0.id == id } ?? pageMessages.first { $0.id == id }
   }
   var accountMessages: [MailMessage] { messages.filter { $0.accountId == accountId } }
   var trashMessages: [MailMessage] { accountMessages.filter { $0.folder == "trash" } }
@@ -120,9 +128,12 @@ import SwiftUI
     jobs = state.jobs
     events = state.events
     settings = state.settings
+    categories = state.categories ?? MailCategory.defaults
+    searchIndex = state.searchIndex
+    conversationBodies = [:]
     pendingMutations = state.pendingMutations
     syncSnapshot = state.sync
-    let ids = Set(messages.map(\.id))
+    let ids = Set(messages.map(\.id) + drafts.map { "draft:" + $0.id })
     detailCache = detailCache.filter { ids.contains($0.key) }
     if !accounts.contains(where: { $0.id == accountId }) {
       accountId = accounts.first(where: { !$0.isDemo })?.id ?? accounts.first?.id ?? ""
@@ -161,6 +172,13 @@ import SwiftUI
     selectedMessageId = message.id
     detailError = nil
     if message.unread && settings.preferences.markRead { update(message, ["unread": false]) }
+  }
+  func editDraft(_ id: String) {
+    guard let draft = drafts.first(where: { $0.id == id }), draft.status != "sending" else {
+      error = "草稿已发送、移除或正在发送，请刷新后重试。"
+      return
+    }
+    composer = draft
   }
   func openMail(_ message: MailMessage, tab: MailAITab? = nil) {
     accountId = message.accountId

@@ -49,6 +49,8 @@ public struct MailMessage: Codable, Identifiable, Hashable {
   public var bodyLoaded: Bool?
   public var restoreFolder: String?
   public var unarchiveFolder: String?
+  public var searchSnippet: String?
+  public var draftId: String?
   public var restoreTitle: String {
     "恢复到\(folderTitle(restoreFolder))"
   }
@@ -188,6 +190,8 @@ public struct AppSnapshot: Codable {
   public var events: [AuditEvent]
   public var pendingMutations: Int
   public var sync: MailSyncSnapshot?
+  public var categories: [MailCategory]?
+  public var searchIndex: SearchIndexStatus?
 }
 public struct MailPage: Codable {
   public var messages: [MailMessage]

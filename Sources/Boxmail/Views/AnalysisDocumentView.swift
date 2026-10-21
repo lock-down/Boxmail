@@ -78,7 +78,7 @@ private struct AnalysisTableView: View {
       Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
         row(table.headers, header: true)
         ForEach(Array(table.rows.enumerated()), id: \.offset) { index, values in row(values, shaded: index.isMultiple(of: 2)) }
-      }.clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.border)).padding(1)
+      }.clipShape(RoundedRectangle(cornerRadius: 6))
     }
   }
   private func row(_ values: [String], header: Bool = false, shaded: Bool = false) -> some View {
@@ -87,7 +87,7 @@ private struct AnalysisTableView: View {
         Text(AITextStyle.inline(value)).font(.system(size: 12, weight: header ? .semibold : .regular)).lineSpacing(4)
           .frame(width: table.headers.count <= 2 ? 230 : 170, alignment: alignment(index)).padding(10)
           .frame(maxHeight: .infinity, alignment: .top).background(header ? Palette.blueSoft : shaded ? Palette.canvas : .white)
-          .overlay(Rectangle().stroke(Palette.softBorder, lineWidth: 0.5))
+          .overlay(alignment: .bottom) { Rectangle().fill(Palette.softBorder).frame(height: 0.5) }
       }
     }
   }
