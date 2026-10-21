@@ -1,8 +1,8 @@
 # Boxmail 本机后端
 
-版本 **0.0.11**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
+版本 **0.0.12**。后端使用 Node.js 24 及其内置 SQLite，负责邮件同步、SMTP 发送、AI 任务、附件解析和本机持久化，由 macOS 客户端作为子进程启动。
 
-当前代码随本地标签 `v0.0.11` 归档，文档入口见 [文档索引](../docs/README.md)。
+当前代码随本地标签 `v0.0.12` 归档，文档入口见 [文档索引](../docs/README.md)。
 
 ## 启动和测试
 
@@ -31,7 +31,7 @@ npm start
 npm test
 ```
 
-当前工作区包含 99 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。模型列表测试覆盖缓存、重启、成功替换、空列表、失败保留及服务地址隔离。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
+当前工作区包含 114 项后端测试，覆盖邮件协议、连接诊断、HTML 和 CID 正文、旧缓存修复、Responses 参数、回复态度与预览、草稿复用、提示词、图片上传、PDF 页面转换、超时及临时文件清理，并覆盖 8 个长附件的完整上下文及断流保留结果。模型列表测试覆盖缓存、重启、成功替换、空列表、失败保留及服务地址隔离；邮件整理测试覆盖删除与归档的来源、相同 Message-ID 副本、UID 变化、待处理移动、清空未下载邮件、互斥和附件引用保留。测试使用临时目录、模拟 IMAP/AI 和本机 TLS SMTP 服务。SMTP 测试需要系统提供 `openssl`，测试证书只用于本机测试。依赖版本固定在 `package-lock.json`。
 
 完整验证从仓库根目录执行 `./script/test.sh`，它先构建 PPT 原生渲染组件再运行后端及 Swift 测试。单独运行 `npm test` 时，原生组件不可用会跳过对应渲染测试；合成文档及测试条件见 [样例说明](test/fixtures/README.md)。
 
@@ -48,6 +48,9 @@ npm test
 | DELETE | `/accounts/:id` | 移除本机账户及关联缓存，保留服务器邮件 |
 | POST | `/sync` | `accountId`、`password`，执行同步 |
 | PATCH | `/messages/:id` | 更新 `unread`、`starred`、`folder` 或本机 `category` |
+| POST | `/messages/:id/restore` | 将已删除邮件恢复到来源文件夹 |
+| POST | `/messages/:id/unarchive` | 取消归档并返回来源文件夹 |
+| POST | `/trash/empty` | `accountId`、`password`、`approved: true`，清空当前账户全部已删除邮件 |
 | POST | `/todos` | `messageId`、`todoId`、`done`，更新摘要待办 |
 | POST | `/settings` | `ai`、`preferences`，保存配置 |
 | POST | `/ai/test` | `config`、`apiKey`，实际请求一次模型生成 |
@@ -78,6 +81,8 @@ App 从“设置 > 高级 > 本机数据”保存数据位置，启动后将实�
 | [server.js](src/server.js) | 认证、路由、请求限制、任务互斥及进程生命周期 |
 | [database.js](src/database.js) | SQLite 记录、事务、搜索和活动记录 |
 | [mail.js](src/mail.js) | IMAP 同步、邮件状态更改、SMTP 发送和已发送归档 |
+| [mail-folders.js](src/mail-folders.js) | 文件夹识别、来源解析和待处理远端移动 |
+| [mail-trash.js](src/mail-trash.js) | 清空服务器与本机已删除邮件，保留仍被引用的附件 |
 | [mail-errors.js](src/mail-errors.js) | 区分认证、DNS、超时、证书与连接错误，不回显原始认证数据 |
 | [mail-body.js](src/mail-body.js) | HTML 清理、正文文本转换、图片识别及缓存格式版本 |
 | [agent.js](src/agent.js) | 任务编排、上下文、结果校验、摘要、草稿、分类确认与撤销 |
@@ -148,6 +153,14 @@ SQLite 使用 WAL 模式，当前 `user_version` 为 `2`。首次升级会在 `b
 收信保存 Reply-To、In-Reply-To 和 References。UIDVALIDITY 变化或检测到远端移动时，原本机附加信息会存入 `recovery` 记录；仅在同账号的 Message-ID 可唯一匹配时重新关联，歧义记录保留待恢复。发送继续使用明确确认和结果不确定时禁止自动重试的机制。
 
 附件中心使用 `GET /attachments/search?accountId=...&q=...` 查询完整提取文本和理解结果，只返回匹配 ID；轻量附件记录仅包含各 160 字符的预览片段，避免把完整附件文本装入列表。
+
+## 0.0.12 恢复、取消归档与清空
+
+邮件记录保存 `deletedFromFolder` / `deletedFromPath` 和 `archivedFromFolder` / `archivedFromPath`，在移动前记录来源，后续同步、UID 变化和“归档 → 删除 → 恢复”继续保留。状态、分页列表和详情额外返回可选的 `restoreFolder`、`unarchiveFolder`，供客户端展示实际目标。来源缺失时先解析旧服务器路径，再按账户地址识别已发送，其余回到收件箱。相同 Message-ID 的收件和已发送副本优先使用目标 UID 与 UIDVALIDITY 关联，避免串用来源。
+
+恢复与取消归档先更新本机并登记移动，下次同步提交远端；同步前撤回移动会跳过同文件夹操作。`POST /trash/empty` 要求明确确认，真实账户需运行时 IMAP 凭证；先执行待处理恢复，再清空整个服务器 Trash，包括未缓存邮件。成功后清理当前账户本机记录与无引用附件，仍被其他邮件、草稿或恢复记录使用的附件保留。同步、清空及冲突的 AI / 账户操作通过现有账户互斥检查；拒绝或失败时返回具体错误。演示账户仅操作本机。
+
+缓存统计继续使用同一份本机邮件索引，当前文件夹数与全部账户合计按各自范围展示；服务器同步快照独立显示。此版只增加记录字段，不改变 SQLite `user_version=2`。实现与验收见 [0.0.12 发布说明](../docs/V0_0_12.md)。
 
 ## 0.0.11 模型列表缓存
 

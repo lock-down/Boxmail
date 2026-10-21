@@ -7,6 +7,8 @@ import { saveAttachment, attachmentBytes } from './attachments.js';
 import { ServiceError, required, recipients } from './validation.js';
 import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
+import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder } from './mail-folders.js';
+import { clearTrash } from './mail-trash.js';
 
 function clientFor(account, password) {
   const client = new ImapFlow({
@@ -71,13 +73,6 @@ export async function testAccount(account, password, { clientFactory = clientFor
   }
   return { ok: true };
 }
-const special = {
-  '\\Sent': 'sent',
-  '\\Drafts': 'drafts',
-  '\\Trash': 'trash',
-  '\\Archive': 'archive',
-  '\\Junk': 'spam',
-};
 export async function syncAccount(
   repo,
   account,
@@ -96,69 +91,8 @@ export async function syncAccount(
     try { await client.connect(); }
     catch (error) { throw mailServiceError(error, 'IMAP', account); }
     const folders = await client.list();
-    account.folders = {
-      ...account.folders,
-      ...Object.fromEntries(
-        folders
-          .filter((f) => f.specialUse)
-          .map((f) => [special[f.specialUse] || f.specialUse, f.path]),
-      ),
-    };
-    account.folders.inbox =
-      folders.find((f) => f.path.toUpperCase() === 'INBOX')?.path || 'INBOX';
-    for (const mutation of repo
-      .list('mutation')
-      .filter((m) => m.accountId === account.id)
-      .sort((a, b) => Number(!!a.target) - Number(!!b.target))) {
-      const lock = await client.getMailboxLock(mutation.path);
-      try {
-        if (String(client.mailbox.uidValidity) !== mutation.uidValidity) {
-          repo.remove('mutation', mutation.id);
-          repo.event('sync', '文件夹身份已改变，已取消旧的远端操作，避免误改邮件');
-          continue;
-        }
-        if (mutation.flag) {
-          if (mutation.value)
-            await client.messageFlagsAdd(mutation.uid, [mutation.flag], {
-              uid: true,
-            });
-          else
-            await client.messageFlagsRemove(mutation.uid, [mutation.flag], {
-              uid: true,
-            });
-        }
-        if (mutation.target) {
-          let target = account.folders[mutation.target];
-          if (!target) {
-            target =
-              mutation.target === 'trash'
-                ? 'Boxmail Trash'
-                : mutation.target === 'archive'
-                  ? 'Boxmail Archive'
-                  : 'INBOX';
-            if (target !== 'INBOX') await client.mailboxCreate(target);
-            account.folders[mutation.target] = target;
-          }
-          const moved = await client.messageMove(mutation.uid, target, {
-            uid: true,
-          });
-          if (!moved) throw new ServiceError('服务器未确认移动邮件');
-          const original = repo.get('message', mutation.messageId);
-          if (original)
-            repo.put('relocation', {
-              id: randomUUID(),
-              accountId: account.id,
-              destination: target,
-              original,
-            });
-          repo.remove('message', mutation.messageId);
-        }
-        if (repo.get('mutation', mutation.id)?.revision === mutation.revision)
-          repo.remove('mutation', mutation.id);
-      } finally {
-        lock.release();
-      }
-    }
+    discoverMailFolders(account, folders);
+    await applyMailMutations(repo, account, client);
     for (const [folder, remotePath] of Object.entries(account.folders).filter(
       ([f]) => ['inbox', 'sent', 'trash', 'drafts', 'archive', 'spam'].includes(f)
         && (!requestedFolder || requestedFolder === f),
@@ -251,18 +185,33 @@ export async function syncAccount(
               unread: !remote.flags.has('\\Seen'), starred: remote.flags.has('\\Flagged'),
               category: '未分类', summary: null, attachmentIds: [], oversized: remote.size > 25 * 1024 * 1024,
             };
-            const relocation = repo.list('relocation').find(r => r.accountId === account.id
-              && r.destination === remotePath && parsed.messageId && r.original.messageId === parsed.messageId);
+            const relocations = repo.list('relocation').filter(r => r.accountId === account.id
+              && r.destination === remotePath);
+            const legacyRelocations = relocations.filter(r => (!r.destinationUID || r.uidValidity !== validity)
+              && parsed.messageId && r.original.messageId === parsed.messageId);
+            const relocation = relocations.find(r => r.destinationUID === remote.uid && r.uidValidity === validity)
+              || (legacyRelocations.length === 1 ? legacyRelocations[0] : null);
             const recoveries = repo.list('recovery').filter(r => r.accountId === account.id
               && parsed.messageId && r.original.messageId === parsed.messageId);
             const sameFolder = recoveries.filter(r => r.remotePath === remotePath);
+            const localSent = folder === 'sent' ? repo.list('message').find(m => m.accountId === account.id
+              && m.id.startsWith('sent-') && parsed.messageId && m.messageId === parsed.messageId) : null;
             const retained = relocation || (sameFolder.length === 1 ? sameFolder[0]
-              : recoveries.length === 1 ? recoveries[0] : null);
+              : recoveries.length === 1 ? recoveries[0] : null)
+              || (localSent ? { id: localSent.id, original: localSent } : null);
             if (retained) {
               message.summary = retained.original.summary;
               message.translation = retained.original.translation;
               message.category = retained.original.category;
               message.attachmentIds = retained.original.attachmentIds;
+              if (folder === 'trash') {
+                message.deletedFromFolder = retained.original.deletedFromFolder;
+                message.deletedFromPath = retained.original.deletedFromPath;
+              }
+              if (folder === 'archive' || folder === 'trash') {
+                message.archivedFromFolder = retained.original.archivedFromFolder;
+                message.archivedFromPath = retained.original.archivedFromPath;
+              }
               for (const aid of message.attachmentIds) {
                 const a = repo.get('attachment', aid);
                 if (a) repo.put('attachment', { ...a, messageId: id });
@@ -271,17 +220,18 @@ export async function syncAccount(
                 repo.put('draft', { ...draft, sourceMessageId: id });
               for (const job of repo.list('job').filter(j => j.messageId === retained.original.id))
                 repo.put('job', { ...job, messageId: id });
-              repo.remove(relocation ? 'relocation' : 'recovery', retained.id);
+              repo.remove(relocation ? 'relocation' : retained.id === localSent?.id ? 'message' : 'recovery', retained.id);
             } else {
               for (const a of parsed.attachments || []) {
                 const saved = await saveAttachment(repo, id, a.filename || '附件', a.content, a.contentType);
                 message.attachmentIds.push(saved.id);
               }
             }
-            const localSent = repo.list('message').find(m => m.accountId === account.id
-              && m.id.startsWith('sent-') && parsed.messageId && m.messageId === parsed.messageId);
             if (localSent) repo.remove('message', localSent.id);
-            repo.put('message', message); count++;
+            repo.put('message', message);
+            if (localSent && localSent.folder !== folder)
+              updateMessage(repo, id, { folder: localSent.folder });
+            count++;
           }
           cached.set(remote.uid, repo.get('message', id));
           currentSync = { ...currentSync, downloaded: cached.size,
@@ -317,15 +267,44 @@ export async function syncAccount(
 export function updateMessage(repo, id, input) {
   const message = repo.get('message', id);
   if (!message) throw new ServiceError('邮件不存在', 404);
+  const account = repo.get('account', message.accountId);
   for (const key of ['starred', 'unread', 'folder', 'category']) {
     if (input[key] === undefined) continue;
     if (['starred', 'unread'].includes(key) && typeof input[key] !== 'boolean')
       throw new ServiceError('状态格式错误');
-    if (key === 'folder' && !['inbox', 'trash', 'archive'].includes(input[key]))
+    if (key === 'folder' && !Object.hasOwn(mailFolderNames, input[key]))
       throw new ServiceError('文件夹无效');
     if (key === 'category') input[key] = required(input[key], '分类', 100);
+    let targetPath;
+    if (key === 'folder') {
+      if (message.folder === input[key]) continue;
+      const previousFolder = message.folder;
+      const trashSource = previousFolder === 'trash' ? trashRestoreFolder(message, account) : null;
+      if (input[key] === 'archive' && trashSource !== 'archive') {
+        const source = trashSource || previousFolder;
+        message.archivedFromFolder = source;
+        message.archivedFromPath = trashSource ? message.deletedFromPath
+          : account?.folders?.[source]
+            || (folderForPath(message.remotePath, account) === source ? message.remotePath : undefined);
+      } else if (!['archive', 'trash'].includes(input[key])) {
+        if (previousFolder === 'archive' && input[key] === archiveRestoreFolder(message, account))
+          targetPath = message.archivedFromPath;
+        delete message.archivedFromFolder;
+        delete message.archivedFromPath;
+      }
+      if (input[key] === 'trash') {
+        message.deletedFromFolder = message.folder;
+        message.deletedFromPath = account?.folders?.[message.folder]
+          || (folderForPath(message.remotePath, account) === message.folder ? message.remotePath : undefined);
+      } else {
+        if (message.folder === 'trash' && input[key] === trashRestoreFolder(message, account))
+          targetPath = message.deletedFromPath;
+        delete message.deletedFromFolder;
+        delete message.deletedFromPath;
+      }
+    }
     message[key] = input[key];
-    if (message.uid && key !== 'category') {
+    if ((message.uid || (message.id.startsWith('sent-') && message.messageId)) && key !== 'category') {
       const mutation = {
         id: `${message.id}:${key}`,
         revision: randomUUID(),
@@ -335,7 +314,11 @@ export function updateMessage(repo, id, input) {
         uid: message.uid,
         uidValidity: message.uidValidity,
       };
-      if (key === 'folder') mutation.target = input[key];
+      if (!message.uid) {
+        mutation.sourceFolder = 'sent';
+        mutation.rfcMessageId = message.messageId;
+      }
+      if (key === 'folder') { mutation.target = input[key]; mutation.targetPath = targetPath; }
       else {
         mutation.flag = key === 'starred' ? '\\Flagged' : '\\Seen';
         mutation.value = key === 'unread' ? !input[key] : input[key];
@@ -344,6 +327,25 @@ export function updateMessage(repo, id, input) {
     }
   }
   return repo.put('message', message);
+}
+export function restoreMessage(repo, id) {
+  const message = repo.get('message', id);
+  if (!message) throw new ServiceError('邮件不存在', 404);
+  if (message.folder !== 'trash') throw new ServiceError('只能恢复已删除的邮件', 409);
+  return updateMessage(repo, id, {
+    folder: trashRestoreFolder(message, repo.get('account', message.accountId)),
+  });
+}
+export function unarchiveMessage(repo, id) {
+  const message = repo.get('message', id);
+  if (!message) throw new ServiceError('邮件不存在', 404);
+  if (message.folder !== 'archive') throw new ServiceError('只能取消已归档邮件的归档', 409);
+  return updateMessage(repo, id, {
+    folder: archiveRestoreFolder(message, repo.get('account', message.accountId)),
+  });
+}
+export function emptyTrash(repo, accountId, password, approved, options = {}) {
+  return clearTrash(repo, accountId, password, approved, { clientFactory: clientFor, ...options });
 }
 async function saveSent(account, password, raw) {
   const client = clientFor(account, password);

@@ -47,6 +47,18 @@ public struct MailMessage: Codable, Identifiable, Hashable {
   public var replyTo, inReplyTo: String?
   public var references: [String]?
   public var bodyLoaded: Bool?
+  public var restoreFolder: String?
+  public var unarchiveFolder: String?
+  public var restoreTitle: String {
+    "恢复到\(folderTitle(restoreFolder))"
+  }
+  public var unarchiveTitle: String {
+    "取消归档，回到\(folderTitle(unarchiveFolder))"
+  }
+  private func folderTitle(_ folder: String?) -> String {
+    folder == "spam" ? "垃圾邮件"
+      : MailDestination(rawValue: folder ?? "inbox")?.title ?? "收件箱"
+  }
 }
 public struct MailSummary: Codable, Hashable {
   public var points: [String]

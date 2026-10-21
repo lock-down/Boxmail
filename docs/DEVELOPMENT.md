@@ -1,10 +1,10 @@
 # 开发、联调与版本维护
 
-`v0.0.1` 是 Boxmail 的本地初始基线，包含原生客户端、本机后端、测试和设计导出。当前本地版本为 `0.0.11`（build 12），对应标签 `v0.0.11`。全部文档入口见 [文档索引](README.md)。设置菜单、模型缓存与 Roadmap 确认见 [0.0.11](V0_0_11.md)，数据目录与迁移见 [0.0.10](V0_0_10.md)，PPT、滚动样式与 AI 正文规则见 [0.0.9](V0_0_9.md)，精简总结与统一结果见 [0.0.8](V0_0_8.md)，批量附件见 [0.0.7](V0_0_7.md)，历史同步及原文件预览见 [0.0.6](V0_0_6.md)。
+`v0.0.1` 是 Boxmail 的本地初始基线，包含原生客户端、本机后端、测试和设计导出。当前本地版本为 `0.0.12`（build 13），对应标签 `v0.0.12`。全部文档入口见 [文档索引](README.md)。来源恢复、取消归档、清空、计数与滚动条见 [0.0.12](V0_0_12.md)，设置菜单、模型缓存与 Roadmap 确认见 [0.0.11](V0_0_11.md)，数据目录与迁移见 [0.0.10](V0_0_10.md)，PPT、滚动样式与 AI 正文规则见 [0.0.9](V0_0_9.md)，精简总结与统一结果见 [0.0.8](V0_0_8.md)，批量附件见 [0.0.7](V0_0_7.md)，历史同步及原文件预览见 [0.0.6](V0_0_6.md)。
 
 ## 修改与验证
 
-从仓库根目录执行命令。客户端界面位于 `Sources/Boxmail/Views/`，字体、控件、动效和布局组件位于 `Support/`；状态与接口调用位于 `Stores/MailStore.swift` 及其扩展。邮件协议和 AI 行为分别位于 `Backend/src/mail.js` 与 `agent.js`，后台整理位于 `organizer.js`，批量附件任务位于 `attachment-batch.js`。模型列表缓存位于 `model-catalog.js`，本机目录迁移位于 `Sources/BoxmailCore/LocalDataStorage.swift`，PPT 原生渲染位于 `Sources/BoxmailPresentationRenderer/`。
+从仓库根目录执行命令。客户端界面位于 `Sources/Boxmail/Views/`，字体、控件、动效和布局组件位于 `Support/`；状态与接口调用位于 `Stores/MailStore.swift` 及其扩展。邮件协议和 AI 行为分别位于 `Backend/src/mail.js` 与 `agent.js`，来源识别与远端移动位于 `mail-folders.js`、清空逻辑位于 `mail-trash.js`；滚动外观集中在 `Support/ScrollAppearance.swift` 及其窗口作用域，后台整理位于 `organizer.js`，批量附件任务位于 `attachment-batch.js`。模型列表缓存位于 `model-catalog.js`，本机目录迁移位于 `Sources/BoxmailCore/LocalDataStorage.swift`，PPT 原生渲染位于 `Sources/BoxmailPresentationRenderer/`。
 
 修改接口时，一并检查 `Sources/BoxmailCore/Models.swift`、后端路由和调用方，并用测试覆盖实际的数据契约或行为变化。新增邮件发送、同步或 AI 动作时，保留发送确认、结果不确定时禁止重发、分类确认及撤销等行为。
 
@@ -28,6 +28,8 @@ git status --short
 | --- | --- |
 | 账户 | 添加、测试连接、保存、重新启动、移除账户 |
 | 同步 | 文件夹识别、再次同步、已读与星标、移动、网络失败后的恢复 |
+| 邮件整理 | 删除恢复、取消归档的原始来源、重启与同步、相同 Message-ID 副本；清空的确认、未下载范围和附件引用保留 |
+| 计数与滚动 | 已发送实时数、账户及文件夹明细、本机缓存与服务器快照区分；选中、滚动和预览后的无边框滑块 |
 | 正文 | HTML、图片邮件、CID 图片、外部图片加载、旧缓存修复及摘要附件保留 |
 | 写信 | 草稿自动保存、重启恢复、附件、回复与转发、发送确认、重复点击 |
 | AI | 连接测试、摘要、待办、三种回复态度、预览与关闭、使用内容、重复使用保留编辑、译文保存与切换邮件、错误就近显示 |
@@ -45,15 +47,15 @@ git status --short
 
 ## 版本更新
 
-版本采用 `主版本.次版本.修订版本`。后续联调修复从 `0.0.12` 继续递增；集中新增功能可进入 `0.1.0`。每个提交的版本都更新变更记录并建立对应 Git 标签。0.0.6、0.0.7 的阶段实现统一收录在 `v0.0.8`，0.0.9、0.0.10 的阶段实现统一收录在 `v0.0.11`，均未单独建立标签；各阶段验收数字保留为历史记录。
+版本采用 `主版本.次版本.修订版本`。后续联调修复从 `0.0.13` 继续递增；集中新增功能可进入 `0.1.0`。每个提交的版本都更新变更记录并建立对应 Git 标签。0.0.6、0.0.7 的阶段实现统一收录在 `v0.0.8`，0.0.9、0.0.10 的阶段实现统一收录在 `v0.0.11`，均未单独建立标签；各阶段验收数字保留为历史记录。
 
-以下命令以当前版本之后的 `0.0.12` 为例：
+以下命令以当前版本之后的 `0.0.13` 为例：
 
-1. 把根目录 `VERSION` 改为 `0.0.12`，构建脚本会据此生成 App 版本，设置页读取 App 元数据；将脚本中的 `CFBundleVersion` 从当前的 `12` 递增至 `13`。
+1. 把根目录 `VERSION` 改为 `0.0.13`，构建脚本会据此生成 App 版本，设置页读取 App 元数据；将脚本中的 `CFBundleVersion` 从当前的 `13` 递增至 `14`。
 2. 更新后端包版本和锁文件：
 
    ```bash
-   npm version 0.0.12 --prefix Backend --no-git-tag-version
+   npm version 0.0.13 --prefix Backend --no-git-tag-version
    ```
 
 3. 在 `CHANGELOG.md` 增加版本日期、用户可见变化和验证范围，检查 README 中当前版本及功能限制是否需要调整。
@@ -62,8 +64,8 @@ git status --short
    ```bash
    git add VERSION Backend/package.json Backend/package-lock.json CHANGELOG.md script/build_and_run.sh
    git diff --cached --check
-   git commit -m "chore: release v0.0.12"
-   git tag -a v0.0.12 -m "Boxmail v0.0.12"
+   git commit -m "chore: release v0.0.13"
+   git tag -a v0.0.13 -m "Boxmail v0.0.13"
    git status --short
    ```
 
@@ -77,13 +79,19 @@ git status --short
 
 测试包通过 `BoxmailDemoDataEnabled=false` 关闭演示数据。个人账号、设置、邮件、附件和钥匙串均在 App 包外部，不参与打包。为隔离验证，App 支持使用绝对路径的 `BOXMAIL_DATA` 环境变量覆盖本机数据目录；不设置时读取用户保存的自定义位置，再回退到默认路径。覆盖时不执行保存的迁移计划，也不改写日常位置设置。数据目录锁由 App 和后端共同持有；独立后端联调使用专门目录。测试步骤及临时签名限制见 [另一台 Mac 测试说明](TESTING_ON_ANOTHER_MAC.md)。
 
-## 当前版本验证 · 0.0.11 · 2026-10-20
+## 当前版本验证 · 0.0.12 · 2026-10-21
+
+114 项后端测试和 38 项 Swift 测试通过，覆盖删除和归档来源持久化、相同 Message-ID 副本、UID 变化、恢复后清空、未缓存服务器邮件、附件引用保留、接口互斥与新旧 Swift 契约。独立原生演示数据验证取消归档回到已发送、计数即时更新、账户和文件夹明细及选中后的无边框滑块，原生滚动组件探针通过。完整记录见 [0.0.12](V0_0_12.md)。
+
+开发 App 与 Release 包统一为 0.0.12 / build 13，检查版本、签名、内置后端、生产依赖、全新空数据启动和 ZIP 校验。发布日志及结构核对在 `artifacts/release-v0012/`，前期功能界面记录在 `artifacts/archive-cache-verification/`；本机证据与构建产物不提交。源码、合成测试和文档提交本地 Git，并建立 `v0.0.12` 标签，沿用临时签名及原有平台验证范围。
+
+## 版本验证记录
+
+### 0.0.11 · 2026-10-20
 
 99 项后端测试和 36 项 Swift 测试通过，新增模型列表按 API 地址持久化、重启恢复、成功替换与空列表、失败保留及地址隔离覆盖。原生预览验证账号加密与 Effort 菜单、选中标记、键盘操作、默认及自定义端口、保存及取消，以及模型列表重启恢复；确认标签左对齐、菜单紧凑和测试 / 刷新按钮样式一致。数据契约及端口联动沿用原实现；记录见 [0.0.11](V0_0_11.md)。Roadmap 已将 A1、A2、B1、B2、E1 标为优先范围，其余项目保留为后续候选。
 
 源码、合成测试样例及所有文档统一归档为本地 `v0.0.11`，沿用 0.0.11 / build 12。测试日志为 `artifacts/tests-v0011.log`，设置与缓存核对为 `artifacts/settings-menu-v0011/four-fixes-verification.json`，开发 App 和 Release 包的核对分别为同目录的 `debug-verification.json`、`package-verification.json`；这些本机证据及构建产物均被 Git 忽略。
-
-## 版本验证记录
 
 ### 0.0.10 · 2026-10-20
 

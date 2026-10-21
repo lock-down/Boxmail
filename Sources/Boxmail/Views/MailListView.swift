@@ -3,6 +3,8 @@ import SwiftUI
 
 struct MailListView: View {
   @Bindable var store: MailStore
+  @ViewState<MailAccount?> private var trashAccount: MailAccount?
+  private var emptyingTrash: Bool { store.busy.contains("empty-trash-\(store.accountId)") }
   var body: some View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 12) {
@@ -13,6 +15,23 @@ struct MailListView: View {
             .monospacedDigit().foregroundStyle(
               Palette.muted)
           Spacer()
+          if store.destination == .trash {
+            Button {
+              trashAccount = store.currentAccount
+            } label: {
+              HStack(spacing: 4) {
+                if emptyingTrash { ProgressView().controlSize(.mini) }
+                Text(emptyingTrash ? "正在清空…" : "清空")
+                  .font(.system(size: 12, weight: .medium))
+              }.foregroundStyle(Palette.ink).padding(.horizontal, 8).frame(height: 32)
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+            }.buttonStyle(ControlFeedback()).controlFocus()
+              .help("清空当前账户的所有已删除邮件")
+              .accessibilityLabel("清空已删除邮件")
+              .disabled(emptyingTrash || store.currentAccount == nil
+                || (store.currentAccount?.isDemo == true && store.trashMessages.isEmpty)
+                || store.busy.contains("sync"))
+          }
           IconMenu(icon: "line.3.horizontal.decrease", help: "邮件列表操作") {
             Button("全部标记已读") {
               for message in store.filteredMessages.filter(\.unread) {
@@ -46,7 +65,11 @@ struct MailListView: View {
       }
       Divider().overlay(Palette.softBorder)
       if store.filteredMessages.isEmpty {
-        EmptyState(title: "没有匹配的邮件", subtitle: "调整筛选条件，或搜索其他关键词。", icon: "tray")
+        let emptyTrash = store.destination == .trash && store.trashMessages.isEmpty
+          && store.search.isEmpty && store.filter == "全部"
+        EmptyState(title: emptyTrash ? "已删除为空" : "没有匹配的邮件",
+          subtitle: emptyTrash ? "删除的邮件会显示在这里，可恢复到原文件夹。" : "调整筛选条件，或搜索其他关键词。",
+          icon: emptyTrash ? "trash" : "tray")
       } else {
         OverlayScrollView {
           LazyVStack(spacing: 0) {
@@ -68,7 +91,16 @@ struct MailListView: View {
                   store.update(message, ["unread": !message.unread])
                 }
                 Button("回复") { store.newDraft(reply: message) }
-                Button("移到已删除") { store.update(message, ["folder": "trash"]) }
+                if message.folder == "trash" {
+                  Button(message.restoreTitle) { store.restore(message) }
+                    .disabled(emptyingTrash || store.busy.contains("message-\(message.id)"))
+                } else {
+                  if message.folder == "archive" {
+                    Button(message.unarchiveTitle) { store.unarchive(message) }
+                      .disabled(store.busy.contains("message-\(message.id)"))
+                  }
+                  Button("移到已删除") { store.update(message, ["folder": "trash"]) }
+                }
               }
             }
           }
@@ -90,10 +122,13 @@ struct MailListView: View {
             Task { await store.loadMessages(reset: false) }
           }.disabled(store.listLoading)
         }
+        if [.inbox, .sent, .trash, .archive].contains(store.destination) {
+          Text("\(store.destination.title)：本机缓存 \(store.cachedMessageCount(accountId: store.accountId, folder: store.destination.rawValue)) 封")
+            .font(.system(size: 11)).foregroundStyle(Palette.muted)
+        }
         if let progress = store.currentSyncFolder {
-          if let loaded = progress.downloaded, let total = progress.total {
-            Text("已缓存 \(loaded) / \(total) 封").font(.system(size: 11)).foregroundStyle(
-              Palette.muted)
+          if let total = progress.total {
+            Text("上次同步服务器共 \(total) 封").font(.system(size: 11)).foregroundStyle(Palette.muted)
           }
           if let error = progress.lastError {
             Text(error).font(.system(size: 11)).foregroundStyle(Palette.amber)
@@ -116,6 +151,19 @@ struct MailListView: View {
         }
       }.padding(12).frame(maxWidth: .infinity).background(Palette.canvas)
     }.background(.white)
+      .alert("清空已删除邮件？", isPresented: Binding(
+        get: { trashAccount != nil }, set: { if !$0 { trashAccount = nil } }),
+        presenting: trashAccount
+      ) { account in
+        Button("取消", role: .cancel) { trashAccount = nil }
+        Button("清空已删除", role: .destructive) {
+          store.emptyTrash(account: account)
+          trashAccount = nil
+        }
+      } message: { account in
+        Text("将永久删除 \(account.email) 中的所有已删除邮件及不再使用的附件，包括未显示的邮件。"
+          + (account.isDemo ? "此操作无法恢复。" : "此操作会同步到邮箱服务器，无法恢复。"))
+      }
   }
 }
 struct MailRow: View {

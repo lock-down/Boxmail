@@ -64,6 +64,7 @@ import SwiftUI
     return detailCache[id] ?? messages.first { $0.id == id }
   }
   var accountMessages: [MailMessage] { messages.filter { $0.accountId == accountId } }
+  var trashMessages: [MailMessage] { accountMessages.filter { $0.folder == "trash" } }
   var unreadInboxMessages: [MailMessage] {
     accountMessages.filter { $0.folder == "inbox" && $0.unread }
   }
@@ -183,6 +184,23 @@ import SwiftUI
     action("message-\(message.id)") {
       try await BackendService.shared.perform(
         "/messages/\(message.id)", method: "PATCH", body: changes)
+    }
+  }
+  func restore(_ message: MailMessage) {
+    action("message-\(message.id)") {
+      try await BackendService.shared.perform("/messages/\(message.id)/restore")
+    }
+  }
+  func unarchive(_ message: MailMessage) {
+    action("message-\(message.id)") {
+      try await BackendService.shared.perform("/messages/\(message.id)/unarchive")
+    }
+  }
+  func emptyTrash(account: MailAccount) {
+    action("empty-trash-\(account.id)") {
+      var input: [String: Any] = ["accountId": account.id, "approved": true]
+      if !account.isDemo { input["password"] = try KeychainService.read("mail-\(account.id)") }
+      try await BackendService.shared.perform("/trash/empty", body: input)
     }
   }
   func syncAll(silent: Bool = false, folder: String? = nil) async {

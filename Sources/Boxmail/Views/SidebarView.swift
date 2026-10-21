@@ -129,6 +129,7 @@ struct SidebarView: View {
     switch destination {
     case .inbox: return store.unreadInboxMessages.count
     case .drafts: return store.drafts.filter { $0.accountId == store.accountId }.count
+    case .sent: return store.cachedMessageCount(accountId: store.accountId, folder: "sent")
     case .attachments: return store.accountAttachments.count
     case .summary: return store.accountMessages.filter { $0.summary != nil }.count
     case .replies:
@@ -150,7 +151,7 @@ struct SidebarView: View {
         if destination == .organize, store.latestOrganization?.status == "running" {
           ProgressView().controlSize(.mini)
         }
-        if count(destination) > 0 {
+        if count(destination) > 0 || destination == .sent {
           Text(String(count(destination))).font(.system(size: 11, weight: .medium))
             .monospacedDigit().contentTransition(reduceMotion ? .identity : .numericText()).foregroundStyle(
               selected ? Palette.blue : Palette.muted)

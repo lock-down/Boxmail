@@ -32,8 +32,29 @@ struct LocalDataSettingsView: View {
         }.disabled(backend.hasDataDirectoryOverride || !store.ready)
       }
       if store.ready {
-        Text("\(store.messages.count) 封邮件 · \(store.attachments.count) 个附件")
-          .font(UIType.small).foregroundStyle(Palette.muted)
+        VStack(alignment: .leading, spacing: 12) {
+          Text("全部账户合计：\(store.cachedMessageCount()) 封邮件 · \(store.attachments.count) 个附件文件")
+            .font(UIType.caption).foregroundStyle(Palette.ink)
+          ForEach(store.accounts) { account in
+            VStack(alignment: .leading, spacing: 6) {
+              Text("\(account.email)\(account.isDemo ? "（演示）" : "") · \(store.cachedMessageCount(accountId: account.id)) 封")
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+              WrappingFlowLayout(spacing: 12) {
+                ForEach(["inbox", "sent", "archive", "trash", "drafts", "spam"], id: \.self) { folder in
+                  let count = store.cachedMessageCount(accountId: account.id, folder: folder)
+                  if count > 0 || ["inbox", "sent", "archive", "trash"].contains(folder) {
+                    Text("\(folderTitle(folder)) \(count) 封")
+                      .font(UIType.small).foregroundStyle(Palette.muted).fixedSize()
+                  }
+                }
+              }
+            }
+          }
+          Text("列表底部仅统计当前账户的当前文件夹；附件文件包含邮件与写信草稿中的附件。")
+            .font(UIType.small).foregroundStyle(Palette.muted)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
       if backend.hasDataDirectoryOverride {
         Text("本次启动由 BOXMAIL_DATA 指定位置。退出并移除该环境变量后，可在此设置保存目录。")
@@ -63,6 +84,14 @@ struct LocalDataSettingsView: View {
           .font(UIType.caption).foregroundStyle(Palette.amber)
           .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
       }
+    }
+  }
+
+  private func folderTitle(_ folder: String) -> String {
+    switch folder {
+    case "spam": return "垃圾邮件"
+    case "drafts": return "邮箱草稿"
+    default: return MailDestination(rawValue: folder)?.title ?? folder
     }
   }
 

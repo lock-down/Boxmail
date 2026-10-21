@@ -28,12 +28,15 @@ struct ContentView: View {
     }.foregroundStyle(Palette.ink).tint(Palette.blue).background(Palette.canvas).ignoresSafeArea(
       .container, edges: .top
     )
-    .sheet(isPresented: $store.showSettings) { SettingsView(store: store) }
-    .sheet(item: $store.composer) { draft in ComposerView(store: store, initial: draft) }
-    .sheet(item: $store.previewAttachment) { attachment in
-      AttachmentPreviewView(store: store, attachmentId: attachment.id)
+    .borderlessScrollers()
+    .sheet(isPresented: $store.showSettings) { SettingsView(store: store).borderlessScrollers() }
+    .sheet(item: $store.composer) { draft in
+      ComposerView(store: store, initial: draft).borderlessScrollers()
     }
-    .sheet(isPresented: $activity) { ActivityView(store: store) }
+    .sheet(item: $store.previewAttachment) { attachment in
+      AttachmentPreviewView(store: store, attachmentId: attachment.id).borderlessScrollers()
+    }
+    .sheet(isPresented: $activity) { ActivityView(store: store).borderlessScrollers() }
     .task(id: store.ready ? store.mailQueryKey : "") {
       guard store.ready else { return }
       do {

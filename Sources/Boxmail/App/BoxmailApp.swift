@@ -40,7 +40,7 @@ import SwiftUI
         Button("智能整理收件箱") { store.navigate(.organize) }
       }
     }
-    Settings { SettingsView(store: store).preferredColorScheme(.light) }
+    Settings { SettingsView(store: store).preferredColorScheme(.light).borderlessScrollers() }
   }
   private func openAI(_ tab: BoxmailCore.MailAITab) {
     guard let message = store.selectedMessage else { return }

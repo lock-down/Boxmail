@@ -9,7 +9,8 @@ import {
   aiConfig,
   recipients,
 } from './validation.js';
-import { testAccount, syncAccount, updateMessage, sendDraft } from './mail.js';
+import { testAccount, syncAccount, updateMessage, restoreMessage, unarchiveMessage, emptyTrash, sendDraft } from './mail.js';
+import { archiveRestoreFolder, trashRestoreFolder } from './mail-folders.js';
 import { runAgent, approveClassification, useReplyPreview, completion } from './agent.js';
 import { saveAttachment, attachmentBytes } from './attachments.js';
 import { seedDemo } from './demo.js';
@@ -27,6 +28,7 @@ export async function startServer({
   demo = true,
   mailSync = syncAccount,
   mailTest = testAccount,
+  mailEmptyTrash = emptyTrash,
   agentRun = runAgent,
   organizerComplete,
 }) {
@@ -45,6 +47,7 @@ export async function startServer({
       error: '应用关闭中断了任务，已完成的结果已保留，请重试',
     });
   const locks = new Set();
+  const clearingTrash = new Set();
   const syncTasks = new Map();
   for (const progress of repo.list('sync').filter(p => p.status === 'running'))
     repo.put('sync', { ...progress, status: 'paused', lastError: '应用关闭中断了同步，可继续加载未完成的邮件' });
@@ -77,10 +80,17 @@ export async function startServer({
   if (!saved.ai.effort && !saved.ai.model && saved.ai.baseURL === 'https://api.openai.com/v1')
     savedAI = { ...savedAI, baseURL: DEFAULT_AI.baseURL, model: DEFAULT_AI.model };
   repo.put('settings', { ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, ai: aiConfig(savedAI, { requireModel: false }) });
+  function presentMessage(message) {
+    if (message.folder === 'trash') return { ...message,
+      restoreFolder: trashRestoreFolder(message, repo.get('account', message.accountId)) };
+    if (message.folder === 'archive') return { ...message,
+      unarchiveFolder: archiveRestoreFolder(message, repo.get('account', message.accountId)) };
+    return message;
+  }
   function state(compact = false) {
     return {
       accounts: repo.list('account'),
-      messages: compact ? repo.messageHeaders() : repo.search(''),
+      messages: (compact ? repo.messageHeaders() : repo.search('')).map(presentMessage),
       drafts: repo.list('draft').filter((d) => d.status !== 'sent'),
       attachments: compact ? repo.attachmentHeaders() : repo.list('attachment'),
       jobs: repo
@@ -138,10 +148,31 @@ export async function startServer({
         result = repo.messagePage({ accountId: url.searchParams.get('accountId'),
           folder: url.searchParams.get('folder'), filter: url.searchParams.get('filter'),
           query: url.searchParams.get('q') || '', offset, limit });
+        result.messages = result.messages.map(presentMessage);
       } else if (req.method === 'GET' && /^\/messages\/[^/]+$/.test(route)) {
         result = repo.get('message', route.split('/')[2]);
         if (!result) throw new ServiceError('邮件不存在或已移动，请刷新列表', 404);
-        result = { ...result, bodyLoaded: true };
+        result = { ...presentMessage(result), bodyLoaded: true };
+      } else if (req.method === 'POST' && /^\/messages\/[^/]+\/restore$/.test(route)) {
+        const id = route.split('/')[2], message = repo.get('message', id);
+        if (message && locks.has(message.accountId))
+          throw new ServiceError('该账户正在同步或清空邮件，请完成后再恢复', 409);
+        result = restoreMessage(repo, id);
+      } else if (req.method === 'POST' && /^\/messages\/[^/]+\/unarchive$/.test(route)) {
+        const id = route.split('/')[2], message = repo.get('message', id);
+        if (message && locks.has(message.accountId))
+          throw new ServiceError('该账户正在同步或清空邮件，请完成后再取消归档', 409);
+        result = unarchiveMessage(repo, id);
+      } else if (req.method === 'POST' && route === '/trash/empty') {
+        if (body.approved !== true) throw new ServiceError('清空已删除邮件需要明确确认', 403);
+        if (!repo.get('account', body.accountId)) throw new ServiceError('账户不存在', 404);
+        if (locks.has(body.accountId) || locks.has('agent') || organizer.busy(body.accountId)
+          || attachmentBatch.busy(body.accountId))
+          throw new ServiceError('该账户正在执行任务，请完成后再清空已删除邮件', 409);
+        locks.add(body.accountId);
+        clearingTrash.add(body.accountId);
+        try { result = await mailEmptyTrash(repo, body.accountId, body.password, body.approved); }
+        finally { locks.delete(body.accountId); clearingTrash.delete(body.accountId); }
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/reply-draft$/.test(route)) {
         result = createReplyDraft(repo, route.split('/')[2], { all: body.all === true, forward: body.forward === true });
       }
@@ -233,8 +264,8 @@ export async function startServer({
           locks.has(message.accountId) &&
           ['starred', 'unread', 'folder'].some((k) => body[k] !== undefined)
         )
-          throw new ServiceError('该账户正在同步，请完成后再修改邮件状态', 409);
-        result = updateMessage(repo, id, body);
+          throw new ServiceError('该账户正在同步或清空邮件，请完成后再修改邮件状态', 409);
+        result = presentMessage(updateMessage(repo, id, body));
       } else if (req.method === 'POST' && route === '/todos') {
         const m = repo.get('message', body.messageId);
         if (!m?.summary) throw new ServiceError('邮件没有待办');
@@ -267,9 +298,12 @@ export async function startServer({
       } else if (req.method === 'POST' && route === '/ai/models') {
         result = await refreshModelCatalog(repo, body.config, body.apiKey);
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/attachments\/analyze$/.test(route)) {
+        const message = repo.get('message', route.split('/')[2]);
+        if (clearingTrash.has(message?.accountId)) throw new ServiceError('正在清空已删除邮件，请稍候', 409);
         if (locks.has('agent')) throw new ServiceError('AI 正在执行任务，请等待完成', 409);
         result = attachmentBatch.start({ ...body, messageId: route.split('/')[2], config: repo.get('settings', 'settings').ai });
       } else if (req.method === 'POST' && (route === '/organize' || (route === '/agent' && body.task === 'classify'))) {
+        if (clearingTrash.has(body.accountId)) throw new ServiceError('正在清空已删除邮件，请稍候', 409);
         result = organizer.start({ ...body, config: repo.get('settings', 'settings').ai });
       } else if (req.method === 'GET' && /^\/jobs\/[^/]+$/.test(route)) {
         result = repo.get('job', route.split('/')[2]);
@@ -282,11 +316,16 @@ export async function startServer({
       } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/retry$/.test(route)) {
         const id = route.split('/')[2], job = repo.get('job', id);
         if (!job) throw new ServiceError('任务不存在', 404);
+        if (clearingTrash.has(job.accountId)) throw new ServiceError('正在清空已删除邮件，请稍候', 409);
         if (job.task === 'attachmentBatch' && locks.has('agent'))
           throw new ServiceError('AI 正在执行任务，请等待完成', 409);
         result = (job.task === 'attachmentBatch' ? attachmentBatch : organizer).start({ accountId: job.accountId, apiKey: body.apiKey,
           config: repo.get('settings', 'settings').ai }, id);
       } else if (req.method === 'POST' && route === '/agent') {
+        const message = repo.get('message', body.messageId
+          || repo.get('attachment', body.attachmentId)?.messageId);
+        if (clearingTrash.has(message?.accountId || body.accountId))
+          throw new ServiceError('正在清空已删除邮件，请稍候', 409);
         if (body.task === 'attachment') {
           const messageId = repo.get('attachment', body.attachmentId)?.messageId;
           if (messageId && attachmentBatch.active(messageId))

@@ -50,6 +50,32 @@ import Testing
   #expect(message.summary?.overviewText == "项目排期已确认")
   #expect(message.summary?.nextSteps == nil)
   #expect(message.messageId == nil)
+  #expect(message.restoreFolder == nil)
+  #expect(message.unarchiveFolder == nil)
+}
+
+@Test func archivedMailDecodesItsOriginalMailboxAndUndoAction() throws {
+  let raw = #"{"id":"m1","accountId":"a1","folder":"archive","sender":"Me","senderEmail":"me@example.com","to":"to@example.com","cc":"","subject":"测试","body":"正文","preview":"正文","date":"2026-10-20T00:00:00Z","category":"未分类","unread":false,"starred":false,"attachmentIds":[],"unarchiveFolder":"sent"}"#
+  var message = try JSONDecoder().decode(MailMessage.self, from: Data(raw.utf8))
+  #expect(message.unarchiveTitle == "取消归档，回到已发送")
+  let decoded = try JSONDecoder().decode(MailMessage.self, from: JSONEncoder().encode(message))
+  #expect(decoded.unarchiveFolder == "sent")
+  message.unarchiveFolder = nil
+  #expect(message.unarchiveTitle == "取消归档，回到收件箱")
+}
+
+@Test func trashRestoreTargetDecodesAndNamesTheOriginalMailbox() throws {
+  let raw = #"{"id":"m1","accountId":"a1","folder":"trash","sender":"Me","senderEmail":"me@example.com","to":"to@example.com","cc":"","subject":"测试","body":"正文","preview":"正文","date":"2026-10-20T00:00:00Z","category":"未分类","unread":false,"starred":false,"attachmentIds":[],"restoreFolder":"sent"}"#
+  var message = try JSONDecoder().decode(MailMessage.self, from: Data(raw.utf8))
+  #expect(message.restoreTitle == "恢复到已发送")
+  let decoded = try JSONDecoder().decode(MailMessage.self, from: JSONEncoder().encode(message))
+  #expect(decoded.restoreFolder == "sent")
+  for (folder, title) in [("inbox", "收件箱"), ("archive", "已归档"), ("drafts", "草稿箱"), ("spam", "垃圾邮件")] {
+    message.restoreFolder = folder
+    #expect(message.restoreTitle == "恢复到\(title)")
+  }
+  message.restoreFolder = nil
+  #expect(message.restoreTitle == "恢复到收件箱")
 }
 
 @Test func compactSummaryRetainsSuggestedActionsAndCopiesAllSections() throws {

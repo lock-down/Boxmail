@@ -22,8 +22,11 @@ public enum MailHTMLDocument {
       #mail-content table { max-width: 100% !important; }
       #mail-content pre { white-space: pre-wrap; }
       #mail-content a { color: #246de3; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+      ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; border: 0; box-shadow: none; }
+      ::-webkit-scrollbar-thumb { background: rgba(32,36,43,.3); border: 0; border-radius: 3px; box-shadow: none; }
       #mail-content .boxmail-recipient-list { max-height: 160px; overflow-y: auto; overflow-x: hidden; padding-right: 10px; overflow-wrap: anywhere; }
-      #mail-content .boxmail-recipient-list:focus-visible { outline: 2px solid #3567af; outline-offset: 2px; }
+      #mail-content .boxmail-recipient-list:focus-visible { outline: none; background: rgba(53,103,175,.06); }
       </style></head><body><div id="mail-content">\(html)</div></body></html>
       """
   }

@@ -11,37 +11,55 @@ struct MailDetailView: View {
       HStack(spacing: 8) {
         HStack(spacing: 6) {
           if message.folder == "trash" {
-            ActionButton(title: "恢复到收件箱", icon: "arrow.uturn.backward", kind: .primary) {
-              store.update(message, ["folder": "inbox"])
-            }
+            ActionButton(title: message.restoreTitle, icon: "arrow.uturn.backward", kind: .primary) {
+              store.restore(message)
+            }.disabled(store.busy.contains("message-\(message.id)")
+              || store.busy.contains("empty-trash-\(message.accountId)"))
           } else {
+            if message.folder == "archive" {
+              ActionButton(title: "取消归档", icon: "arrow.uturn.backward", kind: .primary) {
+                store.unarchive(message)
+              }.help(message.unarchiveTitle)
+                .disabled(store.busy.contains("message-\(message.id)"))
+            }
             ActionButton(title: "回复", icon: "arrowshape.turn.up.left", kind: .softAI) {
               store.newDraft(reply: message)
             }
-            ActionButton(title: "全部回复", icon: "arrowshape.turn.up.left.2") {
-              store.newDraft(reply: message, all: true)
-            }
-            ActionButton(title: "转发", icon: "arrowshape.turn.up.right") {
-              store.newDraft(reply: message, forward: true)
+            if message.folder != "archive" {
+              ActionButton(title: "全部回复", icon: "arrowshape.turn.up.left.2") {
+                store.newDraft(reply: message, all: true)
+              }
+              ActionButton(title: "转发", icon: "arrowshape.turn.up.right") {
+                store.newDraft(reply: message, forward: true)
+              }
             }
           }
         }
         Spacer(minLength: 8)
         HStack(spacing: 4) {
-          IconButton(icon: "archivebox", help: "归档") {
-            store.update(message, ["folder": "archive"])
+          if message.folder != "archive" {
+            IconButton(icon: "archivebox", help: "归档") {
+              store.update(message, ["folder": "archive"])
+            }
           }
           IconMenu(icon: "tag", help: "分类邮件") {
             ForEach(["工作项目", "订阅资讯", "账单票据", "社交通知", "个人往来", "未分类"], id: \.self) { category in
               Button(category) { store.update(message, ["category": category]) }
             }
           }
-          IconButton(icon: "trash", help: "移到已删除") { store.update(message, ["folder": "trash"]) }
+          if message.folder != "trash" {
+            IconButton(icon: "trash", help: "移到已删除") { store.update(message, ["folder": "trash"]) }
+          }
           IconButton(
             icon: message.starred ? "star.fill" : "star", help: message.starred ? "取消星标" : "添加星标",
             color: message.starred ? Palette.amber : Palette.muted, active: message.starred
           ) { store.update(message, ["starred": !message.starred]) }
           IconMenu(icon: "ellipsis", help: "更多邮件操作") {
+            if message.folder == "archive" {
+              Button("全部回复") { store.newDraft(reply: message, all: true) }
+              Button("转发") { store.newDraft(reply: message, forward: true) }
+              Divider()
+            }
             Button("复制邮件正文") {
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(message.body, forType: .string)

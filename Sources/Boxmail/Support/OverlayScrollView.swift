@@ -23,15 +23,6 @@ struct OverlayScrollView<Content: View>: View {
   }
 }
 
-@MainActor enum ScrollAppearance {
-  static func apply(to scrollView: NSScrollView) {
-    if scrollView.borderType != .noBorder { scrollView.borderType = .noBorder }
-    if scrollView.drawsBackground { scrollView.drawsBackground = false }
-    if !scrollView.autohidesScrollers { scrollView.autohidesScrollers = true }
-    if scrollView.scrollerStyle != .overlay { scrollView.scrollerStyle = .overlay }
-  }
-}
-
 private struct ScrollStyleAnchor: NSViewRepresentable {
   func makeNSView(context: Context) -> AnchorView { AnchorView() }
   func updateNSView(_ nsView: AnchorView, context: Context) { nsView.refreshWhenAttached() }
