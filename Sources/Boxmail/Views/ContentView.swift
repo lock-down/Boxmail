@@ -6,25 +6,13 @@ struct ContentView: View {
   @ViewState<Bool> private var activity = false
   @ViewState<Bool> private var searchFilters = false
   var body: some View {
-    VStack(spacing: 0) {
-      header
+    HStack(spacing: 0) {
+      SidebarView(store: store).frame(width: UILayout.sidebar)
       Divider().overlay(Palette.softBorder)
-      HStack(spacing: 0) {
-        SidebarView(store: store).frame(width: UILayout.sidebar)
-        Divider()
-        if !store.ready {
-          startupContent
-        } else if !store.search.isEmpty {
-          mailSplit
-        } else {
-          switch store.destination {
-          case .attachments: AttachmentsView(store: store)
-          case .organize: OrganizeView(store: store)
-          case .summary: SummaryOverviewView(store: store)
-          case .drafts: DraftsView(store: store)
-          default: mailSplit
-          }
-        }
+      VStack(spacing: 0) {
+        header
+        Divider().overlay(Palette.softBorder)
+        workspace
       }
     }.foregroundStyle(Palette.ink).tint(Palette.blue).background(Palette.canvas).ignoresSafeArea(
       .container, edges: .top
@@ -69,6 +57,21 @@ struct ContentView: View {
       Button("确定") { store.notice = nil }
     } message: {
       Text(store.notice ?? "")
+    }
+  }
+  @ViewBuilder private var workspace: some View {
+    if !store.ready {
+      startupContent
+    } else if !store.search.isEmpty {
+      mailSplit
+    } else {
+      switch store.destination {
+      case .attachments: AttachmentsView(store: store)
+      case .organize: OrganizeView(store: store)
+      case .summary: SummaryOverviewView(store: store)
+      case .drafts: DraftsView(store: store)
+      default: mailSplit
+      }
     }
   }
   private var startupContent: some View {
@@ -132,12 +135,6 @@ struct ContentView: View {
   }
   private var header: some View {
     HStack(spacing: 16) {
-      HStack(spacing: 7) {
-        Image(systemName: "envelope.fill").font(.system(size: 11)).foregroundStyle(.white).frame(
-          width: 19, height: 19
-        ).background(Palette.blue, in: RoundedRectangle(cornerRadius: 4))
-        Text("Boxmail").font(.system(size: 13, weight: .semibold))
-      }.padding(.leading, 78).frame(width: UILayout.sidebar, alignment: .leading)
       Spacer(minLength: 0)
       HStack(spacing: 4) {
         SearchField(placeholder: "搜索邮件、附件或输入条件", text: $store.search)
@@ -169,7 +166,7 @@ struct ContentView: View {
         IconButton(icon: "bell", help: "活动记录") { activity = true }
         IconButton(icon: "gearshape", help: "设置") { store.showSettings = true }
       }.padding(.trailing, 14)
-    }.frame(height: 54).background(Palette.chrome)
+    }.padding(.leading, 16).frame(height: 54).background(Palette.chrome)
   }
 }
 

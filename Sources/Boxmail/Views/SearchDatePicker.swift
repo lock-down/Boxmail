@@ -43,16 +43,16 @@ struct SearchCalendarPanel: View {
   }
   var body: some View {
     VStack(spacing: 12) {
-      HStack(spacing: 0) {
+      HStack(spacing: 8) {
         WorkflowAction(title: "", icon: "chevron.left", help: "上个月") { moveMonth(-1) }
           .frame(width: 32)
-        Spacer(minLength: 8)
-        HStack(spacing: 8) {
-          WorkflowSelection(title: "日历年份", selection: yearSelection, options: years, compact: true).frame(width: 80)
+        HStack(spacing: 24) {
+          WorkflowSelection(title: "日历年份", selection: yearSelection, options: years, compact: true)
+            .frame(maxWidth: .infinity)
           WorkflowSelection(title: "日历月份", selection: monthSelection,
-            options: (1...12).map { ($0, "\($0) 月") }, compact: true).frame(width: 64)
+            options: (1...12).map { ($0, "\($0) 月") }, compact: true)
+            .frame(maxWidth: .infinity)
         }
-        Spacer(minLength: 8)
         WorkflowAction(title: "", icon: "chevron.right", help: "下个月") { moveMonth(1) }
           .frame(width: 32)
       }.frame(height: 32)

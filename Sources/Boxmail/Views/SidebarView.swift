@@ -7,17 +7,30 @@ struct SidebarView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
+      HStack(spacing: 8) {
+        Image(systemName: "envelope.fill").font(.system(size: 12)).foregroundStyle(.white)
+          .frame(width: 24, height: 24)
+          .background(Palette.blue, in: RoundedRectangle(cornerRadius: 5))
+          .accessibilityHidden(true)
+        Text("Boxmail").font(.system(size: 14, weight: .semibold))
+        Spacer(minLength: 0)
+      }.padding(.horizontal, 22).padding(.top, 38).padding(.bottom, 18)
+        .accessibilityElement(children: .combine).accessibilityLabel("Boxmail")
+      Button {
+        store.newDraft()
+      } label: {
+        HStack(spacing: 9) {
+          Image(systemName: "square.and.pencil").font(.system(size: 14))
+            .frame(width: 18)
+          Text("写邮件").font(.system(size: 13, weight: .semibold))
+          Spacer(minLength: 0)
+        }.foregroundStyle(Palette.blue).padding(.horizontal, 10).frame(height: 38)
+          .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 7))
+          .contentShape(RoundedRectangle(cornerRadius: 7))
+      }.buttonStyle(ControlFeedback(selected: true)).controlFocus()
+        .padding(.horizontal, 12).padding(.bottom, 16)
       OverlayScrollView {
         VStack(spacing: 4) {
-          Button {
-            store.newDraft()
-          } label: {
-            Label("写邮件", systemImage: "square.and.pencil").font(
-              .system(size: 13, weight: .semibold)
-            )
-            .foregroundStyle(Palette.blue).frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12).frame(height: 38).contentShape(Rectangle())
-          }.buttonStyle(ControlFeedback()).controlFocus().padding(.bottom, 10)
           Button {
             showAccounts.toggle()
           } label: {
@@ -87,7 +100,7 @@ struct SidebarView: View {
             .font(.system(size: 11)).foregroundStyle(Palette.muted).lineSpacing(3)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(
               .top, 8)
-        }.padding(12)
+        }.padding(.horizontal, 12).padding(.bottom, 12)
       }.scrollIndicators(.hidden)
       if store.currentAccount?.isDemo == true {
         HStack {

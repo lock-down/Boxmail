@@ -5,11 +5,12 @@ struct FilterBar: View {
   let values: [String]
   @Binding var selection: String
   var compact = false
+  var fillsWidth = false
   var onSelect: (String) -> Void = { _ in }
   @Namespace private var highlight
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: compact ? 4 : 6) {
       ForEach(values, id: \.self) { value in
         Button {
           withAnimation(UIMotion.selection(reduceMotion)) { selection = value }
@@ -17,22 +18,23 @@ struct FilterBar: View {
         } label: {
           Text(value).font(.system(size: compact ? 11 : 12, weight: selection == value ? .semibold : .regular))
             .foregroundStyle(selection == value ? Palette.blue : Palette.muted)
-            .padding(.horizontal, compact ? 10 : 12).frame(height: compact ? 28 : 32)
+            .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 10).frame(maxWidth: fillsWidth ? .infinity : nil)
+            .frame(height: compact ? 28 : 32)
             .background {
               if selection == value {
                 if reduceMotion {
-                  RoundedRectangle(cornerRadius: 6).fill(Palette.paper)
+                  RoundedRectangle(cornerRadius: 7).fill(Palette.blueSoft)
                 } else {
-                  RoundedRectangle(cornerRadius: 6).fill(Palette.paper)
+                  RoundedRectangle(cornerRadius: 7).fill(Palette.blueSoft)
                     .matchedGeometryEffect(id: "selection", in: highlight)
                 }
               }
-            }.contentShape(RoundedRectangle(cornerRadius: 6))
-        }.buttonStyle(ControlFeedback(selected: selection == value, corner: 6))
-          .controlFocus(corner: 6)
+            }.contentShape(RoundedRectangle(cornerRadius: 7))
+        }.buttonStyle(ControlFeedback(selected: selection == value))
+          .controlFocus()
           .accessibilityAddTraits(selection == value ? .isSelected : [])
       }
-    }.padding(3).background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 9))
-      .fixedSize(horizontal: true, vertical: false)
+    }.fixedSize(horizontal: !fillsWidth, vertical: false)
   }
 }

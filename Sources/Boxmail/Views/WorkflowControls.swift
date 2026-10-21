@@ -139,18 +139,22 @@ struct WorkflowSelection<Value: Hashable>: NSViewRepresentable {
     }
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingMiddle
-    paragraph.alignment = compact ? .center : .left
-    let inset: CGFloat = compact ? 4 : 10
+    paragraph.alignment = .left
     let text = titleOfSelectedItem ?? "请选择"
+    let font = NSFont.systemFont(ofSize: 12, weight: compact ? .medium : .regular)
+    let textWidth = min(ceil((text as NSString).size(withAttributes: [.font: font]).width),
+      max(0, bounds.width - 32))
+    let inset: CGFloat = compact ? floor((bounds.width - textWidth - 16) / 2) : 10
     (text as NSString).draw(in: NSRect(x: inset, y: (bounds.height - 16) / 2,
-      width: max(0, bounds.width - inset - 22), height: 18), withAttributes: [
-        .font: NSFont.systemFont(ofSize: 12, weight: compact ? .medium : .regular),
+      width: compact ? textWidth : max(0, bounds.width - inset - 22), height: 18), withAttributes: [
+        .font: font,
         .foregroundColor: NSColor(isHighlighted ? Palette.blue : Palette.ink).withAlphaComponent(isEnabled ? 1 : 0.4),
         .paragraphStyle: paragraph,
       ])
     let arrow = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
       .withSymbolConfiguration(.init(paletteColors: [NSColor(Palette.muted)]))
-    arrow?.draw(in: NSRect(x: bounds.width - 17, y: (bounds.height - 7) / 2, width: 8, height: 7),
+    arrow?.draw(in: NSRect(x: compact ? inset + textWidth + 8 : bounds.width - 17,
+      y: (bounds.height - 7) / 2, width: 8, height: 7),
       from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.4, respectFlipped: true, hints: nil)
   }
 }

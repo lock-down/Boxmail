@@ -7,7 +7,7 @@ struct MailListView: View {
   private var emptyingTrash: Bool { store.busy.contains("empty-trash-\(store.accountId)") }
   var body: some View {
     VStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: 16) {
         HStack {
           Text(store.search.isEmpty ? store.destination.title : "搜索结果").font(
             .system(size: 14, weight: .semibold))
@@ -41,7 +41,7 @@ struct MailListView: View {
             Button("刷新") { Task { await store.syncAll() } }
           }
         }
-        FilterBar(values: ["全部", "未读", "有附件", "AI 已总结"], selection: $store.filter, compact: true) { _ in
+        FilterBar(values: ["全部", "未读", "有附件", "AI 已总结"], selection: $store.filter, fillsWidth: true) { _ in
           store.selectedMessageId = store.filteredMessages.first?.id
         }
       }.padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 12)
