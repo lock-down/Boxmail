@@ -2,7 +2,7 @@
 
 Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，以 SQLite 保存本机数据，并调用支持 Responses / Files API 的 AI 服务。
 
-当前发布版本为 **0.0.15（build 16）**，本地标签为 `v0.0.15`。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
+当前发布版本为 **0.0.16（build 17）**，本地标签为 `v0.0.16`。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
 
 ## 功能
 
