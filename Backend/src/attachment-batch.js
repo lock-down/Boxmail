@@ -75,8 +75,17 @@ export class AttachmentBatch {
     return job;
   }
   save(job) {
-    // IMAP reconciliation may have reassociated this email while the model was working.
-    job.messageId = this.repo.get('job', job.id)?.messageId || job.messageId;
+    // Reconciliation may move the mail or copy shared attachments while the model works.
+    const current = this.repo.get('job', job.id);
+    job.messageId = current?.messageId || job.messageId;
+    // A durable batch keeps its item order. Mutate in place so the active loop follows new ids.
+    for (const [index, item] of job.attachmentItems.entries()) {
+      const id = current?.attachmentItems?.[index]?.id;
+      if (!id || item.id === id) continue;
+      item.id = id;
+      // A formerly foreign file is now valid and can join the remainder of this batch.
+      if (item.status === 'failed') { item.status = 'pending'; item.error = null; }
+    }
     job.progress = {
       total: job.attachmentItems.length,
       completed: job.attachmentItems.filter(item => ['completed', 'existing'].includes(item.status)).length,

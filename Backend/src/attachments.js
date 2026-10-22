@@ -1,4 +1,5 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, copyFile, chmod, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import mammoth from 'mammoth';
@@ -91,9 +92,50 @@ export async function attachmentBytes(repo, id) {
   return { metadata: a, buffer: await readFile(a.path) };
 }
 
-// A message that takes over attachments saved for something else (for example a draft being
-// sent) becomes their new owner. `ownerId`, when given, limits the move to attachments that
-// still belong to that record, so borrowed attachments (forwarded mail) keep their owner.
+// Copies have independent ids and files so deleting or analyzing either mail cannot affect
+// the other. Commit the caller's reference changes with the new records after all files copy.
+export async function copyBorrowedAttachments(repo, ids, ownerId, {
+  save = attachmentIds => attachmentIds, preserveMissing = false,
+} = {}) {
+  const copies = new Map();
+  let committed = false;
+  try {
+    const attachmentIds = [];
+    for (const id of ids) {
+      const source = repo.get('attachment', id);
+      if (!source) {
+        if (preserveMissing) { attachmentIds.push(id); continue; }
+        throw new ServiceError('附件不存在', 404);
+      }
+      if (source.messageId === ownerId) { attachmentIds.push(id); continue; }
+      if (!copies.has(id)) {
+        const copyId = randomUUID();
+        const folder = path.join(repo.directory, 'attachments');
+        const file = path.join(folder, copyId + path.extname(source.name).replace(/[^.a-zA-Z0-9]/g, '').slice(0, 12));
+        await mkdir(folder, { recursive: true, mode: 0o700 });
+        try { await copyFile(source.path, file, constants.COPYFILE_EXCL); }
+        catch (error) {
+          if (error.code !== 'EEXIST') await rm(file, { force: true }).catch(() => {});
+          throw error;
+        }
+        const copy = { ...source, id: copyId, messageId: ownerId, path: file, date: new Date().toISOString() };
+        copies.set(source.id, copy);
+        await chmod(file, 0o600);
+      }
+      attachmentIds.push(copies.get(id).id);
+    }
+    const result = repo.transaction(() => {
+      for (const copy of copies.values()) repo.put('attachment', copy);
+      return save(attachmentIds);
+    });
+    committed = true;
+    return result;
+  } finally {
+    if (!committed) await Promise.allSettled([...copies.values()].map(copy => rm(copy.path, { force: true })));
+  }
+}
+
+// Ownership transfers only move records already exclusive to the previous owner.
 export function reassignAttachments(repo, ids, messageId, ownerId) {
   for (const id of ids) {
     const attachment = repo.get('attachment', id);

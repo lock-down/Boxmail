@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { simpleParser } from 'mailparser';
 import { createHash, randomUUID } from 'node:crypto';
-import { saveAttachment, attachmentBytes, reassignAttachments } from './attachments.js';
+import { saveAttachment, attachmentBytes, copyBorrowedAttachments, reassignAttachments } from './attachments.js';
 import { ServiceError, required, recipients } from './validation.js';
 import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
@@ -14,6 +14,20 @@ import { clearTrash } from './mail-trash.js';
 // started with and clobbers fields saved in the meantime.
 function updateDraft(repo, draft, changes) {
   repo.put('draft', { ...(repo.get('draft', draft.id) || draft), ...changes });
+}
+
+function remapAttachmentJobs(repo, messageId, previousIds, attachmentIds) {
+  const changed = new Map(previousIds.map((id, index) => [id, attachmentIds[index]])
+    .filter(([before, after]) => before !== after));
+  if (!changed.size) return;
+  for (const job of repo.list('job').filter(job => job.messageId === messageId)) {
+    if (!changed.has(job.attachmentId) && !job.attachmentItems?.some(item => changed.has(item.id))) continue;
+    repo.put('job', { ...job,
+      ...(job.attachmentId ? { attachmentId: changed.get(job.attachmentId) || job.attachmentId } : {}),
+      ...(job.attachmentItems ? { attachmentItems: job.attachmentItems.map(item =>
+        ({ ...item, id: changed.get(item.id) || item.id })) } : {}),
+    });
+  }
 }
 
 function clientFor(account, password) {
@@ -148,6 +162,25 @@ export async function syncAccount(
             repo.put('message', updated); cached.set(remote.uid, updated);
           }
         });
+        // Legacy forwards may already be fully cached; repair ownership without downloading again.
+        for (const [uid, old] of cached) {
+          signal?.throwIfAborted();
+          const shared = (old.attachmentIds || []).some(id => {
+            const attachment = repo.get('attachment', id);
+            return attachment && attachment.messageId !== old.id;
+          });
+          if (!shared) continue;
+          const updated = await copyBorrowedAttachments(repo, old.attachmentIds, old.id, {
+            preserveMissing: true,
+            save: attachmentIds => {
+              const latest = repo.get('message', old.id);
+              if (!latest) throw new ServiceError('邮件不存在', 404);
+              remapAttachmentJobs(repo, old.id, old.attachmentIds, attachmentIds);
+              return repo.put('message', { ...latest, attachmentIds });
+            },
+          });
+          cached.set(uid, updated);
+        }
         const missing = fetched.filter(remote => !cached.has(remote.uid)
           || cached.get(remote.uid).bodyVersion !== MAIL_BODY_VERSION
           || cached.get(remote.uid).headersVersion !== 1).sort((a,b) => b.uid-a.uid);
@@ -209,7 +242,15 @@ export async function syncAccount(
               message.summary = retained.original.summary;
               message.translation = retained.original.translation;
               message.category = retained.original.category;
-              message.attachmentIds = retained.original.attachmentIds;
+              // Older forwarded copies may still share ids with their source mail.
+              message.attachmentIds = await copyBorrowedAttachments(
+                repo, retained.original.attachmentIds || [], retained.original.id, {
+                  preserveMissing: true,
+                  save: attachmentIds => {
+                    remapAttachmentJobs(repo, retained.original.id, retained.original.attachmentIds || [], attachmentIds);
+                    return attachmentIds;
+                  },
+                });
               if (folder === 'trash') {
                 message.deletedFromFolder = retained.original.deletedFromFolder;
                 message.deletedFromPath = retained.original.deletedFromPath;
@@ -218,7 +259,7 @@ export async function syncAccount(
                 message.archivedFromFolder = retained.original.archivedFromFolder;
                 message.archivedFromPath = retained.original.archivedFromPath;
               }
-              reassignAttachments(repo, message.attachmentIds, id);
+              reassignAttachments(repo, message.attachmentIds, id, retained.original.id);
               for (const draft of repo.list('draft').filter(d => d.sourceMessageId === retained.original.id))
                 repo.put('draft', { ...draft, sourceMessageId: id });
               for (const job of repo.list('job').filter(j => j.messageId === retained.original.id))
@@ -396,7 +437,7 @@ export async function sendDraft(
     return sending;
   });
   if (!claimed) return { ok: true, alreadySent: true };
-  const draft = claimed;
+  let draft = claimed;
   let account, transport, raw, envelope, options;
   try {
     account = repo.get('account', draft.accountId);
@@ -406,6 +447,12 @@ export async function sendDraft(
     if (!to.length) throw new ServiceError('请填写收件人');
     const cc = recipients(draft.cc),
       bcc = recipients(draft.bcc);
+    draft = await copyBorrowedAttachments(repo, draft.attachmentIds || [], draft.id, {
+      save: attachmentIds => {
+        updateDraft(repo, draft, { attachmentIds });
+        return { ...draft, attachmentIds };
+      },
+    });
     const attachments = [];
     for (const id of draft.attachmentIds || []) {
       const a = await attachmentBytes(repo, id);
@@ -468,8 +515,7 @@ export async function sendDraft(
         attachmentIds: draft.attachmentIds || [],
         messageId: result.messageId,
       });
-      // The sent copy now owns the attachments that were saved against the draft. A forwarded
-      // draft reuses the original message's attachment ids, which must stay with that message.
+      // Borrowed files were copied before SMTP, so every sent attachment belongs to this draft.
       reassignAttachments(repo, draft.attachmentIds || [], sentId, draft.id);
       repo.event('send', `已发送：${draft.subject}`);
     });
