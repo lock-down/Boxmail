@@ -5,8 +5,17 @@ import Security
 @MainActor enum KeychainService {
   static let service = "com.boxmail.desktop.credentials"
   private static let session = CredentialSession()
+  private static var references: [String: String] = [:]
+
+  static func useReferences(_ values: [String: String]) {
+    references = values.filter { key, value in
+      (key == "ai-key" || key.hasPrefix("mail-")) && value.hasPrefix("configuration-")
+        && UUID(uuidString: String(value.dropFirst(14))) != nil
+    }
+  }
 
   static func read(_ account: String, allowInteraction: Bool = true) throws -> String {
+    let account = references[account] ?? account
     // File-based Keychain ACL prompts cannot reliably be suppressed by modern LAContext flags.
     // Background work only uses credentials already authorized in this process.
     if !allowInteraction {
@@ -32,6 +41,7 @@ import Security
   }
 
   static func save(_ value: String, account: String) throws {
+    let account = references[account] ?? account
     try session.save(value, account: account) {
       let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,

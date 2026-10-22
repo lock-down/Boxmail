@@ -135,6 +135,7 @@ public struct SettingsData: Codable {
   public var id = "settings"
   public var ai = AIConfig()
   public var preferences = Preferences()
+  public var credentialReferences: [String: String]?
   public init() {}
 }
 public struct AgentJob: Codable, Identifiable {

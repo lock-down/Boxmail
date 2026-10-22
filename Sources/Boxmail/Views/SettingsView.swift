@@ -18,6 +18,7 @@ struct SettingsView: View {
   @ViewState<String> private var selectedAccountId = ""
   @ViewState<Bool> private var editingAccount = false
   @ViewState<Bool> private var loading = false
+  @ViewState<Bool> private var transferringConfiguration = false
   @ViewState<MailAccount?> private var removingAccount: MailAccount?
   @ViewState<URL?> private var pendingDataDirectory = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -27,7 +28,7 @@ struct SettingsView: View {
       HStack {
         Text("设置").font(.system(size: 15, weight: .semibold))
         Spacer()
-        IconButton(icon: "xmark", help: "关闭设置") { dismiss() }
+        IconButton(icon: "xmark", help: "关闭设置") { dismiss() }.disabled(transferringConfiguration)
       }.padding(.horizontal, 22).frame(height: 54).background(Palette.chrome)
       Divider()
       HStack(alignment: .top, spacing: 0) {
@@ -47,7 +48,7 @@ struct SettingsView: View {
                 .contentShape(Rectangle()).background(
                   store.settingsTab == tab ? Palette.accentSoft : .clear,
                   in: RoundedRectangle(cornerRadius: 7))
-            }.buttonStyle(ControlFeedback(selected: store.settingsTab == tab))
+            }.buttonStyle(ControlFeedback(selected: store.settingsTab == tab)).disabled(transferringConfiguration)
               .controlFocus()
               .accessibilityAddTraits(store.settingsTab == tab ? .isSelected : [])
               .animation(UIMotion.selection(reduceMotion), value: store.settingsTab == tab)
@@ -102,11 +103,12 @@ struct SettingsView: View {
       HStack {
         if loading { ProgressView().controlSize(.small) }
         Spacer()
-        ActionButton(title: "取消") { dismiss() }.keyboardShortcut(.cancelAction)
-        ActionButton(title: "应用") { save(close: false) }.disabled(loading)
-        ActionButton(title: "确定", kind: .primary) { save(close: true) }.disabled(loading)
+        ActionButton(title: "取消") { dismiss() }.keyboardShortcut(.cancelAction).disabled(transferringConfiguration)
+        ActionButton(title: "应用") { save(close: false) }.disabled(loading || transferringConfiguration)
+        ActionButton(title: "确定", kind: .primary) { save(close: true) }.disabled(loading || transferringConfiguration)
       }.padding(.horizontal, 22).frame(height: 60).background(Palette.chrome)
     }.frame(width: 1000, height: 750).background(.white).tint(Palette.blue)
+      .interactiveDismissDisabled(transferringConfiguration)
       .alert(
         "移除邮箱账户",
         isPresented: Binding(
@@ -366,8 +368,10 @@ struct SettingsView: View {
   private var advancedSettings: some View {
     VStack(spacing: 16) {
       LocalDataSettingsView(store: store, pendingDirectory: $pendingDataDirectory)
-      BackupSettingsView(store: store)
-      SearchIndexSettingsView(store: store)
+        .disabled(transferringConfiguration)
+      ConfigurationSettingsView(store: store, transferring: $transferringConfiguration)
+      BackupSettingsView(store: store).disabled(transferringConfiguration)
+      SearchIndexSettingsView(store: store).disabled(transferringConfiguration)
       SectionCard(title: "运行诊断", icon: "stethoscope") {
         Text(
           "本机服务：\(store.ready ? "已连接" : "未连接")\n待同步更改：\(store.pendingMutations) 项\n应用版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"

@@ -1,10 +1,10 @@
 # 开发、联调与版本维护
 
-`v0.0.1` 是 Boxmail 的本地初始基线，包含原生客户端、本机后端、测试和设计导出。最近发布版本为 `0.0.14`（build 15），对应标签 `v0.0.14`，修复写信布局、联系人建议、签名、Word 预览与附件粘贴，见 [发布说明](V0_0_14.md)。全部文档入口见 [文档索引](README.md)。自定义分类、会话、联系人、搜索和备份见 [0.0.13](V0_0_13.md) 及 [优先功能说明](PRIORITY_WORKFLOWS.md)，来源恢复、取消归档、清空、计数与滚动条见 [0.0.12](V0_0_12.md)，设置菜单、模型缓存与 Roadmap 确认见 [0.0.11](V0_0_11.md)，数据目录与迁移见 [0.0.10](V0_0_10.md)，PPT、滚动样式与 AI 正文规则见 [0.0.9](V0_0_9.md)，精简总结与统一结果见 [0.0.8](V0_0_8.md)，批量附件见 [0.0.7](V0_0_7.md)，历史同步及原文件预览见 [0.0.6](V0_0_6.md)。
+`v0.0.1` 是 Boxmail 的本地初始基线，包含原生客户端、本机后端、测试和设计导出。最近发布版本为 `0.0.15`（build 16），对应标签 `v0.0.15`，新增独立配置与密钥迁移，见 [发布说明](V0_0_15.md)。全部文档入口见 [文档索引](README.md)。写信、联系人浮层、签名和附件预览见 [0.0.14](V0_0_14.md)，自定义分类、会话、联系人、搜索和备份见 [0.0.13](V0_0_13.md) 及 [优先功能说明](PRIORITY_WORKFLOWS.md)，来源恢复、取消归档、清空、计数与滚动条见 [0.0.12](V0_0_12.md)，设置菜单、模型缓存与 Roadmap 确认见 [0.0.11](V0_0_11.md)，数据目录与迁移见 [0.0.10](V0_0_10.md)，PPT、滚动样式与 AI 正文规则见 [0.0.9](V0_0_9.md)，精简总结与统一结果见 [0.0.8](V0_0_8.md)，批量附件见 [0.0.7](V0_0_7.md)，历史同步及原文件预览见 [0.0.6](V0_0_6.md)。
 
 ## 修改与验证
 
-本次按新版本发布，应用与后端统一为 `0.0.14`，构建号递增为 `15`，源码与文档归档为 `v0.0.14`。日常开发 App 和 Release ZIP 同步更新，历史标签保留用于追溯；统一状态见 [文档索引](README.md#当前发布状态)。
+本次应用与后端统一为 `0.0.15`，构建号递增为 `16`，源码与文档归档为 `v0.0.15`。配置导出与导入同步纳入日常开发 App 和 Release ZIP，140 项后端测试、51 项 Swift 测试通过；配置格式、凭证引用和原生迁移验证见 [配置说明](CONFIGURATION_TRANSFER.md)，统一发布状态见 [文档索引](README.md#当前发布状态)。
 
 从仓库根目录执行命令。客户端界面位于 `Sources/Boxmail/Views/`，字体、控件、动效和布局组件位于 `Support/`；状态与接口调用位于 `Stores/MailStore.swift` 及其扩展。邮件协议和 AI 行为分别位于 `Backend/src/mail.js` 与 `agent.js`，来源识别与远端移动位于 `mail-folders.js`、清空逻辑位于 `mail-trash.js`；滚动外观集中在 `Support/ScrollAppearance.swift` 及其窗口作用域，后台整理位于 `organizer.js`，批量附件任务位于 `attachment-batch.js`。模型列表缓存位于 `model-catalog.js`，本机目录迁移位于 `Sources/BoxmailCore/LocalDataStorage.swift`，PPT 原生渲染位于 `Sources/BoxmailPresentationRenderer/`。
 
@@ -54,13 +54,13 @@ git status --short
 
 准备正式发布时再递增版本、构建号，并完成相应验收和标签归档。0.0.6、0.0.7 的阶段实现统一收录在 `v0.0.8`，0.0.9、0.0.10 的阶段实现统一收录在 `v0.0.11`，均未单独建立标签；各阶段验收数字保留为历史记录。
 
-以下为下一次发布 `0.0.15` 的操作示例：
+以下为下一次发布 `0.0.16` 的操作示例：
 
-1. 把根目录 `VERSION` 改为 `0.0.15`，构建脚本会据此生成 App 版本，设置页读取 App 元数据；将脚本中的 `CFBundleVersion` 从当前的 `15` 递增至 `16`。
+1. 把根目录 `VERSION` 改为 `0.0.16`，构建脚本会据此生成 App 版本，设置页读取 App 元数据；将脚本中的 `CFBundleVersion` 从当前的 `16` 递增至 `17`。
 2. 更新后端包版本和锁文件：
 
    ```bash
-   npm version 0.0.15 --prefix Backend --no-git-tag-version
+   npm version 0.0.16 --prefix Backend --no-git-tag-version
    ```
 
 3. 在 `CHANGELOG.md` 增加版本日期、用户可见变化和验证范围，检查 README 中当前版本及功能限制是否需要调整。
@@ -69,8 +69,8 @@ git status --short
    ```bash
    git add VERSION Backend/package.json Backend/package-lock.json CHANGELOG.md script/build_and_run.sh
    git diff --cached --check
-   git commit -m "chore: release v0.0.15"
-   git tag -a v0.0.15 -m "Boxmail v0.0.15"
+   git commit -m "chore: release v0.0.16"
+   git tag -a v0.0.16 -m "Boxmail v0.0.16"
    git status --short
    ```
 
@@ -88,7 +88,13 @@ git status --short
 
 测试包通过 `BoxmailDemoDataEnabled=false` 关闭演示数据。个人账号、设置、邮件、附件和钥匙串均在 App 包外部，不参与打包。为隔离验证，App 支持使用绝对路径的 `BOXMAIL_DATA` 环境变量覆盖本机数据目录；不设置时读取用户保存的自定义位置，再回退到默认路径。覆盖时不执行保存的迁移计划，也不改写日常位置设置。数据目录锁由 App 和后端共同持有；独立后端联调使用专门目录。测试步骤及临时签名限制见 [另一台 Mac 测试说明](TESTING_ON_ANOTHER_MAC.md)。
 
-## 最近发布版本验证 · 0.0.14 · 2026-10-22
+## 最近发布版本验证 · 0.0.15 · 2026-10-22
+
+重新通过 140 项后端测试和 51 项 Swift 测试，后端无跳过。配置导出范围、同邮箱合并、无关数据保留、格式与容量限制、修订冲突、事务回滚及凭证引用保留均有覆盖。原生隔离验证完成导出、错误、取消、账号合并、密钥迁移、签名与提示词应用及重启后再次导出；故障注入验证提交成功但列表刷新失败后继续“应用”保留新设置，见 [配置说明](CONFIGURATION_TRANSFER.md)。
+
+开发 App 与 Release 包统一为 0.0.15 / build 16，内置 Node.js 24.22.1，SQLite 结构版本仍为 2。检查生产资源、运行时链接、嵌套签名、包内说明、源码标识、ZIP SHA-256 及解压后空数据启动。源码和文档提交本地 Git，标签为 `v0.0.15`；发布证据位于 `artifacts/release-v0015/`，前期功能证据位于 `artifacts/configuration-transfer/`，产物及平台边界见 [发布说明](V0_0_15.md)。
+
+## 0.0.14 历史发布验证 · 2026-10-22
 
 重新通过 133 项后端测试和 48 项 Swift 测试，后端无跳过。新增签名测试覆盖完整尾段识别、生成正文替换、移除后不补回与转发边界；原生写信、关键词联系人浮层、字段坐标、Word 表格及图片预览、文件和图片粘贴、草稿保存及 9 项剪贴板检查见 [界面记录](UI_REVIEW.md#2026-10-22写信与附件预览修复)。后端接口与 SQLite `user_version=2` 保持不变。
 

@@ -128,6 +128,7 @@ import SwiftUI
     jobs = state.jobs
     events = state.events
     settings = state.settings
+    KeychainService.useReferences(settings.credentialReferences ?? [:])
     categories = state.categories ?? MailCategory.defaults
     searchIndex = state.searchIndex
     conversationBodies = [:]

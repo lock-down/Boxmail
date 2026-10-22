@@ -242,6 +242,7 @@ test('data maintenance rejects concurrent edits and releases its lock after comp
   await entered.promise;
   assert.equal((await request('/categories', { name: '并发分类' })).status, 409);
   assert.equal((await request('/drafts', { accountId: 'a', body: '并发写入' })).status, 409);
+  assert.equal((await request('/configuration/import', {})).status, 409);
   assert.equal((await request('/state?compact=1')).status, 200);
   finish.resolve();
   assert.equal((await pending).status, 200);

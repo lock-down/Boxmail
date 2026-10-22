@@ -26,6 +26,7 @@ import { contactSuggestions } from './contacts.js';
 import { conversation } from './threads.js';
 import { parseSearch } from './search-query.js';
 import { createBackup, inspectBackup, restoreBackup } from './backups.js';
+import { exportConfiguration, inspectConfiguration, importConfiguration } from './configuration.js';
 
 export async function startServer({
   directory,
@@ -160,6 +161,12 @@ export async function startServer({
       let result;
       if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1');
       else if (req.method === 'GET' && route === '/sync-status') result = syncStatus();
+      else if (req.method === 'POST' && route === '/configuration/export') result = exportConfiguration(repo, body.settings);
+      else if (req.method === 'POST' && route === '/configuration/inspect') result = inspectConfiguration(repo, body.configuration);
+      else if (req.method === 'POST' && route === '/configuration/import') {
+        requireIdle();
+        result = importConfiguration(repo, body);
+      }
       else if (req.method === 'GET' && route === '/categories') result = { categories: categoryCatalog(repo) };
       else if (['POST', 'PATCH', 'DELETE'].includes(req.method) && /^\/categories(?:\/[^/]+)?$/.test(route)) {
         requireIdle();
@@ -330,7 +337,7 @@ export async function startServer({
           fontSize: Math.min(24, Math.max(12, Number(p.fontSize) || 14)),
           signature: String(p.signature || '').slice(0, 4000),
         };
-        result = repo.put('settings', { id: 'settings', ai, preferences });
+        result = repo.put('settings', { ...old, id: 'settings', ai, preferences });
       } else if (req.method === 'POST' && route === '/ai/test') {
         await completion(body.config, body.apiKey, 'compose', {
           request: '返回 subject 和 body，内容为连接成功',
