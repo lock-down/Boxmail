@@ -91,6 +91,18 @@ export async function attachmentBytes(repo, id) {
   return { metadata: a, buffer: await readFile(a.path) };
 }
 
+// A message that takes over attachments saved for something else (for example a draft being
+// sent) becomes their new owner. `ownerId`, when given, limits the move to attachments that
+// still belong to that record, so borrowed attachments (forwarded mail) keep their owner.
+export function reassignAttachments(repo, ids, messageId, ownerId) {
+  for (const id of ids) {
+    const attachment = repo.get('attachment', id);
+    if (!attachment || (ownerId !== undefined && attachment.messageId !== ownerId))
+      continue;
+    repo.put('attachment', { ...attachment, messageId });
+  }
+}
+
 export async function modelAttachment(repo, id, { signal } = {}) {
   signal?.throwIfAborted();
   const { metadata, buffer } = await attachmentBytes(repo, id);

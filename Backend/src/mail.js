@@ -3,12 +3,18 @@ import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { simpleParser } from 'mailparser';
 import { createHash, randomUUID } from 'node:crypto';
-import { saveAttachment, attachmentBytes } from './attachments.js';
+import { saveAttachment, attachmentBytes, reassignAttachments } from './attachments.js';
 import { ServiceError, required, recipients } from './validation.js';
 import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
 import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder } from './mail-folders.js';
 import { clearTrash } from './mail-trash.js';
+
+// Status changes re-read the stored draft, so a slow send never writes back the snapshot it
+// started with and clobbers fields saved in the meantime.
+function updateDraft(repo, draft, changes) {
+  repo.put('draft', { ...(repo.get('draft', draft.id) || draft), ...changes });
+}
 
 function clientFor(account, password) {
   const client = new ImapFlow({
@@ -212,10 +218,7 @@ export async function syncAccount(
                 message.archivedFromFolder = retained.original.archivedFromFolder;
                 message.archivedFromPath = retained.original.archivedFromPath;
               }
-              for (const aid of message.attachmentIds) {
-                const a = repo.get('attachment', aid);
-                if (a) repo.put('attachment', { ...a, messageId: id });
-              }
+              reassignAttachments(repo, message.attachmentIds, id);
               for (const draft of repo.list('draft').filter(d => d.sourceMessageId === retained.original.id))
                 repo.put('draft', { ...draft, sourceMessageId: id });
               for (const job of repo.list('job').filter(j => j.messageId === retained.original.id))
@@ -246,8 +249,14 @@ export async function syncAccount(
         repo.put('sync', currentSync);
       } finally { lock.release(); }
     }
-    account.lastSync = new Date().toISOString();
-    repo.put('account', account);
+    // The account may have been edited while the sync ran: merge this sync's folder discoveries
+    // and lastSync into the latest record instead of writing back the pre-sync snapshot.
+    const latest = repo.get('account', account.id) || account;
+    repo.put('account', {
+      ...latest,
+      folders: account.folders ?? latest.folders,
+      lastSync: new Date().toISOString(),
+    });
     repo.event(
       'sync',
       `${account.email}：新增 ${count} 封，补齐 ${repaired} 封正文，跳过 ${skipped} 个超限邮件`,
@@ -372,49 +381,63 @@ export async function sendDraft(
   { storeSent = saveSent } = {},
 ) {
   if (approved !== true) throw new ServiceError('发送邮件需要明确确认', 403);
-  const draft = repo.get('draft', draftId);
-  if (!draft) throw new ServiceError('草稿不存在', 404);
-  if (draft.status === 'sent') return { ok: true, alreadySent: true };
-  if (draft.status === 'sending' || draft.status === 'uncertain')
-    throw new ServiceError(
-      '上次发送结果尚未确认，请检查邮箱后另存草稿，避免重复发送',
-      409,
-    );
-  const account = repo.get('account', draft.accountId);
-  if (!account || account.isDemo)
-    throw new ServiceError('请先添加真实邮箱账号');
-  const to = recipients(draft.to);
-  if (!to.length) throw new ServiceError('请填写收件人');
-  const cc = recipients(draft.cc),
-    bcc = recipients(draft.bcc);
-  const attachments = [];
-  for (const id of draft.attachmentIds || []) {
-    const a = await attachmentBytes(repo, id);
-    attachments.push({
-      filename: a.metadata.name,
-      content: a.buffer,
-      contentType: a.metadata.contentType,
-    });
+  // Claim the draft synchronously before any await, so concurrent sends cannot both pass the check.
+  const claimed = repo.transaction(() => {
+    const current = repo.get('draft', draftId);
+    if (!current) throw new ServiceError('草稿不存在', 404);
+    if (current.status === 'sent') return null;
+    if (current.status === 'sending' || current.status === 'uncertain')
+      throw new ServiceError(
+        '上次发送结果尚未确认，请检查邮箱后另存草稿，避免重复发送',
+        409,
+      );
+    const sending = { ...current, status: 'sending' };
+    repo.put('draft', sending);
+    return sending;
+  });
+  if (!claimed) return { ok: true, alreadySent: true };
+  const draft = claimed;
+  let account, transport, raw, envelope, options;
+  try {
+    account = repo.get('account', draft.accountId);
+    if (!account || account.isDemo)
+      throw new ServiceError('请先添加真实邮箱账号');
+    const to = recipients(draft.to);
+    if (!to.length) throw new ServiceError('请填写收件人');
+    const cc = recipients(draft.cc),
+      bcc = recipients(draft.bcc);
+    const attachments = [];
+    for (const id of draft.attachmentIds || []) {
+      const a = await attachmentBytes(repo, id);
+      attachments.push({
+        filename: a.metadata.name,
+        content: a.buffer,
+        contentType: a.metadata.contentType,
+      });
+    }
+    transport = transportFor(account, password);
+    options = {
+      from: { name: account.name, address: account.email },
+      to,
+      cc,
+      bcc,
+      subject: draft.subject,
+      text: draft.body,
+      attachments,
+      inReplyTo: draft.inReplyTo || undefined,
+      references: draft.references?.length ? draft.references : draft.inReplyTo || undefined,
+      messageId: `<${draft.id}@boxmail.local>`,
+      disableFileAccess: true,
+      disableUrlAccess: true,
+    };
+    const composer = new MailComposer(options).compile();
+    raw = await composer.build();
+    envelope = composer.getEnvelope();
+  } catch (error) {
+    // Nothing reached SMTP yet: release the claim so the draft can be edited or sent again.
+    updateDraft(repo, draft, { status: 'draft' });
+    throw error;
   }
-  const transport = transportFor(account, password);
-  const options = {
-    from: { name: account.name, address: account.email },
-    to,
-    cc,
-    bcc,
-    subject: draft.subject,
-    text: draft.body,
-    attachments,
-    inReplyTo: draft.inReplyTo || undefined,
-    references: draft.references?.length ? draft.references : draft.inReplyTo || undefined,
-    messageId: `<${draft.id}@boxmail.local>`,
-    disableFileAccess: true,
-    disableUrlAccess: true,
-  };
-  const composer = new MailComposer(options).compile();
-  const raw = await composer.build();
-  const envelope = composer.getEnvelope();
-  repo.put('draft', { ...draft, status: 'sending' });
   try {
     const result = await transport.sendMail({
       envelope,
@@ -423,14 +446,11 @@ export async function sendDraft(
     });
     if (!result.accepted?.length)
       throw new ServiceError('SMTP 未接受任何收件人');
+    const sentId = `sent-${draft.id}`;
     repo.transaction(() => {
-      repo.put('draft', {
-        ...draft,
-        status: 'sent',
-        sentAt: new Date().toISOString(),
-      });
+      updateDraft(repo, draft, { status: 'sent', sentAt: new Date().toISOString() });
       repo.put('message', {
-        id: `sent-${draft.id}`,
+        id: sentId,
         accountId: account.id,
         folder: 'sent',
         sender: account.name,
@@ -448,6 +468,9 @@ export async function sendDraft(
         attachmentIds: draft.attachmentIds || [],
         messageId: result.messageId,
       });
+      // The sent copy now owns the attachments that were saved against the draft. A forwarded
+      // draft reuses the original message's attachment ids, which must stay with that message.
+      reassignAttachments(repo, draft.attachmentIds || [], sentId, draft.id);
       repo.event('send', `已发送：${draft.subject}`);
     });
     let warning = '';
@@ -462,10 +485,7 @@ export async function sendDraft(
     const certainFailure =
       ['EAUTH', 'EENVELOPE', 'ECONNECTION', 'ETLS', 'EDNS'].includes(e.code) ||
       e.responseCode >= 400;
-    repo.put('draft', {
-      ...draft,
-      status: certainFailure ? 'draft' : 'uncertain',
-    });
+    updateDraft(repo, draft, { status: certainFailure ? 'draft' : 'uncertain' });
     throw new ServiceError(
       certainFailure
         ? (e.code === 'EENVELOPE'

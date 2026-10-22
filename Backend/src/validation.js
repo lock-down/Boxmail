@@ -37,13 +37,70 @@ export function accountInput(input) {
     isDemo: false,
   };
 }
+const ADDRESS_PATTERN = /^[^\s@<>,;，；]+@[^\s@<>,;，；]+\.[^\s@<>,;，；]+$/;
+const RECIPIENT_ERROR = '收件人地址格式不正确，请用逗号分隔';
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
+const QUOTED_DISPLAY_PATTERN = /^"((?:[^"\\]|\\.)*)"\s*<([^<>]*)>$/;
+const SIMPLE_DISPLAY_PATTERN = /^([^<>",;@\\]+?)\s*<([^<>]*)>$/;
+// 联系人补全写入的是 RFC 5322 的 `"姓名" <email>`；切分时若在双引号（含转义）
+// 或尖括号内，则不把逗号/分号/换行（CRLF 或 LF）当作分隔符。
+function splitRecipientTokens(value) {
+  const tokens = [];
+  let token = '';
+  let quoted = false;
+  let angled = false;
+  let escaped = false;
+  for (const character of value) {
+    if (quoted && escaped) {
+      token += character;
+      escaped = false;
+    } else if (quoted && character === '\\') {
+      token += character;
+      escaped = true;
+    } else if (character === '"') {
+      token += character;
+      quoted = !quoted;
+    } else if (!quoted && character === '<') {
+      token += character;
+      angled = true;
+    } else if (!quoted && character === '>') {
+      token += character;
+      angled = false;
+    } else if (!quoted && !angled && ',;，；\n\r'.includes(character)) {
+      tokens.push(token);
+      token = '';
+    } else {
+      token += character;
+    }
+  }
+  tokens.push(token);
+  return tokens;
+}
+function parseAddressToken(token) {
+  if (ADDRESS_PATTERN.test(token)) return token;
+  const quoted = QUOTED_DISPLAY_PATTERN.exec(token);
+  if (quoted) {
+    const name = quoted[1].replace(/\\(.)/g, '$1');
+    if (!name.trim() || !ADDRESS_PATTERN.test(quoted[2])) return null;
+    return `"${name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}" <${quoted[2]}>`;
+  }
+  const simple = SIMPLE_DISPLAY_PATTERN.exec(token);
+  if (!simple) return null;
+  const name = simple[1].trim();
+  if (!name || !ADDRESS_PATTERN.test(simple[2])) return null;
+  return `"${name}" <${simple[2]}>`;
+}
 export function recipients(input) {
-  const addresses = String(input || '')
-    .split(/[,;，；\n]/)
-    .map((v) => v.trim())
-    .filter(Boolean);
-  if (addresses.some((a) => !/^([^\s@<>]+)@([^\s@<>]+)\.[^\s@<>]+$/.test(a)))
-    throw new ServiceError('收件人地址格式不正确，请用逗号分隔');
+  const addresses = [];
+  for (const raw of splitRecipientTokens(String(input || ''))) {
+    if (CONTROL_CHARACTER_PATTERN.test(raw))
+      throw new ServiceError(RECIPIENT_ERROR);
+    const token = raw.trim();
+    if (!token) continue;
+    const address = parseAddressToken(token);
+    if (!address) throw new ServiceError(RECIPIENT_ERROR);
+    addresses.push(address);
+  }
   if (addresses.length > 100) throw new ServiceError('收件人数量超过 100');
   return addresses;
 }

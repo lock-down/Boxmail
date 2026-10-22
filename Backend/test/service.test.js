@@ -522,6 +522,86 @@ test('recipient and API endpoint validation', () => {
   );
   assert.throws(() => accountInput({ ...account, email: 'bad' }));
 });
+test('recipients accepts display-name addresses produced by contact completion', () => {
+  assert.deepEqual(
+    recipients('"张明远" <chen@example.com>, b@example.com'),
+    ['"张明远" <chen@example.com>', 'b@example.com'],
+  );
+  assert.deepEqual(recipients('张明远 <chen@example.com>'), [
+    '"张明远" <chen@example.com>',
+  ]);
+  assert.deepEqual(
+    recipients('"Doe, John" <john@example.com>, a@example.com'),
+    ['"Doe, John" <john@example.com>', 'a@example.com'],
+  );
+  assert.deepEqual(recipients('"王，小明" <wang@example.com>; c@example.com'), [
+    '"王，小明" <wang@example.com>',
+    'c@example.com',
+  ]);
+  assert.deepEqual(recipients('"He said \\"hi\\"" <a@example.com>'), [
+    '"He said \\"hi\\"" <a@example.com>',
+  ]);
+  assert.deepEqual(recipients('"C:\\\\Mail" <a@example.com>'), [
+    '"C:\\\\Mail" <a@example.com>',
+  ]);
+  assert.deepEqual(
+    recipients('a@example.com\n"张明远" <chen@example.com>'),
+    ['a@example.com', '"张明远" <chen@example.com>'],
+  );
+  assert.deepEqual(recipients('客服 2 <support@example.com>'), [
+    '"客服 2" <support@example.com>',
+  ]);
+  assert.deepEqual(
+    recipients('a@example.com, , c@example.com;b@example.com'),
+    ['a@example.com', 'c@example.com', 'b@example.com'],
+  );
+});
+test('recipients accepts CRLF-separated address lists', () => {
+  assert.deepEqual(recipients('a@example.com\r\nb@example.com'), [
+    'a@example.com',
+    'b@example.com',
+  ]);
+  assert.deepEqual(
+    recipients('"张明远" <chen@example.com>\r\nb@example.com'),
+    ['"张明远" <chen@example.com>', 'b@example.com'],
+  );
+});
+test('recipients rejects malformed and injected display-name input', () => {
+  const invalid = /收件人地址格式不正确，请用逗号分隔/;
+  assert.throws(() => recipients('a@example.com, not-an-address'), invalid);
+  assert.throws(() => recipients('<>'), invalid);
+  assert.throws(
+    () => recipients('a@example.com\r\nBcc: attacker@example.com'),
+    invalid,
+  );
+  assert.throws(() => recipients('\nBcc: attacker@example.com'), invalid);
+  assert.throws(() => recipients('Bcc: attacker@example.com'), invalid);
+  assert.throws(() => recipients('Name <not-an-address>'), invalid);
+  // Separators must not hide inside angle brackets: they would reach SMTP as one bad address.
+  assert.throws(() => recipients('"Doe" <a@b.com,evil>'), invalid);
+  assert.throws(() => recipients('"Doe" <a@b.com;evil>'), invalid);
+  assert.throws(() => recipients('Name <a@b.com，evil>'), invalid);
+  assert.throws(() => recipients('"未闭合 <a@example.com>'), invalid);
+  assert.throws(() => recipients('Name <a@example.com> 额外'), invalid);
+  assert.throws(() => recipients('Name <a@example.com'), invalid);
+  assert.throws(
+    () => recipients('a@example.com\rBcc: attacker@example.com'),
+    invalid,
+  );
+  assert.throws(() => recipients('\rBcc: attacker@example.com'), invalid);
+  assert.throws(() => recipients('"张\r明远" <chen@example.com>'), invalid);
+  assert.throws(() => recipients('Name <a@b\r.com>'), invalid);
+  assert.throws(
+    () =>
+      recipients(
+        Array.from({ length: 101 }, (_, i) => `user${i}@example.com`).join(','),
+      ),
+    /收件人数量超过 100/,
+  );
+  assert.deepEqual(recipients(''), []);
+  assert.deepEqual(recipients(null), []);
+  assert.deepEqual(recipients(' , ;，；\n '), []);
+});
 test('uncertain send is never retried automatically', async (t) => {
   const repo = await fixture(t);
   repo.put('account', account);
