@@ -4,7 +4,7 @@ These are synthetic Boxmail test documents, with no user mail or attachment data
 
 The fixtures ship with the local `v0.0.13` source tag and are excluded from the Release app. They were added during the 0.0.9 presentation work and first archived in `v0.0.11`; the current test and release overview is in [the documentation index](../../../docs/README.md).
 
-The later UI commit `2c4f2b8` keeps version `0.0.13` and does not change these fixtures or the native renderer. Its calendar tests are separate from the full release test record; see [the current development status](../../../docs/README.md#当前开发状态). The existing Release ZIP still corresponds to the original tag.
+The rebuilt release uses tag `v0.0.13-repack.1`, keeps app version `0.0.13` (build 14), and includes UI commit `2c4f2b8`. These fixtures and the native renderer are unchanged. The full suite passed again: 133 backend tests and 45 Swift tests. The new ZIP replaces the original distribution; see [the current release status](../../../docs/README.md#当前发布状态).
 
 - `two-slides.pptx`: two Chinese slides containing a deadline, a budget, a three-color embedded image and a column chart. Created with python-pptx.
 - `two-slides.ppt`: the same deck exported as PowerPoint 97 by LibreOffice, for legacy format coverage.

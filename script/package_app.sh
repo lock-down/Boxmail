@@ -2,6 +2,12 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "发布打包要求干净的已提交源码，请先提交修改或使用独立检出。" >&2
+  exit 2
+fi
+SOURCE_COMMIT="$(git rev-parse HEAD)"
+SOURCE_ID="$(git describe --tags --always)"
 ./script/build_and_run.sh --package
 APP_VERSION="$(cat VERSION)"
 PACKAGE_ARCH="$(uname -m)"
@@ -16,9 +22,10 @@ Boxmail $APP_VERSION (build $APP_BUILD)
 最低系统：macOS 14.0
 构建类型：Release，全新安装测试包
 演示数据：关闭
-源码标识：$(git describe --always --dirty)
+源码标识：$SOURCE_ID
+源码提交：$SOURCE_COMMIT
 Node.js：$("$PACKAGE_DIR/Boxmail.app/Contents/Resources/Runtime/node" --version)
-生成时间：$(date '+%Y-%m-%d %H:%M:%S %Z')
+生成时间：$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S %Z')
 INFO
 rm -f "$ARCHIVE"
 ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ARCHIVE"
