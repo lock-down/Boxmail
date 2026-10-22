@@ -17,7 +17,9 @@ struct ComposerView: View {
   @ViewState<String?> private var saveError: String?
   @ViewState<Bool> private var confirmSend = false
   @ViewState<Task<Void, Never>?> private var autosave: Task<Void, Never>?
-  @FocusState private var focusedAddress: String?
+  @ViewState<String?> private var focusedAddress: String?
+  @FocusState private var subjectFocused: Bool
+  @ViewState<Bool> private var importingAttachments = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   init(store: MailStore, initial: MailDraft) {
     self.store = store
@@ -30,7 +32,7 @@ struct ComposerView: View {
         ActionButton(title: sending ? "正在发送…" : "发送", icon: "paperplane", kind: .primary) {
           confirmSend = true
         }.disabled(
-          sending || draft.status == "uncertain" || draft.to.isEmpty
+          sending || importingAttachments || draft.status == "uncertain" || draft.to.isEmpty
             || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
         HStack(spacing: 8) {
           Text("发件人").font(UIType.caption).foregroundStyle(Palette.muted)
@@ -50,7 +52,7 @@ struct ComposerView: View {
               dismiss()
             } catch { store.error = error.localizedDescription }
           }
-        }.disabled(sending)
+        }.disabled(sending || importingAttachments)
         IconButton(icon: "xmark", help: "保存并关闭") {
           Task {
             do {
@@ -58,8 +60,8 @@ struct ComposerView: View {
               dismiss()
             } catch { store.error = error.localizedDescription }
           }
-        }.disabled(sending)
-      }.padding(16).background(Palette.chrome)
+        }.disabled(sending || importingAttachments)
+      }.padding(16).background(Palette.chrome).fixedSize(horizontal: false, vertical: true)
       Divider()
       HStack(spacing: 0) {
         VStack(spacing: 0) {
@@ -74,12 +76,14 @@ struct ComposerView: View {
           }
           PlainTextEditor(
             text: $draft.body, fontSize: 14, lineSpacing: 5, inset: NSSize(width: 24, height: 18),
-            accessibilityLabel: "邮件正文"
-          ).background(.white)
+            accessibilityLabel: "邮件正文", bottomAnchoredText: store.settings.preferences.signature,
+            onPaste: pasteAttachments
+          ).frame(minHeight: 120).background(.white)
           Divider()
           VStack(alignment: .leading, spacing: 10) {
             HStack {
-              Text("附件 · \(draft.attachmentIds.count) 个").font(.system(size: 12, weight: .medium))
+              Text(importingAttachments ? "正在添加附件…" : "附件 · \(draft.attachmentIds.count) 个")
+                .font(.system(size: 12, weight: .medium))
               Spacer()
               ActionButton(title: "添加附件", icon: "paperclip") { addAttachments() }
             }
@@ -101,7 +105,8 @@ struct ComposerView: View {
                 }
               }
             }
-          }.padding(16).background(.white)
+          }.padding(16).background(.white).fixedSize(horizontal: false, vertical: true)
+            .disabled(importingAttachments)
         }.frame(maxWidth: .infinity)
         Divider()
         OverlayScrollView {
@@ -137,7 +142,10 @@ struct ComposerView: View {
                 Text(generated.body ?? "").font(UIType.body).lineSpacing(6).textSelection(.enabled)
                 ActionButton(title: "插入到正文", icon: "text.insert", kind: .softAI) {
                   draft.subject = generated.subject ?? draft.subject
-                  draft.body = generated.body ?? draft.body
+                  if let body = generated.body {
+                    draft.body = MailSignature.replacingContent(
+                      with: body, in: draft.body, signature: store.settings.preferences.signature)
+                  }
                 }
               }.transition(UIMotion.reveal(reduceMotion))
             }
@@ -146,6 +154,9 @@ struct ComposerView: View {
       }.disabled(sending || draft.status == "uncertain")
     }.frame(width: 1080, height: 720).background(.white).tint(Palette.blue)
       .interactiveDismissDisabled()
+      .onChange(of: subjectFocused) { _, focused in
+        if focused { focusedAddress = "主题" } else if focusedAddress == "主题" { focusedAddress = nil }
+      }
       .onChange(of: draft) { _, _ in scheduleSave() }
       .alert(
         "操作未完成",
@@ -165,12 +176,12 @@ struct ComposerView: View {
       }
   }
   private func recipientField(_ title: String, text: Binding<String>, others: [String]) -> some View {
-    HStack(alignment: .top) {
+    HStack {
       Text(title).font(UIType.caption).foregroundStyle(Palette.muted).frame(width: 52, height: 30, alignment: .trailing)
       RecipientEntryView(title: title, accountID: draft.accountId, text: text, otherRecipients: others) { focused in
         if focused { focusedAddress = title } else if focusedAddress == title { focusedAddress = nil }
       }.padding(.leading, 10)
-    }.padding(.horizontal, 20).padding(.vertical, 5).frame(minHeight: 40).overlay(alignment: .bottom) {
+    }.padding(.horizontal, 20).frame(height: 40).overlay(alignment: .bottom) {
       Rectangle().fill(focusedAddress == title ? Palette.blue : Palette.softBorder)
         .frame(height: focusedAddress == title ? 2 : 1)
     }
@@ -181,7 +192,7 @@ struct ComposerView: View {
         width: 52, alignment: .trailing)
       TextField(title == "主题" ? "填写邮件主题" : "邮箱地址，多个地址用逗号分隔", text: text).textFieldStyle(.plain)
         .font(.system(size: title == "主题" ? 14 : 13, weight: title == "主题" ? .medium : .regular)).padding(.leading, 10)
-        .focused($focusedAddress, equals: title).accessibilityLabel(title)
+        .focused($subjectFocused).accessibilityLabel(title)
     }.padding(.horizontal, 20).frame(height: title == "主题" ? 46 : 40).overlay(alignment: .bottom) {
       Rectangle().fill(focusedAddress == title ? Palette.blue : Palette.softBorder).frame(
         height: focusedAddress == title ? 2 : 1)
@@ -253,23 +264,38 @@ struct ComposerView: View {
     panel.allowsMultipleSelection = true
     panel.canChooseDirectories = false
     if panel.runModal() == .OK {
-      let urls = panel.urls
-      store.action("upload") {
-        for url in urls {
-          let data = try Data(contentsOf: url)
-          guard data.count <= 25 * 1024 * 1024 else {
-            throw BackendService.shared.failure("单个附件不能超过 25 MB")
-          }
+      importAttachments(panel.urls.map { .file($0) })
+    }
+  }
+  @discardableResult private func pasteAttachments(_ pasteboard: NSPasteboard) -> Bool {
+    guard !sending, draft.status == "draft" else { return false }
+    do {
+      let sources = try ComposerAttachmentSource.read(from: pasteboard)
+      guard !sources.isEmpty else { return false }
+      guard !importingAttachments else { return true }
+      importAttachments(sources)
+    } catch { store.error = error.localizedDescription }
+    return true
+  }
+  private func importAttachments(_ sources: [ComposerAttachmentSource]) {
+    guard !importingAttachments else { return }
+    importingAttachments = true
+    Task {
+      defer { importingAttachments = false }
+      do {
+        for source in sources {
+          let payload = try await Task.detached(priority: .userInitiated) { try source.payload() }.value
           let attachment: MailAttachment = try await BackendService.shared.request(
             "/attachments", method: "POST",
             body: [
-              "draftId": draft.id, "name": url.lastPathComponent,
-              "content": data.base64EncodedString(),
+              "draftId": draft.id, "name": payload.name, "contentType": payload.contentType,
+              "content": payload.data.base64EncodedString(),
             ])
           store.attachments.append(attachment)
           draft.attachmentIds.append(attachment.id)
         }
-      }
+        try await persist()
+      } catch { store.error = error.localizedDescription }
     }
   }
 }

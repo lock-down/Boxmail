@@ -152,6 +152,7 @@ struct AttachmentPreviewView: View {
   let attachmentId: String
   @Environment(\.dismiss) private var dismiss
   @ViewState<AttachmentPreviewFile?> private var previewFile: AttachmentPreviewFile?
+  @ViewState<URL?> private var documentPreviewURL: URL?
   @ViewState<String?> private var workbookHTML: String?
   @ViewState<Bool> private var previewLoading = false
   @ViewState<String> private var previewError = ""
@@ -247,6 +248,7 @@ struct AttachmentPreviewView: View {
       .onDisappear {
         previewFile?.remove()
         previewFile = nil
+        documentPreviewURL = nil
       }
       .alert(
         "解析未完成",
@@ -261,9 +263,13 @@ struct AttachmentPreviewView: View {
     if let workbookHTML {
       WorkbookAttachmentView(html: workbookHTML).frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if let previewFile {
-      OriginalAttachmentView(url: previewFile.url, isPDF: attachment.isPDF)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .id(previewFile.url)
+      Group {
+        if let documentPreviewURL {
+          DocumentAttachmentView(url: documentPreviewURL)
+        } else {
+          OriginalAttachmentView(url: previewFile.url, isPDF: attachment.isPDF)
+        }
+      }.frame(maxWidth: .infinity, maxHeight: .infinity).id(previewFile.url)
       HStack {
         Text(attachment.isPDF ? "PDF 原文件 · 可滚动查看全部页面" : "系统原文件预览 · 保留文档格式、表格与图片")
           .font(.system(size: 11)).foregroundStyle(Palette.muted)
@@ -298,17 +304,21 @@ struct AttachmentPreviewView: View {
         throw BackendService.shared.failure("原文件数据无效，请重新下载附件。")
       }
       let saved = try AttachmentPreviewFile(name: file.name, data: data)
+      var keep = false
+      defer { if !keep { saved.remove() } }
       if attachment?.isPDF == true {
         guard let pdf = PDFDocument(url: saved.url), !pdf.isLocked else {
-          saved.remove()
           throw BackendService.shared.failure("PDF 已加密或文件损坏，请使用“打开原文件”在原应用中查看。")
         }
       }
-      if Task.isCancelled {
-        saved.remove()
-        return
+      if attachment?.kind == .word {
+        let url = try await SystemDocumentPreview.prepare(saved)
+        try Task.checkCancellation()
+        documentPreviewURL = url
       }
+      try Task.checkCancellation()
       previewFile = saved
+      keep = true
     } catch is CancellationError {
     } catch { previewError = error.localizedDescription }
   }

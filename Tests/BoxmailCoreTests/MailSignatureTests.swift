@@ -1,0 +1,31 @@
+import Foundation
+import Testing
+@testable import BoxmailCore
+
+@Test func signatureAnchorRequiresCompleteFinalLines() {
+  let signature = "张三\n示例公司\nzhang@example.test"
+  let body = "正文\n\n" + signature
+  let range = MailSignature.trailingRange(in: body, signature: signature)
+  #expect(range.map { (body as NSString).substring(with: $0) } == signature)
+  #expect(MailSignature.trailingRange(in: signature, signature: signature)?.location == 0)
+  #expect(MailSignature.trailingRange(in: "正文" + signature, signature: signature) == nil)
+  #expect(MailSignature.trailingRange(in: signature + "\n后续正文", signature: signature) == nil)
+  #expect(MailSignature.trailingRange(in: "正文\n\n", signature: "\n") == nil)
+}
+
+@Test func generatedContentKeepsSignatureOnceWithoutRestoringRemovedSignatures() {
+  let signature = "张三\n示例公司"
+  let old = "旧正文\n\n" + signature
+  #expect(MailSignature.replacingContent(with: "新正文\n", in: old, signature: signature) == "新正文\n\n" + signature)
+  #expect(MailSignature.replacingContent(with: "新正文\n\n" + signature, in: old, signature: signature) == "新正文\n\n" + signature)
+  #expect(MailSignature.replacingContent(with: "新正文", in: "用户已移除签名", signature: signature) == "新正文")
+  #expect(MailSignature.replacingContent(with: "新正文", in: "", signature: "") == "新正文")
+}
+
+@Test func generatedForwardKeepsOwnSignatureAndDoesNotCopyQuotedSignature() {
+  let signature = "张三\n示例公司"
+  let forward = "\n\n" + signature + "\n\n---------- 转发邮件 ----------\n原邮件正文"
+  #expect(MailSignature.replacingContent(with: "新的转发说明", in: forward, signature: signature) == "新的转发说明\n\n" + signature)
+  let quoted = "\n\n---------- 转发邮件 ----------\n" + signature + "\n原邮件正文"
+  #expect(MailSignature.replacingContent(with: "新正文", in: quoted, signature: signature) == "新正文")
+}
