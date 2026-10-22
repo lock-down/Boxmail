@@ -46,7 +46,7 @@ npm start
 | POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台模式立即返回 |
 | GET | `/sync-status` | 运行账号、文件夹进度及本次结果 |
 | POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿 |
-| POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送 |
+| POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；同一草稿并发只投递一次，重复请求返回 409 |
 | POST | `/attachments` | `name`、Base64 `content`，可带关联 ID 和 `contentType` |
 | GET | `/attachments/:id` | 名称及 Base64 原始字节 |
 | GET | `/attachments/:id/metadata` | 按需读取提取文本和理解结果 |
@@ -95,7 +95,7 @@ npm start
 
 密钥由客户端从钥匙串读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机钥匙串引用，普通设置保存和重启保留；导出移除引用，导入按邮箱合并，客户端先写新凭证，再事务切换账号、设置和引用。修订冲突及提交失败保持旧配置。
 
-每个文件夹同步先完整校准 UID 和标志，再下载最多 200 封缺失或需修复正文，逐封持久化 `sync` 进度；元数据读取不完整时不据此删除缓存。UIDVALIDITY 变化取消旧待提交操作，本机附加信息放入 `recovery`，只按同账户唯一 Message-ID 恢复，歧义记录保留。
+每个文件夹同步先完整校准 UID 和标志，再下载最多 200 封缺失或需修复正文，逐封持久化 `sync` 进度；元数据读取不完整时不据此删除缓存。UIDVALIDITY 变化取消旧待提交操作，本机附加信息放入 `recovery`，只按同账户唯一 Message-ID 恢复，歧义记录保留。同步结束以最新账户记录为基准合并 `folders` 与 `lastSync`，同步期间保存的账号设置不被覆盖。
 
 `imapTLS` / `smtpTLS` 的 true 表示 SSL/TLS 直连，false 表示必须 STARTTLS，均验证证书。连接测试分别报告协议结果，错误不回显凭证或原始认证数据。邮件保留 Reply-To、In-Reply-To、References；`bodyVersion: 1` 标记清理后的 HTML / CID 正文，旧缓存修复保留附件、摘要和标签。
 
@@ -125,4 +125,4 @@ npm start
 
 图片通过 Files 上传，以 `input_image.file_id` 引用，设置一小时过期并在结束后尝试删除。PDF 逐页转 PNG，PPT 经 `presentations.js` 和原生组件转 PDF 后共用流程；PPTX 隐藏页在临时副本展开，原件不变，转换支持取消、60 秒子进程超时及清理。限制与预览差异统一见使用指南。
 
-同账户同步互斥，单封 AI 串行，同账户最多一个整理任务。SMTP 接受后归档失败不能重发；启动时发送中草稿转 uncertain、单封 AI 转失败、整理与附件批量任务转 paused，并保留结果和进度。
+同账户同步互斥，单封 AI 串行，同账户最多一个整理任务。发送前在事务内认领草稿，同一草稿并发只投递一次、重复请求返回 409，投递前失败恢复为草稿；SMTP 接受后归档失败不能重发。收件人接受 RFC 5322 显示名形式（`姓名 <邮箱>`），仍拒绝控制字符与注入式分隔符。已发送副本接管归属草稿的附件，转发复用的原邮件附件保持原归属。启动时发送中草稿转 uncertain、单封 AI 转失败、整理与附件批量任务转 paused，并保留结果和进度。
