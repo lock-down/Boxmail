@@ -53,6 +53,9 @@ struct OrganizeView: View {
             .foregroundStyle(Palette.amber)
         }
         if let job = latest { jobStatus(job) }
+        if let job = latest, let output = store.aiOutputs[job.id], output.status == "running" {
+          AIStreamingView(output: output)
+        }
         if let job = latest, !(job.result?.items ?? []).isEmpty,
           ["running", "needsApproval", "partial", "paused"].contains(job.status)
         {

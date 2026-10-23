@@ -53,7 +53,7 @@ struct MailListView: View {
             Image(systemName: "sparkles")
             VStack(alignment: .leading, spacing: 3) {
               Text("邮件摘要").font(.system(size: 12, weight: .medium))
-              Text("\(store.accountMessages.filter{$0.summary != nil}.count) 封已总结 · 查看邮件要点与待办")
+              Text("\(store.summaryOverviewMessages.count) 封已收录 · 查看邮件要点与待办")
                 .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1)
             }
             Spacer()

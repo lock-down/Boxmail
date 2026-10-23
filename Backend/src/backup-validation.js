@@ -9,6 +9,8 @@ function mailShape(value) {
   if (!strings(value, ['id', 'accountId', 'folder', 'sender', 'senderEmail', 'to', 'cc', 'subject', 'body', 'preview', 'date', 'category'])
     || !bools(value, ['unread', 'starred']) || !stringArray(value.attachmentIds)) return false;
   const summary = value.summary;
+  if (value.summaryHidden != null && typeof value.summaryHidden !== 'boolean') return false;
+  if (['html', 'translation', 'translationHTML'].some(name => value[name] != null && typeof value[name] !== 'string')) return false;
   return !summary || object(summary) && stringArray(summary.points) && Array.isArray(summary.todos)
     && summary.todos.every(todo => strings(todo, ['id', 'title', 'due']) && bools(todo, ['done']))
     && Array.isArray(summary.keyInfo) && summary.keyInfo.every(item => strings(item, ['label', 'value']));

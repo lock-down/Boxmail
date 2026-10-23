@@ -1,6 +1,10 @@
 import Foundation
 
 public enum MailHTMLDocument {
+  public static var textUpdatesScript: String {
+    guard let url = Bundle.module.url(forResource: "MailTextUpdates", withExtension: "js") else { return "" }
+    return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+  }
   public static var recipientLayoutScript: String {
     guard let url = Bundle.module.url(forResource: "MailRecipientLayout", withExtension: "js")
     else { return "" }

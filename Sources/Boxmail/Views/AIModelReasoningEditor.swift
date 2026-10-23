@@ -4,6 +4,7 @@ import SwiftUI
 struct AIModelReasoningEditor: View {
   @Binding var model: AIModel
   let apiProtocol: AIAPIProtocol
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var levels: [String] { model.reasoningLevels }
   private var enabled: Binding<Bool> {
     Binding(get: { model.reasoningEfforts?.values != nil }, set: { enabled in
@@ -44,11 +45,13 @@ struct AIModelReasoningEditor: View {
           HStack(spacing: 10) {
             Text(level.capitalized).font(UIType.caption).frame(width: 65, alignment: .leading)
             WorkflowTextInput(label: "\(level) 推理发送值", placeholder: level == "off" ? "不发送参数" : level,
-              text: wireValue(level), font: UIType.caption).disabled(level == "off")
+              text: wireValue(level), font: UIType.caption, surface: Palette.paper).disabled(level == "off")
+              .frame(maxWidth: 260)
             IconButton(icon: "minus", help: "移除推理等级 \(level)") {
               var values = model.reasoningEfforts?.values ?? [:]
               values.removeValue(forKey: level); model.reasoningEfforts = .mapping(values)
             }
+            Spacer(minLength: 0)
           }
         }
         Menu {
@@ -59,10 +62,10 @@ struct AIModelReasoningEditor: View {
               model.reasoningEfforts = .mapping(values)
             }
           }
-        } label: { Label("添加推理等级", systemImage: "plus").font(UIType.small) }
+        } label: { Label("添加推理等级", systemImage: "plus").font(UIType.caption).foregroundStyle(Palette.accent) }
           .menuStyle(.borderlessButton).fixedSize().disabled(levels.count == AIReasoningEfforts.levels.count)
       }
-    }
+    }.animation(UIMotion.disclosure(reduceMotion), value: enabled.wrappedValue)
   }
   private func wireValue(_ level: String) -> Binding<String> {
     Binding(get: { (model.reasoningEfforts?.values?[level] ?? nil) ?? "" }, set: { value in

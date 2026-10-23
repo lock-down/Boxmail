@@ -84,7 +84,7 @@ struct MailDetailView: View {
           .task(id: "\(message.id)-\(store.mailAITab?.rawValue ?? "")") {
             if let tab = store.mailAITab {
               withAnimation(UIMotion.disclosure(reduceMotion)) {
-                reader.scrollTo(tab == .attachment ? "mail-attachments" : "mail-assistant", anchor: .top)
+                reader.scrollTo(tab == .attachment ? "mail-attachments" : tab == .translate ? "mail-body" : "mail-assistant", anchor: .top)
               }
             }
           }
@@ -117,15 +117,34 @@ struct MailDetailView: View {
           RecipientDetailsView(to: message.to, cc: message.cc).id(message.id)
         }
       }
-      if let tab = store.mailAITab, tab != .attachment {
+      if let tab = store.mailAITab, tab != .attachment, tab != .translate {
         MailAssistantView(store: store, message: message, tab: tab).id("mail-assistant")
           .transition(UIMotion.reveal(reduceMotion))
       }
       HStack(spacing: 12) {
-        Text("邮件原文").font(UIType.small).foregroundStyle(Palette.muted)
+        Text(store.isShowingTranslation(message) ? "简体中文译文" : "邮件原文").font(UIType.small).foregroundStyle(Palette.muted)
         Rectangle().fill(Palette.softBorder).frame(height: 1)
+        if store.isShowingTranslation(message) {
+          if message.translation != nil || store.aiOutput(task: "translate", messageId: message.id)?.text.isEmpty == false {
+            CopyButton(help: "复制译文") {
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(store.translatedMessage(message).body, forType: .string)
+            }
+          }
+          if let output = store.aiOutput(task: "translate", messageId: message.id), output.status == "running" {
+            ProgressView().controlSize(.mini)
+            Text(output.stage ?? "正在翻译…").font(UIType.small).foregroundStyle(Palette.muted)
+          }
+          ActionButton(title: "重新翻译", icon: "arrow.clockwise") {
+            store.generate(task: "translate", message: message)
+          }.disabled(store.busy.contains("agent"))
+        }
+      }.id("mail-body")
+      if store.isShowingTranslation(message), let error = store.mailAIErrors[message.id] {
+        Label(error, systemImage: "exclamationmark.circle").font(UIType.small).foregroundStyle(Palette.amber)
       }
-      QuoteCollapsingBodyView(message: message, preferences: store.settings.preferences).id(message.id)
+      QuoteCollapsingBodyView(message: store.translatedMessage(message), preferences: store.settings.preferences,
+        updatesTextOnly: true).id(message.id)
       if !message.attachmentIds.isEmpty {
         MailAttachmentSection(store: store, message: message).id("mail-attachments")
       }

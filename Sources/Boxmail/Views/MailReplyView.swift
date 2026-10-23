@@ -72,7 +72,9 @@ struct MailReplyView: View {
           )
         Text("先预览，再使用").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }
-      if let preview, let result = preview.result {
+      if let output = store.aiOutput(task: "reply", messageId: message.id) {
+        AIStreamingView(output: output)
+      } else if let preview, let result = preview.result {
         VStack(alignment: .leading, spacing: 13) {
           HStack {
             Text(

@@ -213,7 +213,9 @@ struct AttachmentPreviewView: View {
                     Text(error).font(.system(size: 12)).foregroundStyle(Palette.amber)
                   }
                 }
-                if let analysis = attachment.analysis {
+                if let output = store.aiOutput(task: "attachment", messageId: attachment.messageId, attachmentId: attachment.id) {
+                  AIStreamingView(output: output)
+                } else if let analysis = attachment.analysis {
                   HStack {
                     Label("附件理解", systemImage: "sparkles").font(
                       .system(size: 17, weight: .semibold))

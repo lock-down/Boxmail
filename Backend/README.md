@@ -109,6 +109,8 @@ npm start
 
 备份为 SQLite 快照、附件及逐项 SHA-256 清单。恢复核验路径、未知文件、完整性、必要字段和引用，恢复前备份失败即停止；事务失败回滚并清理暂存，成功后重建派生索引。维护期拒绝并发写入，容量边界见使用指南。
 
+完整备份包含 `translationHTML`、`summaryHidden` 及完整总结、待办、服务商和模型参数。可选译文字段仅允许字符串或空值，收录字段仅允许布尔或空值；旧备份缺省值仍兼容。恢复会重定位附件路径，运行中的整理或附件批量任务暂停，单封 AI 任务失败、发送中草稿转为待确认；实时 AI 输出不持久化，客户端清空旧的显示、列表撤销和多选状态。
+
 ## AI 请求与任务恢复
 
 `ai` 的 `providerId` 指定当前连接，`providers` 保存最多 20 个服务商，各项包括 id、name、baseURL、apiProtocol、model、models 和 catalogConfigured。Provider ID 以小写字母开头，仅含小写字母、数字和连字符；密钥单独使用 `ai-provider-<id>` 钥匙串项，默认连接继续使用 `ai-key`。旧版平面配置自动作为默认连接，baseURL / model / apiProtocol 仍返回当前连接的镜像字段。模型 ID 可不在目录中，catalogConfigured 标记用户已配置目录，保留显式空目录。
@@ -139,11 +141,17 @@ npm start
 
 实现对照的参考版本为 DeepSeek Harness `687f282e8625c6b8d11ff58211a90524be2e4317`：表单参数见 [ModelRow](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/ModelRow.tsx)、[容量编辑和校验](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/DeepSeekModelsEditor.tsx) 和 [推理映射](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/ModelReasoningEfforts.tsx)；运行链路见 [provider.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/provider.ts)、[catalog.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/catalog.ts) 和 [adapter.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/adapter.ts)。协议语义另核对 [OpenAI SDK](https://developers.openai.com/api/docs/libraries) 和 [Anthropic 思考模式](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)。
 
-单封总结、回复和翻译携带每份附件的名称、最多 16,000 字符提取文本和 16,000 字符已有分析，截取单独标明，整体保持有效 JSON。附件分析校验邮件归属，附带主题、发件人及最多 5,000 字正文。
+单封总结和回复携带每份附件的名称、最多 16,000 字符提取文本和 16,000 字符已有分析，截取单独标明，整体保持有效 JSON。附件分析校验邮件归属，附带主题、发件人及最多 5,000 字正文。
+
+`GET /ai/events` 使用与其他接口相同的 `X-Boxmail-Token`，返回 SSE：连接时发送 `{type:"snapshot",outputs:[...]}`，随后发送 `{type:"update",output:{id,task,status,accountId,messageId,attachmentId,parentJobId,text,html?,stage?}}`。15 秒心跳维持连接；重连获取活动任务快照，慢消费者断开后重连，服务关闭清理所有订阅。单封 `/agent` 仍返回最终 Job，批量附件及整理保留原任务控制接口。三种协议的文本增量均转为可读预览，不转发推理、工具内容或 JSON 语法；中间结果只保存在内存，最终响应须通过完整性及任务校验后才能提交数据库。
+
+翻译仅发送主题和 `{segments:[{id,text}]}`，要求同序同 ID 的逐段译文；缺段、重复或未知 ID 拒绝保存。HTML 经原邮件清理规则后按文字节点对齐，只更改文字并转义，不接受模型生成的 HTML；`pre/code/kbd/samp`、独立 URL 和邮箱保持原样。纯文本邮件保留换行及空行。结果保存为 `translation` 和可选 `translationHTML`；列表及紧凑快照省略这两个大字段，同步保留完整译文。既有纯文本译文兼容读取，客户端可重新翻译以恢复 HTML 排版。
 
 默认配置和精确升级逻辑位于 `ai-settings.js`，共享资源为 [DefaultPrompts.json](../Sources/BoxmailCore/Resources/DefaultPrompts.json) 及 [ReplyPresets.json](../Sources/BoxmailCore/Resources/ReplyPresets.json)。运行时对撰写任务追加无签名要求，翻译与分类不追加；未知回复态度在调用前拒绝。
 
 回复用 `task: "reply"`、`messageId`、`preview: true` 生成仅含 subject / body 的预览。显式使用后创建并关联草稿；草稿删除或进入发送流程返回 409，原邮件缺失返回 404。旧客户端省略 preview 时保留直接生成待审核草稿的兼容行为。
+
+`POST /summaries/visibility` 接收 `{accountId,hidden,messageIds:[...]}`，或 `{accountId,hidden,all:true}`，返回实际变更的 `messageIds`。`hidden:true` 仅移出摘要总览，`false` 恢复；单项和多选校验全部 ID 归属及总结存在性，任一无效则整体拒绝。清空仅覆盖当前账户非 Trash 的已总结邮件，已移除项不重复计入撤销。仅持久化 `summaryHidden`，不修改总结、待办、原邮件内容或 IMAP mutation；缺省为收录，同步及完整备份保留此状态，重新生成总结重置为收录。待同步 `relocation/recovery` 原件同时保留收录标记。
 
 总结兼容 overview / nextSteps 与 points / todos / keyInfo。最多 4 项 nextSteps，只允许 reply / attachments / note；无效动作降为文字提醒，生成总结本身不执行建议。
 

@@ -293,7 +293,8 @@ test('writing rules cover reply suggestions, attachment examples and compose wit
     response = ['reply', 'compose'].includes(task) ? { subject: 'Re: 提交报价', body }
       : task === 'summary' ? { overview: sourceBody, todos: [], keyInfo: [], nextSteps: [
         { title: '起草报价回复', action: 'reply', prompt: '起草回复确认提交要求。' },
-      ] } : { text: task === 'translate' ? sourceBody : `## 提交要求\n${sourceBody}` };
+      ] } : task === 'translate' ? { segments: sourceBody.split('\n').filter(Boolean).map((text, i) => ({ id: String(i), text })) }
+        : { text: `## 提交要求\n${sourceBody}` };
     const job = await runAgent(repo, { task, messageId: task === 'compose' ? undefined : message.id,
       attachmentId: attachment.id, preview: true, body: sourceBody,
       prompt: '按来信和附件起草回复。', config });
@@ -310,7 +311,8 @@ test('writing rules cover reply suggestions, attachment examples and compose wit
       assert.match(request.instructions, /总结建议中起草回复的 prompt 和附件理解中的回复草稿/);
       assert.ok(request.instructions.indexOf('邮件撰写规则：') > request.instructions.indexOf(custom));
     }
-    assert.equal(task === 'attachment' ? context.email.body : context.body, sourceBody);
+    if (task === 'translate') assert.equal(context.segments.map(s => s.text).join('\n'), sourceBody.replace('\n\n', '\n'));
+    else assert.equal(task === 'attachment' ? context.email.body : context.body, sourceBody);
     if (task === 'reply') {
       const draft = useReplyPreview(repo, job.id);
       assert.equal(draft.body, body);
@@ -681,6 +683,8 @@ test('moving a message retains local summary, categories and attachment text', a
     attachmentIds: [attachment.id],
     summary: { points: ['周五截止'], todos: [], keyInfo: [] },
     translation: '已保存译文',
+    translationHTML: '<p>已保存译文</p>',
+    summaryHidden: true,
   };
   repo.put('message', original);
   updateMessage(repo, original.id, { folder: 'trash' });
@@ -690,6 +694,8 @@ test('moving a message retains local summary, categories and attachment text', a
   assert.equal(next.category, '工作项目');
   assert.deepEqual(next.summary.points, ['周五截止']);
   assert.equal(next.translation, '已保存译文');
+  assert.equal(next.translationHTML, '<p>已保存译文</p>');
+  assert.equal(next.summaryHidden, true);
   assert.deepEqual(next.attachmentIds, [attachment.id]);
   assert.equal(repo.get('attachment', attachment.id).messageId, next.id);
   assert.equal(repo.list('relocation').length, 0);

@@ -18,9 +18,10 @@ function publicError(error) {
 
 // One durable task per email; each file keeps its own successful result and retry state.
 export class AttachmentBatch {
-  constructor(repo, { run = runAgent } = {}) {
+  constructor(repo, { run = runAgent, onProgress } = {}) {
     this.repo = repo;
     this.runAgent = run;
+    this.onProgress = onProgress;
     this.workers = new Map();
   }
   busy(accountId) {
@@ -107,7 +108,7 @@ export class AttachmentBatch {
           || file?.messageId !== message.id) throw new ServiceError('附件已移动或移除，请重新打开邮件后重试。', 409);
         await this.runAgent(this.repo, {
           task: 'attachment', accountId: job.accountId, messageId: message.id, attachmentId: item.id,
-          parentJobId: job.id, config, apiKey, signal,
+          parentJobId: job.id, config, apiKey, signal, onProgress: this.onProgress,
         });
         signal.throwIfAborted();
         if (!this.repo.get('attachment', item.id)?.analysis?.trim())

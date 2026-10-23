@@ -29,16 +29,21 @@ struct WorkflowAction: View {
   @ViewState<Bool> private var hovered = false
   @FocusState private var focused: Bool
   @Environment(\.isEnabled) private var enabled
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     Button(action: action) {
-      HStack(spacing: 6) {
-        if let icon { Image(systemName: icon).font(.system(size: 12, weight: .medium)) }
+      HStack(alignment: .firstTextBaseline, spacing: 7) {
+        if let icon {
+          Image(systemName: icon).font(.system(size: 12, weight: .medium))
+            .frame(width: 14).accessibilityHidden(true)
+        }
         if !title.isEmpty { Text(title).underline(focused).lineLimit(1).fixedSize() }
       }.font(.system(size: 12, weight: .medium))
         .foregroundStyle(hovered || focused ? color == Palette.ink ? Palette.blue : color : color)
-        .padding(.horizontal, title.isEmpty ? 8 : 6).frame(height: 32)
-        .contentShape(Rectangle()).opacity(enabled ? 1 : 0.4)
-    }.buttonStyle(.plain).focused($focused).onHover { hovered = $0 }
+        .padding(.horizontal, 8).frame(height: 32)
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+    }.buttonStyle(ControlFeedback(corner: 6)).focused($focused).onHover { hovered = $0 }
+      .animation(UIMotion.feedback(reduceMotion), value: hovered)
       .help(help ?? title).accessibilityLabel(help ?? title)
   }
 }
@@ -65,15 +70,24 @@ struct WorkflowTextInput: View {
   @Binding var text: String
   var lines = 1
   var font: Font = UIType.body
+  var surface: Color = Palette.canvas
   @FocusState private var focused: Bool
   var body: some View {
-    TextField("", text: $text, prompt: Text(placeholder).foregroundStyle(Palette.muted),
-      axis: lines > 1 ? .vertical : .horizontal)
+    TextField("", text: $text, axis: lines > 1 ? .vertical : .horizontal)
       .textFieldStyle(.plain).font(font).foregroundStyle(Palette.ink)
-      .lineLimit(1...lines).lineSpacing(4).focused($focused)
-      .padding(.horizontal, 10).padding(.vertical, 8)
-      .frame(minHeight: lines > 1 ? 108 : 34, alignment: .topLeading)
-      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7))
+      .lineLimit(1...lines).lineSpacing(lines > 1 ? 4 : 0).focused($focused)
+      .padding(.horizontal, 10).padding(.vertical, lines > 1 ? 10 : 0)
+      .frame(minHeight: lines > 1 ? 108 : SettingsFormLayout.controlHeight,
+        maxHeight: lines > 1 ? nil : SettingsFormLayout.controlHeight,
+        alignment: lines > 1 ? .topLeading : .leading)
+      .background(surface, in: RoundedRectangle(cornerRadius: 7))
+      .overlay(alignment: lines > 1 ? .topLeading : .leading) {
+        if text.isEmpty {
+          Text(placeholder).font(font).foregroundStyle(Palette.muted)
+            .padding(.horizontal, 10).padding(.vertical, lines > 1 ? 10 : 0)
+            .allowsHitTesting(false).accessibilityHidden(true)
+        }
+      }
       .overlay(alignment: .bottom) {
         if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 8) }
       }.accessibilityLabel(label)
@@ -125,7 +139,7 @@ struct WorkflowSelection<Value: Hashable>: NSViewRepresentable {
   var onSelect: ((Int) -> Void)?
   override var isFlipped: Bool { true }
   override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
-  override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 32) }
+  override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: SettingsFormLayout.controlHeight) }
 
   @objc func selectValue() { onSelect?(indexOfSelectedItem) }
   override func draw(_ dirtyRect: NSRect) {

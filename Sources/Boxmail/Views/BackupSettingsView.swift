@@ -101,6 +101,11 @@ struct BackupSettingsView: View {
         store.selectedMessageId = nil; store.conversation = nil; store.conversationAnchor = nil
         store.search = ""; store.pinnedMessageId = nil; store.pinnedQueryKey = ""
         store.previewAttachment = nil
+        store.summaryListChange = nil; store.summaryListError = nil; store.summaryReplyRequest = nil
+        store.translatedMessageIds = []; store.aiOutputs = [:]; store.mailAIErrors = [:]
+        store.mailAITab = nil; store.activeAIMessageId = nil; store.activeAIAttachmentId = nil
+        store.attachmentResultsMessageId = nil; store.attachmentBatchErrors = [:]; store.organizeError = nil
+        store.conversationError = nil; store.detailError = nil; store.detailGeneration = UUID()
         try await store.refresh()
         store.restoreRevision += 1
         status = "备份已恢复。恢复前的数据保存在：\n\(result.previousBackup ?? "本机数据目录的 backups 文件夹")\n请检查账户和待同步更改后再同步邮箱。"

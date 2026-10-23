@@ -199,13 +199,14 @@ extension View {
 struct SectionCard<Content: View>: View {
   var title: String
   var icon: String = ""
+  var contentSpacing: CGFloat = 16
   @ViewBuilder var content: () -> Content
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
+    VStack(alignment: .leading, spacing: contentSpacing) {
       HStack(spacing: 9) {
         if !icon.isEmpty {
-          Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Palette.muted)
-            .frame(width: 18).accessibilityHidden(true)
+          Image(systemName: icon).font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.muted)
+            .frame(width: 20, height: 20).accessibilityHidden(true)
         }
         Text(title).font(UIType.section)
       }

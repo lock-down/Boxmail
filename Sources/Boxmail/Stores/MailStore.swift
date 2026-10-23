@@ -41,7 +41,12 @@ import SwiftUI
   var mailAIErrors: [String: String] = [:]
   var activeAIMessageId: String?
   var activeAIAttachmentId: String?
+  var aiOutputs: [String: AIStreamOutput] = [:]
+  var aiStreamTask: Task<Void, Never>?
+  var translatedMessageIds: Set<String> = []
   var summaryReplyRequest: SummaryReplyRequest?
+  var summaryListChange: SummaryListChange?
+  var summaryListError: String?
   var attachmentResultsMessageId: String?
   var organizeError: String?
   var attachmentBatchErrors: [String: String] = [:]
@@ -100,6 +105,7 @@ import SwiftUI
       if let message = BackendService.shared.startupNotice { notice = message }
       try await refresh()
       ready = true
+      watchAIOutput()
       selectedMessageId = filteredMessages.first?.id
       if messages.contains(where: { message in
         message.uid != nil && message.bodyVersion != 1
@@ -192,12 +198,10 @@ import SwiftUI
     mailAITab = tab
   }
   func showMailAI(_ tab: MailAITab, message: MailMessage) {
+    if tab == .translate { toggleTranslation(message); return }
     mailAITab = tab
     if activeAIMessageId != message.id { mailAIErrors[message.id] = nil }
     if tab == .summary && message.summary == nil { generate(task: "summary", message: message) }
-    if tab == .translate && message.translation == nil {
-      generate(task: "translate", message: message)
-    }
   }
   func update(_ message: MailMessage, _ changes: [String: Any]) {
     action("message-\(message.id)") {
@@ -301,6 +305,7 @@ import SwiftUI
   ) async throws -> AgentJob {
     guard !busy.contains("agent") else { throw BackendService.shared.failure("AI 正在执行任务，请稍候") }
     busy.insert("agent")
+    watchAIOutput()
     defer { busy.remove("agent") }
     let key = try KeychainService.read(settings.ai.credentialAccount)
     var input: [String: Any] = [
@@ -435,6 +440,7 @@ import SwiftUI
     }
   }
   func stop() {
+    aiStreamTask?.cancel()
     polling?.cancel()
     organizePolling?.cancel()
     attachmentBatchPolling?.cancel()

@@ -38,12 +38,15 @@ public struct MailMessage: Codable, Identifiable, Hashable {
   public var unread, starred: Bool
   public var attachmentIds: [String]
   public var summary: MailSummary?
+  public var summaryHidden: Bool?
+  public var isInSummaryOverview: Bool { summary != nil && summaryHidden != true && folder != "trash" }
   public var messageId: String?
   public var html: String?
   public var hasRemoteImages: Bool?
   public var bodyVersion: Int?
   public var uid: Int?
   public var translation: String?
+  public var translationHTML: String?
   public var replyTo, inReplyTo: String?
   public var references: [String]?
   public var bodyLoaded: Bool?

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { aiConfig, ServiceError } from './validation.js';
 import { completion } from './responses.js';
 import { categoryCatalog } from './categories.js';
+import { progressText } from './ai-progress.js';
 
 export const REVIEWABLE = ['needsApproval', 'partial', 'paused'];
 
@@ -13,10 +14,11 @@ function publicError(error) {
 }
 
 export class Organizer {
-  constructor(repo, { complete = completion, batchSize = 6 } = {}) {
+  constructor(repo, { complete = completion, batchSize = 6, onProgress } = {}) {
     this.repo = repo;
     this.complete = complete;
     this.batchSize = batchSize;
+    this.onProgress = onProgress;
     this.workers = new Map();
   }
   busy(accountId) {
@@ -57,7 +59,10 @@ export class Organizer {
         this.repo.put('job', job);
         return job;
       })
-      .finally(() => this.workers.delete(job.id));
+      .finally(() => {
+        this.workers.delete(job.id);
+        this.onProgress?.({ id: job.id, task: 'classify', status: job.status, accountId: job.accountId, text: '' });
+      });
     return job;
   }
   async run(job, config, apiKey, signal) {
@@ -74,7 +79,11 @@ export class Organizer {
       this.repo.put('job', job);
       try {
         if (!context.length) throw new ServiceError('本批邮件已移动或删除');
-        const result = await this.complete(config, apiKey, 'classify', context, [], { signal, stream: true, categories: job.categories });
+        const live = { id: job.id, task: 'classify', accountId: job.accountId, status: 'running', text: '',
+          stage: `正在分析第 ${job.progress.batch} 批…` };
+        this.onProgress?.(live);
+        const result = await this.complete(config, apiKey, 'classify', context, [], { signal, stream: true, categories: job.categories,
+          onProgress: partial => this.onProgress?.({ ...live, text: progressText('classify', partial) }) });
         if (signal.aborted) break;
         if (!Array.isArray(result.items)) throw new ServiceError('分类格式不正确', 502);
         const ids = new Set(context.map(m => m.id));

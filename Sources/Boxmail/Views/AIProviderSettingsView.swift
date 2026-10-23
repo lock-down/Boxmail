@@ -24,7 +24,7 @@ struct AIProviderSettingsView: View {
   }
 
   var body: some View {
-    SectionCard(title: "模型服务 · BYOK", icon: "cloud") {
+    SectionCard(title: "模型服务 · BYOK", icon: "cloud", contentSpacing: 12) {
       Text("使用自己的 API 密钥接入云端、中转或本地模型，所有 AI 功能共用当前服务商。")
         .font(UIType.small).foregroundStyle(Palette.muted)
       HStack(spacing: SettingsFormLayout.columnGap) {
@@ -32,21 +32,21 @@ struct AIProviderSettingsView: View {
         WorkflowSelection(title: "当前 AI 服务商", selection: $config.providerId,
           options: config.providers.map { ($0.id, $0.name) })
           .frame(width: SettingsFormLayout.modelSelectorWidth)
-        Spacer(minLength: 0)
+        Spacer(minLength: 0).frame(maxWidth: SettingsFormLayout.textWidth - SettingsFormLayout.modelSelectorWidth)
         SettingsInlineAction(title: "自定义 API", icon: "plus") { addingProvider = true }
           .disabled(config.providers.count >= 20)
-      }
+      }.frame(maxWidth: SettingsFormLayout.formWidth, alignment: .leading)
       HStack(spacing: SettingsFormLayout.columnGap) {
         SettingsFormLabel(title: "Provider ID")
         Text(config.providerId).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
           .textSelection(.enabled)
-        Spacer()
+        Spacer(minLength: 0)
         if config.providerId != "default" {
-          SettingsInlineAction(title: "移除服务商", icon: "minus.circle") { removeProvider() }
+          SettingsInlineAction(title: "移除服务商", icon: "minus.circle", color: Palette.muted) { removeProvider() }
             .disabled(config.providers.count <= 1)
         }
-      }
-      providerField("显示名称", text: $config.activeProvider.name, placeholder: "服务商名称")
+      }.frame(maxWidth: SettingsFormLayout.formWidth, alignment: .leading)
+      providerField("显示名称", text: $config.activeProvider.name, placeholder: "服务商名称", width: SettingsFormLayout.shortTextWidth)
       providerField("API 地址", text: $config.baseURL, placeholder: config.apiProtocol.addressPlaceholder)
       HStack(spacing: SettingsFormLayout.columnGap) {
         SettingsFormLabel(title: "API 协议")
@@ -58,7 +58,7 @@ struct AIProviderSettingsView: View {
         SettingsFormLabel(title: "API Key")
         SecureField("", text: key).settingsTextInput()
           .inputPlaceholder("密钥单独保存在系统钥匙串", visible: key.wrappedValue.isEmpty)
-          .accessibilityLabel("当前服务商 API Key")
+          .accessibilityLabel("当前服务商 API Key").frame(width: SettingsFormLayout.textWidth)
         SettingsInlineAction(title: "测试连接", icon: "bolt") { testConnection() }
           .disabled(config.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || config.validationIssue != nil)
       }
@@ -66,9 +66,9 @@ struct AIProviderSettingsView: View {
         SettingsFormLabel(title: "模型设置")
         SettingsAISelectionView(model: $config.model, effort: $config.effort, models: catalog,
           effortLevels: effortLevels)
-        Spacer(minLength: 0)
-        SettingsInlineAction(title: "获取可用模型", icon: "arrow.clockwise") { refreshModels() }
-      }
+        Spacer(minLength: 0).frame(maxWidth: SettingsFormLayout.textWidth - SettingsFormLayout.modelSelectorWidth)
+        SettingsInlineAction(title: "获取模型", icon: "arrow.clockwise") { refreshModels() }
+      }.frame(maxWidth: SettingsFormLayout.formWidth, alignment: .leading)
       HStack(spacing: SettingsFormLayout.columnGap) {
         SettingsFormLabel(title: "请求超时")
         TextField("120", value: $config.timeout, format: .number.grouping(.never))
@@ -76,7 +76,7 @@ struct AIProviderSettingsView: View {
         Text("秒").font(UIType.caption).foregroundStyle(Palette.muted)
         Spacer()
       }
-      Divider().overlay(Palette.softBorder)
+      Divider().overlay(Palette.softBorder).padding(.vertical, 4)
       AIModelCatalogEditor(models: editableCatalog, selectedModel: $config.model, apiProtocol: config.apiProtocol)
       Text("设置在点击“应用”或“确定”后保存。超时为 10 至 600 秒；图片及 PDF 需要支持视觉输入的模型。")
         .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
@@ -109,10 +109,13 @@ struct AIProviderSettingsView: View {
       .onChange(of: config.activeProvider.models) { _, _ in config.activeProvider.catalogConfigured = true }
   }
 
-  private func providerField(_ title: String, text: Binding<String>, placeholder: String) -> some View {
+  private func providerField(_ title: String, text: Binding<String>, placeholder: String,
+    width: CGFloat = SettingsFormLayout.textWidth) -> some View {
     HStack(spacing: SettingsFormLayout.columnGap) {
       SettingsFormLabel(title: title)
       WorkflowTextInput(label: title, placeholder: placeholder, text: text, font: UIType.caption)
+        .frame(width: width)
+      Spacer(minLength: 0)
     }
   }
   private func loadKey() {

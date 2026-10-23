@@ -134,7 +134,9 @@ struct ComposerView: View {
                 prompt.isEmpty || store.busy.contains("agent"))
               if store.busy.contains("agent") { ProgressView().controlSize(.small) }
             }
-            if let generated {
+            if store.busy.contains("compose-ai"), let output = store.aiOutput(task: "compose") {
+              AIStreamingView(output: output)
+            } else if let generated {
               VStack(alignment: .leading, spacing: 14) {
                 Divider()
                 Text("AI 生成草稿").font(UIType.section)
@@ -227,6 +229,7 @@ struct ComposerView: View {
     }
   }
   private func generate() {
+    generated = nil
     store.action("compose-ai") {
       let job = try await store.runAI(
         task: "compose", prompt: prompt, body: draft.body, tone: tone, length: length)

@@ -18,7 +18,8 @@ struct MailAIBar: View {
               .symbolEffect(.pulse, options: .repeating,
                 isActive: !reduceMotion && store.busy.contains("agent")
                   && store.activeAIMessageId == message.id && store.mailAITab == tab)
-            Text(tab == .summary ? "AI 总结" : tab.title)
+            Text(tab == .translate ? (store.isShowingTranslation(message) ? "显示原文" : message.translation == nil ? "翻译" : "显示译文")
+              : tab == .summary ? "AI 总结" : tab.title)
           }.font(.system(size: 12, weight: .medium)).padding(.horizontal, 10).frame(height: 30)
             .foregroundStyle(store.mailAITab == tab ? Palette.accent : Palette.muted)
             .background {
@@ -36,7 +37,8 @@ struct MailAIBar: View {
           .accessibilityAddTraits(store.mailAITab == tab ? .isSelected : [])
           .disabled(tab == .attachment && message.attachmentIds.isEmpty)
           .help(
-            tab == .attachment && message.attachmentIds.isEmpty ? "本封邮件没有附件" : "\(tab.title)当前邮件")
+            tab == .translate ? (store.isShowingTranslation(message) ? "显示当前邮件原文" : "显示当前邮件译文")
+              : tab == .attachment && message.attachmentIds.isEmpty ? "本封邮件没有附件" : "\(tab.title)当前邮件")
       }
       Spacer(minLength: 0)
       if store.busy.contains("agent") { ProgressView().controlSize(.mini).padding(.trailing, 5) }
@@ -62,7 +64,7 @@ struct MailAssistantView: View {
           IconButton(icon: "xmark", help: "收起 AI 面板") { store.mailAITab = nil }
         }
       }
-      if working {
+      if working && store.aiOutput(task: tab.rawValue, messageId: message.id) == nil {
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)
           Text("正在处理，可继续阅读其他邮件…").font(.system(size: 11)).foregroundStyle(Palette.muted)
@@ -74,7 +76,7 @@ struct MailAssistantView: View {
       }
       switch tab {
       case .summary: summary
-      case .translate: translation
+      case .translate: EmptyView()
       case .attachment: MailAttachmentSection(store: store, message: message)
       case .reply: MailReplyView(store: store, message: message)
       }
@@ -83,7 +85,9 @@ struct MailAssistantView: View {
       .animation(UIMotion.disclosure(reduceMotion), value: working)
   }
   @ViewBuilder private var summary: some View {
-    if let summary = message.summary {
+    if let output = store.aiOutput(task: "summary", messageId: message.id) {
+      AIStreamingView(output: output)
+    } else if let summary = message.summary {
       SummaryCard(store: store, message: message, summary: summary, embedded: true)
     } else {
       Text("提炼正文要点、待办与关键信息。").font(.system(size: 12)).foregroundStyle(Palette.muted)
@@ -91,29 +95,6 @@ struct MailAssistantView: View {
         ActionButton(title: "生成总结", icon: "sparkles", kind: .ai) {
           store.generate(task: "summary", message: message)
         }.disabled(store.busy.contains("agent"))
-      }
-    }
-  }
-  private var translation: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        Text("全文翻译 · 简体中文").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.accent)
-        Spacer()
-        if let text = message.translation {
-          CopyButton(help: "复制译文") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-          }
-        }
-        ActionButton(title: message.translation == nil ? "翻译全文" : "重新翻译", icon: "arrow.clockwise") {
-          store.generate(task: "translate", message: message)
-        }.disabled(store.busy.contains("agent"))
-      }
-      if let text = message.translation {
-        Text(text).font(.system(size: 13)).lineSpacing(6).textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      } else {
-        Text("译文会保存在这封邮件中，原文仍可在下方阅读。").font(.system(size: 12)).foregroundStyle(Palette.muted)
       }
     }
   }

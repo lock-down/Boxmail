@@ -9,6 +9,7 @@ struct HTMLMailBodyView: NSViewRepresentable {
   let allowRemoteImages: Bool
   @Binding var height: CGFloat
   var collapseQuotes = false
+  var updatesTextOnly = false
 
   func makeCoordinator() -> Coordinator { Coordinator(height: $height) }
 
@@ -43,8 +44,8 @@ struct HTMLMailBodyView: NSViewRepresentable {
     let document = MailHTMLDocument.make(
       html: html, fontSize: fontSize, allowRemoteImages: allowRemoteImages, collapseQuotes: collapseQuotes)
     guard document != context.coordinator.document else { return }
-    context.coordinator.document = document
-    webView.loadHTMLString(document, baseURL: nil)
+    let layoutKey = "\(fontSize)-\(allowRemoteImages)-\(collapseQuotes)"
+    context.coordinator.update(document, layoutKey: layoutKey, textOnly: updatesTextOnly)
   }
 
   static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -60,8 +61,58 @@ struct HTMLMailBodyView: NSViewRepresentable {
   final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var height: Binding<CGFloat>
     var document = ""
+    var renderedDocument = ""
+    var layoutKey = ""
+    var renderedLayoutKey = ""
+    var loading = false
+    var updating = false
+    var textOnly = false
     fileprivate weak var webView: MailBodyWebView?
     init(height: Binding<CGFloat>) { self.height = height }
+
+    func update(_ next: String, layoutKey: String, textOnly: Bool) {
+      document = next
+      self.textOnly = textOnly
+      self.layoutKey = layoutKey
+      render()
+    }
+
+    private func render() {
+      guard let webView, !loading, !updating, renderedDocument != document else { return }
+      let next = document
+      guard textOnly, renderedLayoutKey == layoutKey, !renderedDocument.isEmpty else { load(next); return }
+      updating = true
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        let patched = try? await webView.callAsyncJavaScript(MailHTMLDocument.textUpdatesScript,
+          arguments: ["previousDocument": self.renderedDocument, "nextDocument": next],
+          in: nil, contentWorld: .defaultClient)
+        self.updating = false
+        if patched as? Bool == true {
+          self.renderedDocument = next
+          self.render()
+        } else { self.load(self.document) }
+      }
+    }
+
+    private func load(_ next: String) {
+      loading = true
+      renderedDocument = next
+      renderedLayoutKey = layoutKey
+      webView?.loadHTMLString(next, baseURL: nil)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+      loading = false
+      render()
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+      loading = false
+      updating = false
+      renderedDocument = ""
+      render()
+    }
 
     func userContentController(
       _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
@@ -149,6 +200,7 @@ struct MailBodyView: View {
   let message: MailMessage
   let preferences: Preferences
   var collapseQuotes = false
+  var updatesTextOnly = false
   @ViewState<CGFloat> private var height: CGFloat = 240
   @ViewState<Bool> private var loadRemoteImages = false
 
@@ -163,7 +215,8 @@ struct MailBodyView: View {
         }
         HTMLMailBodyView(
           html: html, fontSize: preferences.fontSize,
-          allowRemoteImages: !preferences.blockRemoteImages || loadRemoteImages, height: $height, collapseQuotes: collapseQuotes
+          allowRemoteImages: !preferences.blockRemoteImages || loadRemoteImages, height: $height,
+          collapseQuotes: collapseQuotes, updatesTextOnly: updatesTextOnly
         )
         .frame(height: height)
       }.frame(maxWidth: .infinity, alignment: .leading)

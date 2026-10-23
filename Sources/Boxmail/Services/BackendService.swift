@@ -167,6 +167,22 @@ import Foundation
   func perform(_ path: String, method: String = "POST", body: [String: Any] = [:]) async throws {
     let _: EmptyResponse = try await request(path, method: method, body: body)
   }
+  func aiEvents(receive: @MainActor (AIStreamEvent) -> Void) async throws {
+    guard let url = URL(string: "http://127.0.0.1:\(port)/ai/events") else { throw failure("接口地址无效") }
+    var request = URLRequest(url: url)
+    request.setValue(token, forHTTPHeaderField: "X-Boxmail-Token")
+    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+    let (bytes, response) = try await session.bytes(for: request)
+    guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+      throw failure("无法连接 AI 输出流")
+    }
+    for try await line in bytes.lines {
+      try Task.checkCancellation()
+      guard line.hasPrefix("data: ") else { continue }
+      guard line.utf8.count <= 12_000_000 else { throw failure("AI 输出过长") }
+      receive(try JSONDecoder().decode(AIStreamEvent.self, from: Data(line.dropFirst(6).utf8)))
+    }
+  }
   func failure(_ message: String) -> NSError {
     NSError(domain: "Boxmail", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
   }

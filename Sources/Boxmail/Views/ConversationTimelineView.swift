@@ -119,11 +119,13 @@ private struct ConversationMessageView: View {
 struct QuoteCollapsingBodyView: View {
   let message: MailMessage
   let preferences: Preferences
+  var updatesTextOnly = false
   @ViewState<Bool> private var showingQuotes = false
   private var hasQuotes: Bool { !QuotedMailText.split(message.body).quoted.isEmpty || QuotedMailText.hasHTMLQuote(message.html) }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      MailBodyView(message: message, preferences: preferences, collapseQuotes: hasQuotes && !showingQuotes)
+      MailBodyView(message: message, preferences: preferences, collapseQuotes: hasQuotes && !showingQuotes,
+        updatesTextOnly: updatesTextOnly)
       if hasQuotes {
         WorkflowAction(title: showingQuotes ? "收起引用内容" : "显示引用内容", icon: "text.quote") { showingQuotes.toggle() }
       }

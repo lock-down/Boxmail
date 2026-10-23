@@ -393,7 +393,7 @@ test('translation persists on its source mail and a later failure preserves the 
   const mail = { id: 'm1', accountId: 'a1', subject: 'Hello', sender: 'Test', body: 'Hello', attachmentIds: [] };
   repo.put('message', mail);
   repo.put('message', { ...mail, id: 'm2' });
-  const ai = await provider(t, { result: { text: '你好' } });
+  const ai = await provider(t, { result: { segments: [{ id: '0', text: '你好' }] } });
   await runAgent(repo, { task: 'translate', messageId: 'm1', config: ai.config });
   assert.equal(repo.get('message', 'm1').translation, '你好');
   assert.equal(repo.get('message', 'm2').translation, undefined);

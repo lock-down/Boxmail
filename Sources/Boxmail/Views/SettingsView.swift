@@ -20,6 +20,7 @@ struct SettingsView: View {
   @ViewState<MailAccount?> private var removingAccount: MailAccount?
   @ViewState<URL?> private var pendingDataDirectory = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Namespace private var settingsSelection
   let tabs = ["常用", "账号", "写邮件", "阅读邮件", "反垃圾", "高级", "AI 助手"]
   init(store: MailStore) {
     self.store = store
@@ -38,19 +39,26 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 4) {
           ForEach(tabs, id: \.self) { tab in
             Button {
-              store.settingsTab = tab
+              withAnimation(UIMotion.selection(reduceMotion)) { store.settingsTab = tab }
             } label: {
               HStack(spacing: 11) {
-                Image(systemName: icon(tab)).frame(width: 17)
+                Image(systemName: icon(tab)).font(.system(size: 14, weight: .medium))
+                  .frame(width: 20, height: 20).accessibilityHidden(true)
                 Text(tab)
                 Spacer()
               }.font(.system(size: 13, weight: store.settingsTab == tab ? .semibold : .regular))
                 .foregroundStyle(store.settingsTab == tab ? Palette.accent : Palette.ink).padding(
                   .horizontal, 10
                 ).frame(maxWidth: .infinity).frame(height: 36)
-                .contentShape(Rectangle()).background(
-                  store.settingsTab == tab ? Palette.accentSoft : .clear,
-                  in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(Rectangle()).background {
+                  if store.settingsTab == tab {
+                    if reduceMotion { RoundedRectangle(cornerRadius: 7).fill(Palette.accentSoft) }
+                    else {
+                      RoundedRectangle(cornerRadius: 7).fill(Palette.accentSoft)
+                        .matchedGeometryEffect(id: "settings-selection", in: settingsSelection)
+                    }
+                  }
+                }
             }.buttonStyle(ControlFeedback(selected: store.settingsTab == tab)).disabled(transferringConfiguration)
               .controlFocus()
               .accessibilityAddTraits(store.settingsTab == tab ? .isSelected : [])
@@ -64,15 +72,16 @@ struct SettingsView: View {
         Divider()
         OverlayScrollView {
           VStack(alignment: .leading, spacing: 20) {
-            HStack {
+            HStack(alignment: .top, spacing: 20) {
               VStack(alignment: .leading, spacing: 8) {
                 Text(store.settingsTab).font(UIType.title).tracking(-0.3)
-                Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(4)
+                Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(3)
+                  .fixedSize(horizontal: false, vertical: true)
               }
               Spacer()
               if store.settingsTab == "AI 助手" {
                 Toggle("启用 AI 助手", isOn: $config.enabled).toggleStyle(.switch).font(
-                  .system(size: 12))
+                  .system(size: 12)).controlSize(.small).fixedSize().padding(.top, 4)
               }
             }
             switch store.settingsTab {
@@ -98,7 +107,7 @@ struct SettingsView: View {
               .frame(maxWidth: .infinity, alignment: .leading).background(
                 Palette.blueSoft, in: RoundedRectangle(cornerRadius: 7))
             }
-          }.lineSpacing(4).frame(maxWidth: 740, alignment: .leading).padding(28).frame(
+          }.frame(maxWidth: 720, alignment: .leading).padding(24).frame(
             maxWidth: .infinity, alignment: .leading)
         }.id(store.settingsTab).background(Palette.canvas)
       }
@@ -109,7 +118,7 @@ struct SettingsView: View {
         ActionButton(title: "取消") { dismiss() }.keyboardShortcut(.cancelAction).disabled(transferringConfiguration)
         ActionButton(title: "应用") { save(close: false) }.disabled(loading || transferringConfiguration)
         ActionButton(title: "确定", kind: .primary) { save(close: true) }.disabled(loading || transferringConfiguration)
-      }.padding(.horizontal, 22).frame(height: 60).background(Palette.chrome)
+      }.padding(.horizontal, 22).frame(height: 56).background(Palette.chrome)
     }.frame(width: 1000, height: 750).background(.white).tint(Palette.blue)
       .interactiveDismissDisabled(transferringConfiguration)
       .alert(
@@ -198,9 +207,9 @@ struct SettingsView: View {
         HStack {
           Spacer()
           Button("恢复当前默认") { config.prompts[promptTab] = AIPromptDefaults.values[promptTab] }
-            .buttonStyle(.plain).font(
+            .buttonStyle(ControlFeedback(corner: 6)).font(
               .system(size: 11)
-            ).foregroundStyle(Palette.muted)
+            ).foregroundStyle(Palette.accent).padding(.vertical, 4).controlFocus(corner: 6)
         }
       }
     }
@@ -309,9 +318,10 @@ struct SettingsView: View {
   }
   private var composeSettings: some View {
     SectionCard(title: "邮件签名", icon: "signature") {
-      PlainTextEditor(text: $preferences.signature, fontSize: 13, inset: .init(width: 5, height: 5),
-        accessibilityLabel: "邮件签名").frame(height: 190).padding(10).background(
+      PlainTextEditor(text: $preferences.signature, fontSize: 13, inset: .init(width: 4, height: 4),
+        accessibilityLabel: "邮件签名").frame(height: 144).padding(12).background(
         Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: 620, alignment: .leading)
       Text("新邮件会自动附上签名。草稿在停止输入后自动保存到本机；发送前始终需要确认。").font(.system(size: 12)).foregroundStyle(
         Palette.muted)
     }

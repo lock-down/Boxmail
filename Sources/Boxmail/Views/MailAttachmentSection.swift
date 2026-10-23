@@ -54,6 +54,14 @@ struct MailAttachmentSection: View {
           }
         }
       }
+      ForEach(Array(store.aiOutputs.values.filter { $0.task == "attachment" && $0.messageId == message.id })) { output in
+        VStack(alignment: .leading, spacing: 10) {
+          if let file = files.first(where: { $0.id == output.attachmentId }) {
+            Text(file.name).font(UIType.section)
+          }
+          AIStreamingView(output: output)
+        }
+      }
       if !analyzed.isEmpty {
         AIResultDisclosure(title: "查看附件理解结果（\(analyzed.count)）", isExpanded: $showResults,
           copyHelp: "复制全部附件理解结果", copy: {

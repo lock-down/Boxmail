@@ -98,7 +98,7 @@ export class Repository {
     return { where: clauses.join(' AND '), params };
   }
   messageHeaders() {
-    return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation') AS data
+    return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML') AS data
       FROM records WHERE kind='message' ORDER BY json_extract(data,'$.date') DESC, id`)
       .all().map(row => ({ ...JSON.parse(row.data), body: '', bodyLoaded: false }));
   }
@@ -125,7 +125,7 @@ export class Repository {
     if (drafts) return drafts;
     const { where, params } = this.messageWhere({ accountId, folder, filter, query });
     const total = this.db.prepare(`SELECT COUNT(*) AS total FROM records m WHERE ${where}`).get(...params).total;
-    const rows = this.db.prepare(`SELECT json_remove(m.data,'$.body','$.html','$.translation') AS data
+    const rows = this.db.prepare(`SELECT json_remove(m.data,'$.body','$.html','$.translation','$.translationHTML') AS data
       FROM records m WHERE ${where} ORDER BY json_extract(m.data,'$.date') DESC, m.id LIMIT ? OFFSET ?`)
       .all(...params, limit, offset);
     const firstTerm = parseSearch(query).terms[0];

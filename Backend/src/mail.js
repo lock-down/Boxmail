@@ -240,7 +240,9 @@ export async function syncAccount(
               || (localSent ? { id: localSent.id, original: localSent } : null);
             if (retained) {
               message.summary = retained.original.summary;
+              message.summaryHidden = retained.original.summaryHidden;
               message.translation = retained.original.translation;
+              message.translationHTML = retained.original.translationHTML;
               message.category = retained.original.category;
               // Older forwarded copies may still share ids with their source mail.
               message.attachmentIds = await copyBorrowedAttachments(

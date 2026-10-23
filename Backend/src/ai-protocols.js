@@ -49,7 +49,7 @@ export function validateModelInput(config, instructions, content, images) {
   return { capability, reasoning, context };
 }
 
-export async function protocolCompletion(config, apiKey, instructions, prepared, { signal, responseParts }) {
+export async function protocolCompletion(config, apiKey, instructions, prepared, { signal, responseParts, onText }) {
   const { capability, reasoning, context } = prepared;
   const model = { id: capability.id, name: capability.name, provider: `boxmail-${config.providerId}`,
     api: config.apiProtocol, baseUrl: config.apiProtocol === 'anthropic-messages' ? anthropicBaseURL(config.baseURL) : config.baseURL,
@@ -107,6 +107,10 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
     for await (const event of events) {
       if (event.partial?.content.reduce((n, p) => n + (p.text?.length || p.thinking?.length || 0), 0) > 2_000_000)
         throw new ServiceError('模型响应过长，请缩小处理范围', 502);
+      if (event.type === 'text_delta' || event.type === 'text_end') {
+        const answer = event.partial?.content.filter(part => part.type === 'text').map(part => part.text).join('');
+        if (answer) onText?.(answer);
+      }
     }
     if (signal.aborted) throw signal.reason;
     const result = await events.result();
@@ -116,6 +120,7 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
     if (result.stopReason !== 'stop') throw incomplete();
     const text = terminalText ?? result.content.filter(part => part.type === 'text').map(part => part.text).join('');
     if (text.length > 2_000_000) throw new ServiceError('模型响应过长，请缩小处理范围', 502);
+    onText?.(text);
     return text;
   } finally { controller.abort(); }
 }

@@ -27,6 +27,8 @@ import { conversation } from './threads.js';
 import { parseSearch } from './search-query.js';
 import { createBackup, inspectBackup, restoreBackup } from './backups.js';
 import { exportConfiguration, inspectConfiguration, importConfiguration } from './configuration.js';
+import { AIProgress } from './ai-progress.js';
+import { setSummaryVisibility } from './summary-overview.js';
 
 export async function startServer({
   directory,
@@ -65,8 +67,10 @@ export async function startServer({
       folders: repo.list('sync'),
       results: [...syncTasks].map(([accountId, task]) => ({ accountId, status: task.status, error: task.error || null })) };
   }
-  const organizer = new Organizer(repo, organizerComplete ? { complete: organizerComplete } : {});
-  const attachmentBatch = new AttachmentBatch(repo, { run: agentRun });
+  const aiProgress = new AIProgress();
+  const onProgress = output => aiProgress.publish(output);
+  const organizer = new Organizer(repo, { ...(organizerComplete ? { complete: organizerComplete } : {}), onProgress });
+  const attachmentBatch = new AttachmentBatch(repo, { run: agentRun, onProgress });
   function requireIdle() {
     if (activeWrites > 1 || locks.size || repo.list('account').some(account => organizer.busy(account.id) || attachmentBatch.busy(account.id)))
       throw new ServiceError('请等待同步、发送或 AI 任务完成后再维护本机数据', 409);
@@ -143,6 +147,10 @@ export async function startServer({
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
       const route = url.pathname;
+      if (req.method === 'GET' && route === '/ai/events') {
+        aiProgress.subscribe(res);
+        return;
+      }
       if (maintenance && req.method !== 'GET') throw new ServiceError('正在备份、恢复或重建索引，请稍候', 409);
       let body = {};
       if (['POST', 'PATCH', 'PUT'].includes(req.method)) {
@@ -167,6 +175,7 @@ export async function startServer({
       let result;
       if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1');
       else if (req.method === 'GET' && route === '/sync-status') result = syncStatus();
+      else if (req.method === 'POST' && route === '/summaries/visibility') result = setSummaryVisibility(repo, body);
       else if (req.method === 'POST' && route === '/configuration/export') result = exportConfiguration(repo, body.settings);
       else if (req.method === 'POST' && route === '/configuration/inspect') result = inspectConfiguration(repo, body.configuration);
       else if (req.method === 'POST' && route === '/configuration/import') {
@@ -404,6 +413,7 @@ export async function startServer({
           result = await agentRun(repo, {
             ...body,
             config: requestedAI(body),
+            onProgress,
           });
         } finally {
           locks.delete('agent');
@@ -508,6 +518,7 @@ export async function startServer({
       await Promise.allSettled([...syncTasks.values()].map(task => task.promise));
       await organizer.close();
       await attachmentBatch.close();
+      aiProgress.close();
       await new Promise((resolve) => server.close(resolve));
       repo.close();
     },

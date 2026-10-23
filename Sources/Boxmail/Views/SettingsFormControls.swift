@@ -3,11 +3,14 @@ import SwiftUI
 enum SettingsFormLayout {
   static let labelWidth: CGFloat = 88
   static let columnGap: CGFloat = 12
-  static let controlHeight: CGFloat = 32
+  static let controlHeight: CGFloat = 34
   static let menuWidth: CGFloat = 132
   static let portWidth: CGFloat = 72
   static let actionWidth: CGFloat = 112
-  static let modelSelectorWidth: CGFloat = 252
+  static let modelSelectorWidth: CGFloat = 280
+  static let textWidth: CGFloat = 360
+  static let shortTextWidth: CGFloat = 280
+  static let formWidth: CGFloat = labelWidth + columnGap + textWidth + columnGap + actionWidth
 }
 
 struct SettingsFormLabel: View {
@@ -21,21 +24,26 @@ struct SettingsFormLabel: View {
 struct SettingsInlineAction: View {
   let title: String
   let icon: String
+  var color: Color = Palette.accent
   let action: () -> Void
   @ViewState<Bool> private var hovered = false
   @FocusState private var focused: Bool
   @Environment(\.isEnabled) private var enabled
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button(action: action) {
-      HStack(spacing: 6) {
+      HStack(alignment: .firstTextBaseline, spacing: 7) {
         Image(systemName: icon).font(.system(size: 12, weight: .medium))
-        Text(title).underline(focused)
+          .frame(width: 14).accessibilityHidden(true)
+        Text(title).underline(focused).lineLimit(1).fixedSize()
       }.font(.system(size: 12, weight: .medium))
-        .foregroundStyle(enabled && (hovered || focused) ? Palette.accent : Palette.ink)
-        .frame(width: SettingsFormLayout.actionWidth, height: SettingsFormLayout.controlHeight)
-        .contentShape(Rectangle()).opacity(enabled ? 1 : 0.45)
-    }.buttonStyle(.plain).focused($focused).onHover { hovered = $0 }
+        .foregroundStyle(hovered || focused ? Palette.accent : color)
+        .padding(.horizontal, 6)
+        .frame(width: SettingsFormLayout.actionWidth, height: SettingsFormLayout.controlHeight, alignment: .leading)
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+    }.buttonStyle(ControlFeedback(corner: 6)).focused($focused).onHover { hovered = $0 }
+      .animation(UIMotion.feedback(reduceMotion), value: hovered)
       .accessibilityLabel(title)
   }
 }

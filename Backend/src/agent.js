@@ -7,6 +7,8 @@ import { REPLY_PRESETS } from './reply-presets.js';
 import { buildReplyDraft } from './reply.js';
 import { summaryResult } from './summary.js';
 import { categoryCatalog } from './categories.js';
+import { progressText } from './ai-progress.js';
+import { translationDocument } from './translation.js';
 export { completion } from './responses.js';
 
 export async function runAgent(repo, input) {
@@ -15,6 +17,7 @@ export async function runAgent(repo, input) {
   if (message && input.accountId && message.accountId !== input.accountId)
     throw new ServiceError('邮件不属于当前账户', 400);
   const task = input.task;
+  const translation = task === 'translate' && message ? translationDocument(message) : null;
   const preset = task === 'reply' && typeof input.replyPreset === 'string'
     ? Object.hasOwn(REPLY_PRESETS, input.replyPreset) && REPLY_PRESETS[input.replyPreset] : null;
   if (task === 'reply' && input.replyPreset != null && !preset)
@@ -35,6 +38,7 @@ export async function runAgent(repo, input) {
           textTruncated: (a?.text?.length || 0) > 16000, analysisTruncated: (a?.analysis?.length || 0) > 16000 };
       }),
     };
+    if (translation) context = { subject: message.subject, segments: translation.segments };
   } else if (task === 'classify') {
     context = repo
       .list('message')
@@ -83,6 +87,11 @@ export async function runAgent(repo, input) {
     error: null,
   };
   repo.put('job', job);
+  let live = { id: job.id, task, status: 'running', accountId: job.accountId,
+    messageId: job.messageId, attachmentId: job.attachmentId, parentJobId: input.parentJobId || null,
+    text: '', stage: task === 'attachment' ? '正在读取附件内容…' : '正在等待模型输出…' };
+  const publish = changes => { live = { ...live, ...changes }; input.onProgress?.(live); };
+  publish({});
   try {
     input.signal?.throwIfAborted();
     let images = [];
@@ -102,8 +111,14 @@ export async function runAgent(repo, input) {
       }
     }
     input.signal?.throwIfAborted();
-    const result = await completion(input.config, input.apiKey, task, context, images,
+    publish({ stage: '正在等待模型输出…' });
+    const result = translation && !translation.segments.length ? { segments: [] } : await completion(input.config, input.apiKey, task, context, images,
       { additionalInstructions: preset?.instruction, stream: true, signal: input.signal,
+        onProgress: partial => {
+          const rendered = translation ? translation.render(partial) : null;
+          publish({ text: rendered?.text ?? progressText(task, partial),
+            ...(rendered?.html ? { html: rendered.html } : {}), stage: '正在生成…' });
+        },
         ...(task === 'classify' ? { categories: categoryCatalog(repo) } : {}) });
     input.signal?.throwIfAborted();
     if (task === 'summary') {
@@ -111,7 +126,7 @@ export async function runAgent(repo, input) {
       const current = repo.get('message', message.id);
       if (!current)
         throw new ServiceError('邮件已移动，请在新文件夹中重新总结', 409);
-      repo.put('message', { ...current, summary });
+      repo.put('message', { ...current, summary, summaryHidden: false });
       job.result = summary;
     } else if (['reply', 'compose'].includes(task)) {
       if (typeof result.body !== 'string' || !result.body.trim() || typeof result.subject !== 'string')
@@ -137,6 +152,12 @@ export async function runAgent(repo, input) {
       );
       job.result = { items: [...unique.values()], previous: [] };
       job.status = 'needsApproval';
+    } else if (task === 'translate') {
+      const rendered = translation.render(result, true);
+      const current = repo.get('message', message.id);
+      if (!current) throw new ServiceError('邮件已移动，请重新打开邮件', 409);
+      repo.put('message', { ...current, translation: rendered.text, translationHTML: rendered.html || null });
+      job.result = { text: rendered.text };
     } else {
       if (typeof result.text !== 'string' || !result.text.trim())
         throw new ServiceError('解析内容格式不正确', 502);
@@ -148,20 +169,18 @@ export async function runAgent(repo, input) {
           throw new ServiceError('附件已移动或移除，请重新打开邮件后重试。', 409);
         job.messageId = current?.id || job.messageId;
         repo.put('attachment', { ...a, ...(extractedText !== undefined ? { text: extractedText, parseError: '' } : {}), analysis: result.text });
-      } else if (task === 'translate') {
-        const current = repo.get('message', message.id);
-        if (!current) throw new ServiceError('邮件已移动，请重新打开邮件', 409);
-        repo.put('message', { ...current, translation: result.text });
       }
     }
     if (job.status !== 'needsApproval') job.status = 'completed';
     repo.put('job', job);
     repo.event('agent', `${task}：${job.status}`);
+    publish({ status: job.status });
     return job;
   } catch (e) {
     job.status = 'failed';
     job.error = e.message;
     repo.put('job', job);
+    publish({ status: 'failed', text: '', html: null });
     throw e;
   }
 }

@@ -44,6 +44,7 @@ private struct AIModelEditorRow: View {
   let apiProtocol: AIAPIProtocol
   let remove: () -> Void
   @ViewState<Bool> private var expanded = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var name: Binding<String> {
     Binding(get: { model.name ?? "" }, set: { model.name = $0.isEmpty ? nil : $0 })
@@ -61,15 +62,19 @@ private struct AIModelEditorRow: View {
         Button { selectedModel = model.id.trimmingCharacters(in: .whitespacesAndNewlines) } label: {
           Image(systemName: !model.id.isEmpty && selectedModel == model.id ? "checkmark.circle.fill" : "circle")
             .foregroundStyle(!model.id.isEmpty && selectedModel == model.id ? Palette.accent : Palette.muted)
-        }.buttonStyle(.plain).help("使用此模型").accessibilityLabel("使用模型 \(model.id)")
+        }.buttonStyle(ControlFeedback(corner: 6)).frame(width: 28, height: 32)
+          .controlFocus(corner: 6).help("使用此模型").accessibilityLabel("使用模型 \(model.id)")
           .disabled(model.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        WorkflowTextInput(label: "模型 ID", placeholder: "模型 ID", text: identifier, font: UIType.caption)
-        WorkflowTextInput(label: "模型显示名称", placeholder: "显示名称", text: name, font: UIType.caption)
+        WorkflowTextInput(label: "模型 ID", placeholder: "模型 ID", text: identifier, font: UIType.caption, surface: Palette.paper)
+        WorkflowTextInput(label: "模型显示名称", placeholder: "显示名称", text: name, font: UIType.caption, surface: Palette.paper)
           .frame(width: 150)
-        IconButton(icon: expanded ? "chevron.up" : "chevron.down", help: expanded ? "收起模型参数" : "展开模型参数") { expanded.toggle() }
+        IconButton(icon: expanded ? "chevron.up" : "chevron.down", help: expanded ? "收起模型参数" : "展开模型参数") {
+          withAnimation(UIMotion.disclosure(reduceMotion)) { expanded.toggle() }
+        }
         IconButton(icon: "trash", help: "移除模型 \(model.id)", action: remove)
       }
       if expanded {
+        Divider().overlay(Palette.softBorder)
         HStack(alignment: .top, spacing: 14) {
           capacity("上下文窗口", placeholder: "256K", draft: $model.contextWindowDraft, value: $model.contextWindow)
           capacity("最大输出 token 数", placeholder: "32K", draft: $model.maxTokensDraft, value: $model.maxTokens)
@@ -98,7 +103,6 @@ private struct AIModelEditorRow: View {
         Text(issue).font(UIType.small).foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
       }
     }.padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
-      .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.softBorder, lineWidth: 1))
   }
   private func input(_ type: String) -> Binding<Bool> {
     Binding(get: { model.inputTypes.contains(type) }, set: { enabled in
@@ -113,7 +117,7 @@ private struct AIModelEditorRow: View {
       Text(title).font(UIType.caption).foregroundStyle(Palette.muted)
       WorkflowTextInput(label: title, placeholder: placeholder, text: Binding(
         get: { draft.wrappedValue ?? AIModel.formatCapacity(value.wrappedValue) },
-        set: { draft.wrappedValue = $0; value.wrappedValue = AIModel.parseCapacity($0) }), font: UIType.caption)
-    }.frame(maxWidth: .infinity)
+        set: { draft.wrappedValue = $0; value.wrappedValue = AIModel.parseCapacity($0) }), font: UIType.caption, surface: Palette.paper)
+    }.frame(width: 200, alignment: .leading)
   }
 }

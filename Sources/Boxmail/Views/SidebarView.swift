@@ -144,7 +144,7 @@ struct SidebarView: View {
     case .drafts: return store.drafts.filter { $0.accountId == store.accountId }.count
     case .sent: return store.cachedMessageCount(accountId: store.accountId, folder: "sent")
     case .attachments: return store.accountAttachments.count
-    case .summary: return store.accountMessages.filter { $0.summary != nil }.count
+    case .summary: return store.summaryOverviewMessages.count
     case .replies:
       return store.drafts.filter { $0.accountId == store.accountId && $0.sourceMessageId != nil }
         .count
