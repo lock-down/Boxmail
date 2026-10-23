@@ -166,7 +166,7 @@ test('reference chains join replies and missing ancestors across folders without
   repo.put('message', { ...base, id: 'next', folder: 'archive', inReplyTo: '<reply@local>', messageId: '<next@local>', date: '2026-10-23T00:00:00Z' });
   repo.put('message', { ...base, id: 'same-subject', messageId: '<other@local>' });
   repo.put('message', { ...base, id: 'foreign', accountId: 'b', references: ['<root@local>'] });
-  assert.deepEqual(conversation(repo, 'm').messages.map(m => m.id), ['m', 'sent', 'next']);
+  assert.deepEqual(conversation(repo, 'm').messages.map(m => m.id), ['m', 'next', 'sent']);
   assert.equal(conversation(repo, 'same-subject').total, 1);
   assert.equal(conversation(repo, 'foreign').total, 1);
   repo.remove('message', 'm');

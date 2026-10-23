@@ -1,11 +1,13 @@
 import { parseSearch, searchWhere } from './search-query.js';
+import { mailPreview, mailPreviewText } from './mail-preview.js';
 
 const normalize = value => String(value || '').normalize('NFKC').toLocaleLowerCase();
 const prefix = 'draft:';
 function presentDraft(draft, account) {
   return { id: prefix + draft.id, draftId: draft.id, accountId: draft.accountId, folder: 'drafts',
     sender: account.name || account.email, senderEmail: account.email, to: draft.to || '', cc: draft.cc || '', bcc: draft.bcc || '',
-    subject: draft.subject || '无主题草稿', body: draft.body || '', preview: (draft.body || '').replace(/\s+/g, ' ').slice(0, 160),
+    subject: draft.subject || '无主题草稿', body: draft.body || '',
+    preview: mailPreview({ body: draft.body, sender: account.name || account.email }),
     date: draft.updatedAt, category: '未分类', unread: false, starred: false,
     attachmentIds: draft.attachmentIds || [], bodyLoaded: true };
 }
@@ -40,8 +42,13 @@ export function draftSearchPage(repo, { query = '', accountId, folder, filter, o
   return { messages: rows.map(row => {
     const { draftSearchText, ...message } = JSON.parse(row.data);
     if (parsed.terms.length) {
-      const position = Math.max(0, draftSearchText.indexOf(normalize(parsed.terms[0])) - 28);
-      message.searchSnippet = draftSearchText.slice(position, position + 160).replace(/\n/g, ' ');
+      const term = normalize(parsed.terms[0]);
+      const files = message.attachmentIds.map(id => attachments.get(id)).filter(Boolean);
+      const snippetText = normalize([message.subject, mailPreviewText(message), message.sender, message.senderEmail,
+        message.to, message.cc, message.bcc, ...files.flatMap(file => [file.name, file.text, file.analysis])]
+        .filter(Boolean).join('\n'));
+      const position = snippetText.indexOf(term);
+      if (position >= 0) message.searchSnippet = snippetText.slice(Math.max(0, position - 28), position + 132).replace(/\n/g, ' ');
     }
     return message;
   }), total, nextOffset: offset + rows.length < total ? offset + rows.length : null };

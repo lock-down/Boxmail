@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { SearchIndex } from './search-index.js';
 import { parseSearch, searchWhere } from './search-query.js';
 import { draftSearchPage } from './draft-search.js';
+import { mailPreview } from './mail-preview.js';
 
 export class Repository {
   constructor(directory) {
@@ -59,15 +60,17 @@ export class Repository {
     return r ? JSON.parse(r.data) : null;
   }
   put(kind, value) {
-    this.db
+    const result = this.db
       .prepare(
         'INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data WHERE records.data<>excluded.data',
       )
       .run(kind, value.id, JSON.stringify(value));
+    if (kind === 'message' && result.changes) this.previewCache?.delete(value.id);
     return value;
   }
   remove(kind, id) {
     this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id);
+    if (kind === 'message') this.previewCache?.delete(id);
   }
   transaction(fn) {
     const savepoint = this.db.isTransaction ? `boxmail_${randomUUID().replaceAll('-', '')}` : null;
@@ -78,6 +81,7 @@ export class Repository {
       return r;
     } catch (e) {
       this.db.exec(savepoint ? `ROLLBACK TO SAVEPOINT ${savepoint}; RELEASE SAVEPOINT ${savepoint}` : 'ROLLBACK');
+      this.previewCache?.clear();
       throw e;
     }
   }
@@ -110,7 +114,18 @@ export class Repository {
       FROM records WHERE kind='message'${accountId === undefined ? '' : " AND json_extract(data,'$.accountId')=?"}
       ORDER BY json_extract(data,'$.date') DESC, id`)
       .all(...(accountId === undefined ? [] : [accountId]))
-      .map(row => ({ ...JSON.parse(row.data), body: '', bodyLoaded: false }));
+      .map(row => this.messageHeader(JSON.parse(row.data)));
+  }
+  messageHeader(header) {
+    // Only small derived strings are cached, never full bodies. A restored or
+    // reopened database has a new handle, so it cannot reuse an old projection.
+    if (this.previewDatabase !== this.db) {
+      this.previewDatabase = this.db;
+      this.previewCache = new Map();
+    }
+    if (!this.previewCache.has(header.id))
+      this.previewCache.set(header.id, mailPreview(this.get('message', header.id) || header));
+    return { ...header, preview: this.previewCache.get(header.id), body: '', bodyLoaded: false };
   }
   contactHeaders(accountId) {
     return this.db.prepare(`SELECT json_extract(data,'$.senderEmail') AS senderEmail,
@@ -150,12 +165,13 @@ export class Repository {
       .all(...params, limit, offset);
     const firstTerm = parseSearch(query).terms[0];
     return { messages: rows.map(row => {
-      const message = { ...JSON.parse(row.data), body: '', bodyLoaded: false };
+      const message = this.messageHeader(JSON.parse(row.data));
       return firstTerm ? { ...message, searchSnippet: this.searchIndex.snippet(message.id, firstTerm) } : message;
     }),
       total, nextOffset: offset + rows.length < total ? offset + rows.length : null };
   }
   close() {
+    this.previewCache?.clear();
     this.db.close();
   }
 }

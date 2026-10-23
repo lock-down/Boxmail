@@ -29,7 +29,8 @@ export function conversation(repo, id, { offset = 0, limit = 100 } = {}) {
   }
   const group = find(`local:${id}`);
   const members = messages.filter(message => find(`local:${message.id}`) === group)
-    .sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0) || a.id.localeCompare(b.id));
+    .sort((a, b) => Number(b.id === id) - Number(a.id === id)
+      || (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0) || a.id.localeCompare(b.id));
   return { id: createHash('sha256').update(`${selected.accountId}\n${group}`).digest('hex'),
     accountId: selected.accountId, messages: members.slice(offset, offset + limit), total: members.length,
     nextOffset: offset + limit < members.length ? offset + limit : null,

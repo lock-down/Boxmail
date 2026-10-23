@@ -1,3 +1,5 @@
+import { mailPreviewText } from './mail-preview.js';
+
 const normalize = text => String(text || '').normalize('NFKC').toLocaleLowerCase();
 const INDEX_VERSION = 3;
 function humanText(value) {
@@ -79,10 +81,21 @@ export class SearchIndex {
       partial: this.repo.list('sync').some(item => item.hasMore || item.remaining > 0), version: INDEX_VERSION };
   }
   snippet(id, term) {
-    const text = this.repo.db.prepare('SELECT text FROM mail_fts WHERE rowid=(SELECT rowid FROM search_documents WHERE message_id=?)').get(id)?.text;
+    let text = this.repo.db.prepare('SELECT text FROM mail_fts WHERE rowid=(SELECT rowid FROM search_documents WHERE message_id=?)').get(id)?.text;
     if (!text) return undefined;
-    const position = text.indexOf(normalize(term));
+    let position = text.indexOf(normalize(term));
     if (position < 0) return undefined;
+    const message = this.repo.get('message', id);
+    if (message?.body) {
+      const prefix = normalize([message.subject, message.sender, message.senderEmail, message.to, message.cc,
+        message.bcc].filter(Boolean).join('\n'));
+      const bodyStart = prefix ? prefix.length + 1 : 0;
+      if (position >= bodyStart && position < bodyStart + normalize(message.body).length) {
+        text = normalize(mailPreviewText(message));
+        position = text.indexOf(normalize(term));
+        if (position < 0) return undefined;
+      }
+    }
     const lineStart = text.lastIndexOf('\n', position) + 1;
     const lineEnd = text.indexOf('\n', position);
     const start = Math.max(lineStart, position - 35), end = Math.min(lineEnd < 0 ? text.length : lineEnd, position + 140);

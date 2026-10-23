@@ -2,7 +2,7 @@
 
 Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，以 SQLite 保存本机数据，支持通过 BYOK 接入兼容 OpenAI Responses、Chat Completions 或 Anthropic Messages 的 AI 服务。
 
-当前发布版本为 **0.0.22（build 23）**，源码标签为 `v0.0.22`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.0.22)。本版改进邮件清单校验、分段下载、文件夹失败隔离及同步进度重连；未读邮件总结逐封在后台执行，保留成功结果并继续处理后续邮件。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
+当前发布版本为 **0.0.23（build 24）**，源码标签为 `v0.0.23`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.0.23)。本版将会话改为当前邮件置顶、其余时间倒序；邮件列表与会话预览统一排除可识别的签名，保留历史引用与完整正文。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
 
 ## 功能
 
@@ -28,7 +28,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 
 测试脚本先构建 PPT 原生渲染组件，再运行后端和 Swift 测试，使用临时数据及本机模拟服务。联调、签名及发布步骤见 [开发说明](docs/DEVELOPMENT.md)。
 
-0.0.22 完整回归通过 220 项后端测试和 69 项 Swift 测试，无失败或跳过。性能测量使用独立合成数据，可通过 `node script/benchmark.mjs` 复现，测量条件及结果见开发说明。
+0.0.23 完整回归通过 240 项后端测试和 69 项 Swift 测试，无失败或跳过。性能测量使用独立合成数据，可通过 `node script/benchmark.mjs` 复现，测量条件及结果见开发说明。
 
 ## 安装包
 

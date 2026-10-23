@@ -21,7 +21,6 @@ extension MailStore {
       if !result.messages.contains(where: { $0.id == id }), let header = messages.first(where: { $0.id == id }) {
         result.messages.append(header)
       }
-      result.messages.sort { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }
       conversation = result; conversationError = nil
       if let body = detailCache[id] { conversationBodies[id] = body }
     } catch is CancellationError {} catch {

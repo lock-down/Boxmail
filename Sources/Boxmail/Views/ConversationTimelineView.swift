@@ -14,7 +14,7 @@ struct ConversationTimelineView<SelectedContent: View>: View {
             Label("往来邮件 · \(conversation.total) 封", systemImage: "bubble.left.and.bubble.right")
               .font(UIType.section)
             Spacer()
-            Text("按时间排列").font(UIType.small).foregroundStyle(Palette.muted)
+            Text("当前邮件置顶 · 时间倒序").font(UIType.small).foregroundStyle(Palette.muted)
           }
           Text(store.accounts.first(where: { $0.id == conversation.accountId })?.email ?? "当前账户")
             .font(UIType.small).foregroundStyle(Palette.muted).textSelection(.enabled)
@@ -23,18 +23,16 @@ struct ConversationTimelineView<SelectedContent: View>: View {
               .font(UIType.small).foregroundStyle(Palette.muted)
           }
         }
-        ForEach(conversation.messages) { header in
-          if header.id == selected.id {
-            VStack(alignment: .leading, spacing: 14) {
-              HStack(spacing: 8) {
-                Text("当前邮件").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.blue)
-                Text(folderTitle(header.folder)).font(UIType.small).foregroundStyle(Palette.muted)
-              }
-              selectedContent()
-            }.id("thread-\(header.id)")
-          } else {
-            ConversationMessageView(store: store, header: header).id(header.id)
+        VStack(alignment: .leading, spacing: 14) {
+          HStack(spacing: 8) {
+            Text("当前邮件").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.blue)
+            Text(folderTitle(selected.folder)).font(UIType.small).foregroundStyle(Palette.muted)
           }
+          selectedContent()
+        }.id("thread-\(selected.id)")
+        Divider().overlay(Palette.softBorder)
+        ForEach(conversation.messages.filter { $0.id != selected.id }) { header in
+          ConversationMessageView(store: store, header: header).id(header.id)
           Divider().overlay(Palette.softBorder)
         }
         if conversation.nextOffset != nil {
