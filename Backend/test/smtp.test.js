@@ -255,6 +255,8 @@ function sentMailbox(raw) {
     async connect() {}, async logout() {}, close() {},
     async list() { return [{ path: 'INBOX' }, { path: 'Sent', specialUse: '\\Sent' }]; },
     async getMailboxLock() { return { release() {} }; },
+    async status() { return { messages: 1, uidValidity: '10' }; },
+    async search() { return [7]; },
     async *fetch() {
       yield { uid: 7, size: raw.length, flags: new Set(['\\Seen']), internalDate: new Date() };
     },

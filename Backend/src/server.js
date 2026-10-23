@@ -60,6 +60,7 @@ export async function startServer({
   const clearingTrash = new Set();
   let maintenance = false, activeWrites = 0;
   const syncTasks = new Map();
+  const agentTasks = new Map();
   for (const progress of repo.list('sync').filter(p => p.status === 'running'))
     repo.put('sync', { ...progress, status: 'paused', lastError: '应用关闭中断了同步，可继续加载未完成的邮件' });
   function syncStatus() {
@@ -414,14 +415,32 @@ export async function startServer({
         if (locks.has('agent'))
           throw new ServiceError('AI 正在执行任务，请等待完成', 409);
         locks.add('agent');
-        try {
-          result = await agentRun(repo, {
-            ...body,
-            config: requestedAI(body),
-            onProgress,
-          });
-        } finally {
-          locks.delete('agent');
+        if (body.background === true) {
+          // The model call has its own deadline; an HTTP start response only
+          // transfers the job id. Polling can reconnect without resubmitting it.
+          const job = { id: randomUUID(), task: body.task, status: 'running',
+            accountId: message?.accountId || body.accountId || null, messageId,
+            attachmentId: body.attachmentId || null, createdAt: new Date().toISOString(), result: null, error: null };
+          const controller = new AbortController();
+          const worker = { controller, promise: null };
+          try {
+            const config = requestedAI(body);
+            repo.put('job', job);
+            agentTasks.set(job.id, worker);
+            worker.promise = Promise.resolve().then(() => agentRun(repo, {
+              ...body, config, onProgress, signal: controller.signal,
+            }, { jobId: job.id })).catch(error => {
+              const current = repo.get('job', job.id) || job;
+              repo.put('job', { ...current, status: controller.signal.aborted ? 'paused' : 'failed',
+                error: error instanceof ServiceError ? error.message
+                  : error.name === 'TimeoutError' ? 'AI 请求超时，可单独重试这封邮件。' : 'AI 任务未完成，请检查模型连接后重试。' });
+            }).finally(() => { locks.delete('agent'); agentTasks.delete(job.id); });
+            result = job;
+          } catch (error) { locks.delete('agent'); throw error; }
+        } else {
+          try {
+            result = await agentRun(repo, { ...body, config: requestedAI(body), onProgress });
+          } finally { locks.delete('agent'); }
         }
       } else if (
         req.method === 'POST' &&
@@ -520,7 +539,8 @@ export async function startServer({
     port: server.address().port,
     close: async () => {
       for (const task of syncTasks.values()) if (task.status === 'running') task.controller.abort();
-      await Promise.allSettled([...syncTasks.values()].map(task => task.promise));
+      for (const task of agentTasks.values()) task.controller.abort();
+      await Promise.allSettled([...syncTasks.values(), ...agentTasks.values()].map(task => task.promise));
       await organizer.close();
       await attachmentBatch.close();
       aiProgress.close();

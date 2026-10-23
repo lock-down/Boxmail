@@ -20,6 +20,8 @@ function mailbox(onList) {
       this.mailbox = { uidValidity: '10', exists: 1 };
       return { release() {} };
     },
+    async status() { return { messages: 1, uidValidity: '10' }; },
+    async search() { return [1]; },
     async *fetch() {
       yield {
         uid: 1,

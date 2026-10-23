@@ -29,7 +29,7 @@ git diff --check
 
 `test.sh` 先构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-0.0.21 的完整回归基线为 205 项后端测试、69 项 Swift 测试，无失败或跳过。原生验收使用独立 Bundle ID 和合成邮件，覆盖 HTML 原文、译文、表格及链接；发布时另用空目录验证 Release 首次启动与退出后的子进程清理。
+0.0.22 的完整回归基线为 220 项后端测试、69 项 Swift 测试，无失败或跳过。同步回归覆盖清单缺项、计数异常、文件夹失败隔离、下载预算、操作超时及大邮件分段原文字节；本机 IMAP 协议服务验证真实 ImapFlow 命令。AI 回归覆盖后台启动、进度查询、失败后继续、结果保留及退出取消，均不调用云端服务。原生验收使用独立 Bundle ID、隔离目录及合成邮件；发布时另用空目录验证 Release 首次启动与退出后的子进程清理。
 
 | 需要验证的范围 | 命令 |
 | --- | --- |

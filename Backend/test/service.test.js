@@ -484,6 +484,8 @@ test('IMAP sync preserves UID identity, does not download cached source, handles
       fake.mailbox = { uidValidity: validity, exists: 1 };
       return { release() {} };
     },
+    async status() { return { messages: 1, uidValidity: validity }; },
+    async search() { return [7]; },
     async *fetch() {
       inFetch = true;
       yield { uid: 7, size: source.length, flags, internalDate: new Date() };
@@ -681,6 +683,8 @@ test('moving a message retains local summary, categories and attachment text', a
       };
       return { release() {} };
     },
+    async status() { return { messages: fake.mailbox.exists, uidValidity: fake.mailbox.uidValidity }; },
+    async search() { return fake.mailbox.exists ? [fake.path === 'INBOX' ? 1 : 2] : []; },
     async *fetch() {
       if (fake.mailbox.exists)
         yield {

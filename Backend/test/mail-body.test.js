@@ -68,7 +68,9 @@ test('legacy cache repairs HTML once while retaining summaries, labels and attac
   const client = {
     mailbox: {}, async connect() {}, async logout() {},
     async list() { return [{ path: 'INBOX' }]; },
-    async getMailboxLock() { this.mailbox = { uidValidity: '100', exists: olderWindow ? 201 : 1 }; return { release() {} }; },
+    async getMailboxLock() { this.mailbox = { uidValidity: '100', exists: olderWindow ? 2 : 1 }; return { release() {} }; },
+    async status() { return { messages: olderWindow ? 2 : 1, uidValidity: '100' }; },
+    async search() { return olderWindow ? [7, 8] : [7]; },
     async *fetch() {
       yield { uid: 7, size: source.length, flags: new Set(['\\Seen']), internalDate: new Date() };
       if (olderWindow) yield { uid: 8, size: source.length, flags: new Set(['\\Seen']), internalDate: new Date() };

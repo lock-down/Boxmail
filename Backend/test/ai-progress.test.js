@@ -9,6 +9,7 @@ import { aiConfig } from '../src/validation.js';
 import { partialResult, progressText } from '../src/ai-progress.js';
 import { translationDocument } from '../src/translation.js';
 import { saveAttachment } from '../src/attachments.js';
+import { DatabaseSync } from 'node:sqlite';
 
 const token = 'synthetic-stream-session-0123456789';
 const mail = { id: 'm1', accountId: 'a1', folder: 'inbox', subject: 'Hello', sender: 'Test',
@@ -108,6 +109,79 @@ for (const protocol of ['openai-responses', 'openai-completions', 'anthropic-mes
     assert.equal(service.repo.get('message', 'm1').summaryHidden, false);
   });
 }
+
+test('background summaries return a job before model completion and polling never resubmits the model call', { timeout: 15000 }, async t => {
+  const ai = await provider(t, 'openai-completions', JSON.stringify({ overview: '后台完成的总结', points: ['单封结果'], todos: [] }));
+  const service = await app(t, ai.config);
+  const next = await subscription(t, service);
+  const response = await service.request('/agent', { task: 'summary', messageId: 'm1', background: true });
+  assert.equal(response.status, 200);
+  const job = await response.json();
+  assert.equal(job.status, 'running');
+  await next(event => event.output?.status === 'running');
+  for (let i = 0; i < 3; i++) {
+    const polled = await (await service.request(`/jobs/${job.id}`)).json();
+    assert.equal(polled.status, 'running');
+    assert.equal(polled.id, job.id);
+  }
+  assert.equal(service.repo.list('job').filter(j => j.task === 'summary').length, 1);
+  assert.equal((await service.request('/agent', { task: 'summary', messageId: 'm1', background: true })).status, 409);
+  ai.release();
+  await next(event => event.output?.status === 'completed');
+  const completed = await (await service.request(`/jobs/${job.id}`)).json();
+  assert.equal(completed.status, 'completed');
+  assert.equal(service.repo.get('message', 'm1').summary.overview, '后台完成的总结');
+});
+
+test('a failed background summary leaves a terminal job, retains saved results and releases the AI lock', { timeout: 15000 }, async t => {
+  const ai = await provider(t, 'openai-completions', JSON.stringify({ overview: '不完整的新总结', points: ['部分内容'] }), { truncated: true });
+  const service = await app(t, ai.config);
+  service.repo.put('message', { ...mail, summary: { overview: '原有总结', points: ['保留'] } });
+  const next = await subscription(t, service);
+  const job = await (await service.request('/agent', { task: 'summary', messageId: 'm1', background: true })).json();
+  await next(event => event.output?.status === 'running');
+  ai.release();
+  await next(event => event.output?.status === 'failed');
+  const failed = await (await service.request(`/jobs/${job.id}`)).json();
+  assert.equal(failed.status, 'failed');
+  assert.ok(failed.error);
+  assert.equal(service.repo.get('message', 'm1').summary.overview, '原有总结');
+  // Another email can start after the failure; only one email enters each API call.
+  service.repo.put('message', { ...mail, id: 'm2', summary: null });
+  const followup = await service.request('/agent', { task: 'summary', messageId: 'm2', background: true });
+  assert.equal(followup.status, 200);
+  const second = await followup.json();
+  assert.notEqual(second.id, job.id);
+  await next(event => event.output?.id === second.id && event.output?.status === 'failed');
+});
+
+test('closing the service aborts a background summary and retains a safe retryable status without credentials', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'boxmail-background-ai-'));
+  let running;
+  const started = new Promise(resolve => { running = resolve; });
+  const service = await startServer({ directory, token, demo: false,
+    agentRun: async (repo, input) => {
+      running();
+      await new Promise(resolve => input.signal.addEventListener('abort', resolve, { once: true }));
+      input.signal.throwIfAborted();
+    },
+  });
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  service.repo.put('account', { id: 'a1', email: 'me@example.com', isDemo: true });
+  service.repo.put('message', mail);
+  const response = await fetch(`http://127.0.0.1:${service.port}/agent`, { method: 'POST',
+    headers: { 'X-Boxmail-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task: 'summary', messageId: 'm1', background: true, apiKey: 'private-test-key' }) });
+  const job = await response.json();
+  await started;
+  await service.close();
+  const db = new DatabaseSync(path.join(directory, 'boxmail.sqlite'), { readOnly: true });
+  try {
+    const persisted = JSON.parse(db.prepare("SELECT data FROM records WHERE kind='job' AND id=?").get(job.id).data);
+    assert.equal(persisted.status, 'paused');
+    assert.equal(JSON.stringify(persisted).includes('private-test-key'), false);
+  } finally { db.close(); }
+});
 
 test('truncated output is visible in flight but never replaces a saved result', { timeout: 15000 }, async t => {
   const ai = await provider(t, 'openai-completions', JSON.stringify({ overview: '新的尚未完成的内容，请在输出结束之前显示。', points: ['部分内容'] }), { truncated: true });

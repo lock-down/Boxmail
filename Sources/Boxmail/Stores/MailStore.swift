@@ -47,6 +47,7 @@ import SwiftUI
   var summaryReplyRequest: SummaryReplyRequest?
   var summaryListChange: SummaryListChange?
   var summaryListError: String?
+  var unreadSummaryProgress: String?
   var attachmentResultsMessageId: String?
   var organizeError: String?
   var attachmentBatchErrors: [String: String] = [:]
@@ -122,8 +123,9 @@ import SwiftUI
       }
     } catch { startupError = error.localizedDescription }
   }
-  func refresh() async throws {
-    let state: AppSnapshot = try await BackendService.shared.request("/state?compact=1")
+  func refresh(reloadContent: Bool = true) async throws {
+    let state: AppSnapshot = try await BackendService.shared.request(
+      "/state?compact=1", timeout: reloadContent ? 190 : 30)
     accounts = state.accounts
     messages = state.messages
     drafts = state.drafts
@@ -149,7 +151,9 @@ import SwiftUI
     if let id = selectedMessageId, !ids.contains(id) {
       selectedMessageId = filteredMessages.first?.id
     }
-    await loadSelectedMessage()
+    if reloadContent || selectedMessageId.map({ detailCache[$0] == nil }) == true {
+      await loadSelectedMessage()
+    }
     watchOrganizer()
     watchAttachmentBatches()
   }
@@ -255,15 +259,34 @@ import SwiftUI
           credentialAuthorizationAccounts.insert(account.id)
           if silent { continue }
         }
+        // A lost start response or a previous polling interruption can leave a
+        // healthy background sync running. Rejoin it instead of reporting a conflict.
+        if let snapshot: MailSyncSnapshot = try? await BackendService.shared.request(
+          "/sync-status", timeout: 30), snapshot.runningAccounts.contains(account.id)
+        {
+          started.insert(account.id)
+          syncSnapshot = snapshot
+          continue
+        }
         failures.append("\(account.email)：\(error.localizedDescription)")
       }
     }
     do {
+      var pollingFailures = 0
+      var lastRefresh = Date.distantPast
       while !started.isEmpty && !Task.isCancelled {
-        let snapshot: MailSyncSnapshot = try await BackendService.shared.request(
-          "/sync-status", timeout: 10)
+        let snapshot: MailSyncSnapshot
+        do {
+          snapshot = try await BackendService.shared.request("/sync-status", timeout: 30)
+          pollingFailures = 0
+        } catch is CancellationError { return
+        } catch {
+          pollingFailures += 1
+          if pollingFailures >= 5 { throw error }
+          try await Task.sleep(for: .seconds(2))
+          continue
+        }
         syncSnapshot = snapshot
-        try await refresh()
         if !snapshot.runningAccounts.contains(where: { started.contains($0) }) {
           for result in snapshot.results
           where started.contains(result.accountId) && result.status == "failed" {
@@ -271,6 +294,10 @@ import SwiftUI
             failures.append("\(name)：\(result.error ?? "同步未完成")")
           }
           break
+        }
+        if Date().timeIntervalSince(lastRefresh) >= 4 {
+          try? await refresh(reloadContent: false)
+          lastRefresh = Date()
         }
         try await Task.sleep(for: .seconds(1))
       }
@@ -281,7 +308,8 @@ import SwiftUI
     if !failures.isEmpty {
       if !silent { error = failures.joined(separator: "\n") }
     } else if !silent {
-      notice = currentSyncFolder?.hasMore == true ? "本批同步完成，可在列表底部继续加载历史邮件。" : "邮箱同步完成"
+      let hasMore = syncSnapshot?.folders.contains { started.contains($0.accountId) && $0.hasMore == true } == true
+      notice = hasMore ? "本批同步完成，可在列表底部继续加载历史邮件。" : "邮箱同步完成"
     }
   }
   func newDraft(reply: MailMessage? = nil, forward: Bool = false, all: Bool = false) {
@@ -301,7 +329,7 @@ import SwiftUI
   func runAI(
     task: String, message: MailMessage? = nil, attachment: MailAttachment? = nil,
     prompt: String = "", body: String = "", tone: String = "正式", length: String = "适中",
-    replyPreset: ReplyPreset? = nil, preview: Bool = false
+    replyPreset: ReplyPreset? = nil, preview: Bool = false, background: Bool = false
   ) async throws -> AgentJob {
     guard !busy.contains("agent") else { throw BackendService.shared.failure("AI 正在执行任务，请稍候") }
     busy.insert("agent")
@@ -318,11 +346,32 @@ import SwiftUI
     if let attachment { input["attachmentId"] = attachment.id }
     if let replyPreset { input["replyPreset"] = replyPreset.rawValue }
     if preview { input["preview"] = true }
+    if background { input["background"] = true }
     let preparationAllowance = attachment?.isPresentation == true ? 150 : 30
-    let job: AgentJob = try await BackendService.shared.request(
+    var job: AgentJob = try await BackendService.shared.request(
       "/agent", method: "POST", body: input,
-      timeout: TimeInterval(settings.ai.timeout + preparationAllowance))
-    try await refresh()
+      timeout: background ? 15 : TimeInterval(settings.ai.timeout + preparationAllowance))
+    if background {
+      replaceJob(job)
+      var pollingFailures = 0
+      while job.status == "running" {
+        try await Task.sleep(for: .seconds(1))
+        do {
+          job = try await BackendService.shared.request("/jobs/\(job.id)", timeout: 30)
+          replaceJob(job)
+          pollingFailures = 0
+        } catch is CancellationError { throw CancellationError()
+        } catch {
+          pollingFailures += 1
+          if pollingFailures >= 5 { throw error }
+        }
+      }
+      if job.status != "completed" {
+        throw BackendService.shared.failure(job.error ?? "AI 任务未完成，可重试这封邮件。")
+      }
+    }
+    if background { try? await refresh(reloadContent: false) }
+    else { try await refresh() }
     return job
   }
   func generate(

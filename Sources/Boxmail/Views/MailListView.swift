@@ -5,6 +5,16 @@ struct MailListView: View {
   @Bindable var store: MailStore
   @ViewState<MailAccount?> private var trashAccount: MailAccount?
   private var emptyingTrash: Bool { store.busy.contains("empty-trash-\(store.accountId)") }
+  private var emptyFolderHint: String {
+    if store.busy.contains("sync") { return "正在同步，请等待服务器返回邮件。" }
+    if [.inbox, .sent].contains(store.destination), store.currentAccount?.isDemo == false,
+      ["imap.163.com", "imap.126.com", "imap.yeah.net"].contains(store.currentAccount?.imapHost.lowercased() ?? ""),
+      store.currentSyncFolder?.total == 0
+    {
+      return "若网页版有历史邮件，请在网易邮箱的 POP3/SMTP/IMAP 设置中选择“收取全部邮件”，保存后重新同步。"
+    }
+    return "点击顶部同步按钮获取邮件。"
+  }
   var body: some View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 16) {
@@ -67,8 +77,10 @@ struct MailListView: View {
       if store.filteredMessages.isEmpty {
         let emptyTrash = store.destination == .trash && store.trashMessages.isEmpty
           && store.search.isEmpty && store.filter == "全部"
-        EmptyState(title: emptyTrash ? "已删除为空" : "没有匹配的邮件",
-          subtitle: emptyTrash ? "删除的邮件会显示在这里，可恢复到原文件夹。" : "调整筛选条件，或搜索其他关键词。",
+        let unfiltered = store.search.isEmpty && store.filter == "全部"
+        EmptyState(title: emptyTrash ? "已删除为空" : unfiltered ? "此文件夹暂无邮件" : "没有匹配的邮件",
+          subtitle: emptyTrash ? "删除的邮件会显示在这里，可恢复到原文件夹。"
+            : unfiltered ? emptyFolderHint : "调整筛选条件，或搜索其他关键词。",
           icon: emptyTrash ? "trash" : "tray")
       } else {
         OverlayScrollView {

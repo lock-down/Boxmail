@@ -30,8 +30,10 @@ function mailbox(size = 1005) {
   const client = { mailbox:{}, async connect(){}, async logout(){}, close(){},
     async list(){return [{path:'INBOX'}];},
     async getMailboxLock(){this.mailbox={uidValidity:state.validity,exists:state.uids.length};return {release(){}};},
-    async *fetch(){
-      for (const uid of state.uids) {
+    async status(){return {messages:state.uids.length,uidValidity:state.validity};},
+    async search(){return [...state.uids];},
+    async *fetch(range){
+      for (const uid of state.uids.filter(uid=>range.includes(uid))) {
         if (state.failListing && uid === 3) throw new Error('connection interrupted');
         yield {uid,size:200,flags:state.flags.get(uid)||new Set(),internalDate:new Date(1792368000000+uid*1000)};
       }
@@ -70,7 +72,7 @@ test('history backfill resumes after interruption and restart without redownload
   assert.equal(repo.list('message').length,200);
   assert.equal(repo.list('sync')[0].remaining,805);
   state.failUID=755;
-  await assert.rejects(syncAccount(repo,{...account},'not-persisted',{clientFactory:()=>client}),/offline/);
+  await assert.rejects(syncAccount(repo,{...account},'not-persisted',{clientFactory:()=>client}),/收件箱.*IMAP/);
   assert.equal(repo.list('message').length,250);
   assert.equal(repo.list('sync')[0].status,'failed');
   repo.close();

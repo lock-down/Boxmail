@@ -9,6 +9,7 @@ import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
 import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder } from './mail-folders.js';
 import { clearTrash } from './mail-trash.js';
+import { imapOperation, mailboxMetadata, messageSource } from './mail-sync.js';
 
 // Status changes re-read the stored draft, so a slow send never writes back the snapshot it
 // started with and clobbers fields saved in the meantime.
@@ -97,45 +98,53 @@ export async function syncAccount(
   repo,
   account,
   password,
-  { clientFactory = clientFor, batchSize = 200, folder: requestedFolder, signal } = {},
+  { clientFactory = clientFor, batchSize = 200, folder: requestedFolder, signal,
+    downloadBudgetMs = 20000, operationTimeoutMs = 45000 } = {},
 ) {
-  const client = clientFactory(account, password);
+  let client = clientFactory(account, password);
+  const operationOptions = { signal, timeoutMs: operationTimeoutMs };
+  const perform = operation => imapOperation(client, operation, operationOptions);
   let count = 0;
   let repaired = 0;
   let skipped = 0;
   let currentSync;
-  const abort = () => client.close();
+  const failures = [];
+  const names = { inbox: '收件箱', sent: '已发送', drafts: '草稿箱', archive: '已归档', trash: '已删除', spam: '垃圾邮件' };
+  const abort = () => client?.close();
   signal?.addEventListener('abort', abort, { once: true });
   try {
     signal?.throwIfAborted();
-    try { await client.connect(); }
+    try { await perform(() => client.connect()); }
     catch (error) { throw mailServiceError(error, 'IMAP', account); }
-    const folders = await client.list();
+    const folders = await perform(() => client.list());
     discoverMailFolders(account, folders);
     await applyMailMutations(repo, account, client);
-    for (const [folder, remotePath] of Object.entries(account.folders).filter(
-      ([f]) => ['inbox', 'sent', 'trash', 'drafts', 'archive', 'spam'].includes(f)
-        && (!requestedFolder || requestedFolder === f),
-    )) {
+    if (requestedFolder && !account.folders[requestedFolder])
+      throw new ServiceError(`服务器未提供${names[requestedFolder] || '该'}文件夹，请检查网页版邮箱及收取范围。`, 502);
+    for (const folder of Object.keys(names).filter(f => account.folders[f] && (!requestedFolder || requestedFolder === f))) {
+      const remotePath = account.folders[folder];
       signal?.throwIfAborted();
       const syncId = createHash('sha256').update(`${account.id}:${remotePath}`).digest('hex');
       const previous = repo.get('sync', syncId);
       currentSync = { ...previous, id: syncId, accountId: account.id, folder, remotePath,
-        status: 'running', lastError: null, updatedAt: new Date().toISOString() };
+        status: 'running', lastError: null, inventory: {}, updatedAt: new Date().toISOString() };
       repo.put('sync', currentSync);
-      const lock = await client.getMailboxLock(remotePath, { readOnly: true });
+      let lock;
       try {
-        const validity = String(client.mailbox.uidValidity);
-        // Finish the metadata pass before reconciling deletions or issuing another IMAP command.
-        const fetched = [];
-        if (client.mailbox.exists) {
-          for await (const remote of client.fetch('1:*',
-            { uid: true, flags: true, size: true, internalDate: true, envelope: true }, { uid: false })) {
-            signal?.throwIfAborted();
-            fetched.push(remote);
-          }
+        // A failed SELECT or download may leave the connection unusable. The next
+        // folder gets a fresh session instead of inheriting that failure.
+        if (!client) {
+          client = clientFactory(account, password);
+          await perform(() => client.connect());
         }
-        signal?.throwIfAborted();
+        lock = await perform(() => client.getMailboxLock(remotePath, { readOnly: true }));
+        const { fetched, validity } = await mailboxMetadata(client, remotePath, {
+          ...operationOptions,
+          onInventory: snapshot => {
+            currentSync = { ...currentSync, inventory: { ...currentSync.inventory, ...snapshot } };
+            repo.put('sync', currentSync);
+          },
+        });
         const seen = new Set(fetched.map(m => m.uid));
         const stored = repo.list('message', { accountId: account.id, remotePath });
         const cached = new Map(stored.filter(m => m.uidValidity === validity).map(m => [m.uid, m]));
@@ -188,20 +197,26 @@ export async function syncAccount(
           highestUID = Math.max(highestUID, uid);
         }
         currentSync = { ...currentSync, uidValidity: validity, total: fetched.length,
-          downloaded: cached.size, remaining: missing.length, hasMore: missing.length > 0 };
+          downloaded: cached.size, remaining: missing.length, hasMore: missing.length > 0,
+          beforeUID: Number.isFinite(beforeUID) ? beforeUID : undefined,
+          highestUID: Number.isFinite(highestUID) ? highestUID : undefined };
         repo.put('sync', currentSync);
+        const downloadStarted = performance.now();
+        let processed = 0;
         for (const remote of missing.slice(0, Math.min(200, Math.max(1, batchSize)))) {
           signal?.throwIfAborted();
+          if (processed && performance.now() - downloadStarted >= downloadBudgetMs) break;
+          processed++;
           const id = createHash('sha256').update(`${account.id}:${remotePath}:${validity}:${remote.uid}`).digest('hex');
           const old = repo.get('message', id);
           let parsed;
           if (remote.size <= 25 * 1024 * 1024) {
-            const full = await client.fetchOne(remote.uid, { source: true }, { uid: true });
-            if (!full?.source) {
+            const source = await messageSource(client, remote, operationOptions);
+            if (!source) {
               // A message can disappear between listing and downloading. Retry on the next pass.
               skipped++; continue;
             }
-            parsed = await simpleParser(full.source, { skipHtmlToText: true, skipTextToHtml: true });
+            parsed = await simpleParser(source, { skipHtmlToText: true, skipTextToHtml: true });
           } else {
             skipped++;
             parsed = { ...remote.envelope, text: '该邮件超过 25 MB，暂未下载正文，请在邮箱服务商查看原邮件。',
@@ -295,7 +310,16 @@ export async function syncAccount(
         currentSync = { ...currentSync, status: currentSync.hasMore ? 'partial' : 'completed',
           updatedAt: new Date().toISOString() };
         repo.put('sync', currentSync);
-      } finally { lock.release(); }
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        const safe = mailServiceError(error, 'IMAP', account);
+        currentSync = { ...currentSync, status: 'failed', lastError: safe.message,
+          updatedAt: new Date().toISOString() };
+        repo.put('sync', currentSync);
+        failures.push(`${names[folder]}：${safe.message}`);
+        client?.close?.();
+        client = null;
+      } finally { lock?.release(); }
     }
     // The account may have been edited while the sync ran: merge this sync's folder discoveries
     // and lastSync into the latest record instead of writing back the pre-sync snapshot.
@@ -307,18 +331,22 @@ export async function syncAccount(
     });
     repo.event(
       'sync',
-      `${account.email}：新增 ${count} 封，补齐 ${repaired} 封正文，跳过 ${skipped} 个超限邮件`,
+      `${account.email}：新增 ${count} 封，补齐 ${repaired} 封正文，跳过 ${skipped} 个邮件${failures.length ? `，${failures.length} 个文件夹未完成` : ''}`,
     );
+    if (failures.length) throw new ServiceError(failures.join('\n'), 502);
     return { count, repaired, skipped, ok: true };
   } catch (error) {
-    if (currentSync) repo.put('sync', { ...currentSync,
+    if (currentSync?.status === 'running') repo.put('sync', { ...currentSync,
       status: signal?.aborted ? 'paused' : 'failed',
-      lastError: signal?.aborted ? '同步已中断，下次将继续未完成的邮件' : '同步未完成，请检查网络与邮箱配置后重试',
+      lastError: signal?.aborted ? '同步已中断，下次将继续未完成的邮件' : mailServiceError(error, 'IMAP', account).message,
       updatedAt: new Date().toISOString() });
     throw error;
   } finally {
     signal?.removeEventListener('abort', abort);
-    await client.logout().catch(() => client.close());
+    if (client) {
+      const active = client;
+      await imapOperation(active, () => active.logout(), { timeoutMs: 2000 }).catch(() => active.close());
+    }
   }
 }
 export function updateMessage(repo, id, input) {

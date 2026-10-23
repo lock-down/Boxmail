@@ -11,7 +11,7 @@ import { progressText } from './ai-progress.js';
 import { translationDocument } from './translation.js';
 export { completion } from './responses.js';
 
-export async function runAgent(repo, input) {
+export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
   const message = input.messageId ? repo.get('message', input.messageId) : null;
   if (input.messageId && !message) throw new ServiceError('邮件不存在', 404);
   if (message && input.accountId && message.accountId !== input.accountId)
@@ -74,7 +74,7 @@ export async function runAgent(repo, input) {
       length: input.length || '适中',
     };
   const job = {
-    id: randomUUID(),
+    id: jobId,
     task,
     status: 'running',
     accountId: input.accountId || message?.accountId || null,

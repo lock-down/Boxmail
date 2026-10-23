@@ -25,12 +25,9 @@ struct SummaryOverviewView: View {
           Spacer(minLength: 12)
           ActionButton(title: store.busy.contains("summarize-unread") ? "正在总结…" : "总结未读邮件",
             icon: "sparkles", kind: .ai) {
-            store.action("summarize-unread") {
-              for message in store.unreadInboxMessages.filter({ $0.summary == nil }).prefix(10) {
-                _ = try await store.runAI(task: "summary", message: message)
-              }
-            }
-          }.disabled(store.busy.contains("agent") || store.unreadInboxMessages.allSatisfy { $0.summary != nil })
+            store.summarizeUnread()
+          }.disabled(store.busy.contains("summarize-unread") || store.busy.contains("agent")
+            || store.unreadInboxMessages.allSatisfy { $0.summary != nil })
         }
         HStack(spacing: 24) {
           metric("列表摘要", listed.count)
@@ -57,6 +54,9 @@ struct SummaryOverviewView: View {
             .transition(.opacity)
         }
         if let error = store.summaryListError { WorkflowNotice(text: error, icon: "exclamationmark.circle", color: Palette.amber) }
+        if let progress = store.unreadSummaryProgress {
+          Text(progress).font(UIType.caption).foregroundStyle(Palette.muted)
+        }
         if !showingRemoved {
           ForEach(outputs) { output in
             VStack(alignment: .leading, spacing: 12) {
@@ -85,7 +85,10 @@ struct SummaryOverviewView: View {
         if ids.isEmpty { selecting = false }
       }
       .onChange(of: showingRemoved) { _, _ in selected = []; selecting = false }
-      .onChange(of: store.accountId) { _, _ in selected = []; selecting = false; showingRemoved = false }
+      .onChange(of: store.accountId) { _, _ in
+        selected = []; selecting = false; showingRemoved = false
+        store.unreadSummaryProgress = nil; store.summaryListError = nil
+      }
       .onChange(of: store.restoreRevision) { _, _ in selected = []; selecting = false; showingRemoved = false }
   }
 

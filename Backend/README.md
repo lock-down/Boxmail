@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.0.21 包含邮件操作事务、账户清理保护及查询优化；数据库结构版本继续为 2。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.0.22 增加 UID 清单校验、分段下载、文件夹失败隔离与单封 AI 后台任务；数据库结构版本继续为 2。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 ## 独立启动
 
@@ -78,7 +78,7 @@ npm start
 | POST | `/ai/test` | `config`、`apiKey`；实际请求模型，可能产生费用 |
 | GET | `/ai/models` | 可选 `baseURL`、`providerId`、`apiProtocol`；只读取本机列表缓存 |
 | POST | `/ai/models` | `config`、`apiKey`；刷新服务商列表，成功后替换缓存 |
-| POST | `/agent` | `task`、`apiKey` 及任务参数；单封任务返回结果，classify 兼容后台整理 |
+| POST | `/agent` | `task`、`apiKey` 及任务参数；可选 `background: true` 立即返回单封 Job，用 `/jobs/:id` 获取结果；缺省等待最终结果，classify 兼容后台整理 |
 | POST | `/organize` | `accountId`、`apiKey`、`scope`（unclassified / inbox）、`limit`（1 至 200）；立即返回后台任务 |
 | POST | `/messages/:id/attachments/analyze` | `accountId`、`apiKey`；批量处理，`force: true` 重新理解全部 |
 | GET | `/jobs/:id` | 任务及批次进度 |
@@ -97,7 +97,9 @@ npm start
 
 导入要求精确提供文件内邮箱与服务商的凭证引用：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；所有服务商的密钥由 Swift 客户端读写，不进入配置 HTTP 请求。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
 
-每个文件夹同步先完整读取 UID 和标志，再校准本机缓存，下载最多 200 封缺失或需修复正文，逐封持久化 `sync` 进度；元数据读取不完整时不据此删除缓存，包括 UIDVALIDITY 已变化的旧缓存。UIDVALIDITY 变化取消旧待提交操作，本机附加信息放入 `recovery`，只按同账户唯一 Message-ID 恢复，歧义记录保留。同步按账户和服务器文件夹查询记录，标志无变化时跳过写入；UID 上下界增量计算。同步结束以最新账户记录为基准合并 `folders` 与 `lastSync`，同步期间保存的账号设置不被覆盖。
+每个文件夹用 STATUS 与 UID SEARCH ALL 核对邮件数量，再按每页最多 200 个 UID 读取元数据，逐页校验完整性后才校准缓存；EXAMINE 的缺失或误报计数不会直接当作空文件夹。`sync.inventory` 保留 selectedCount、statusCount、uidCount、metadataCount 四个计数，供诊断核对。清单失败或不完整时保留缓存，包括 UIDVALIDITY 已变化的旧缓存；服务器确认删除的邮件放入 `recovery`。服务商收取范围也会改变 IMAP 可见清单，客户端无法绕过，排查方法见使用指南。
+
+每个文件夹每批最多下载 200 封正文，并在约 20 秒预算后的下一封开始前让出；超过 1 MB 的 MIME 原文以 256 KB 分段读取，单次 IMAP 读取限时 45 秒，逐封保存进度。文件夹出错后关闭连接，重连并继续下一文件夹，最终汇总安全错误。客户端进度请求支持重试，每 4 秒刷新一次列表，过程中复用已打开正文，结束时完整刷新。UIDVALIDITY 变化取消旧待提交操作，附加信息只按同账户唯一 Message-ID 恢复，歧义记录保留；标志无变化时跳过写入。同步结束以最新账户记录合并 `folders` 与 `lastSync`，保留期间保存的设置。
 
 `imapTLS` / `smtpTLS` 的 true 表示 SSL/TLS 直连，false 表示必须 STARTTLS，均验证证书。连接测试分别报告协议结果，错误不回显凭证或原始认证数据。邮件保留 Reply-To、In-Reply-To、References；`bodyVersion: 1` 标记清理后的 HTML / CID 正文，旧缓存修复保留附件、摘要和标签。
 
@@ -143,7 +145,7 @@ npm start
 
 单封总结和回复携带每份附件的名称、最多 16,000 字符提取文本和 16,000 字符已有分析，截取单独标明，整体保持有效 JSON。附件分析校验邮件归属，附带主题、发件人及最多 5,000 字正文。
 
-`GET /ai/events` 使用与其他接口相同的 `X-Boxmail-Token`，返回 SSE：连接时发送 `{type:"snapshot",outputs:[...]}`，随后发送 `{type:"update",output:{id,task,status,accountId,messageId,attachmentId,parentJobId,text,html?,stage?}}`。15 秒心跳维持连接；重连获取活动任务快照，慢消费者断开后重连，服务关闭清理所有订阅。单封 `/agent` 仍返回最终 Job，批量附件及整理保留原任务控制接口。三种协议的文本增量均转为可读预览，不转发推理、工具内容或 JSON 语法；中间结果只保存在内存，最终响应须通过完整性及任务校验后才能提交数据库。
+`GET /ai/events` 使用与其他接口相同的 `X-Boxmail-Token`，返回 SSE：连接时发送 `{type:"snapshot",outputs:[...]}`，随后发送 `{type:"update",output:{id,task,status,accountId,messageId,attachmentId,parentJobId,text,html?,stage?}}`。15 秒心跳维持连接；重连获取活动任务快照，慢消费者断开后重连，服务关闭清理所有订阅。单封 `/agent` 缺省返回最终 Job，`background:true` 立即返回运行中的 Job，随后 GET `/jobs/:id` 查询，不重复提交模型请求；后台任务沿用单封 AI 锁与独立超时，关闭服务时取消并保存可重试状态。未读邮件总结仍由客户端每次最多选择 10 封逐封执行，一封失败后继续下一封。API Key 只在内存中用于本次任务。三种协议的文本增量均转为可读预览，不转发推理、工具内容或 JSON 语法；中间结果只保存在内存，最终响应须通过完整性及任务校验后才能提交数据库。
 
 翻译仅发送主题和 `{segments:[{id,text}]}`，要求同序同 ID 的逐段译文；缺段、重复或未知 ID 拒绝保存。HTML 经原邮件清理规则后按文字节点对齐，只更改文字并转义，不接受模型生成的 HTML；`pre/code/kbd/samp`、独立 URL 和邮箱保持原样。纯文本邮件保留换行及空行。结果保存为 `translation` 和可选 `translationHTML`；列表及紧凑快照省略这两个大字段，同步保留完整译文。既有纯文本译文兼容读取，客户端可重新翻译以恢复 HTML 排版。
 

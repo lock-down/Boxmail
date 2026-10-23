@@ -14,6 +14,41 @@ struct SummaryListChange {
 private struct SummaryVisibilityResponse: Decodable { let messageIds: [String] }
 
 extension MailStore {
+  func summarizeUnread() {
+    guard !busy.contains("summarize-unread"), !busy.contains("agent") else { return }
+    let requestedAccount = accountId
+    let pending = Array(unreadInboxMessages.filter { $0.summary == nil }.prefix(10))
+    guard !pending.isEmpty else { return }
+    busy.insert("summarize-unread")
+    summaryListError = nil
+    Task {
+      defer { busy.remove("summarize-unread") }
+      var completed = 0
+      var failures: [String] = []
+      for (index, message) in pending.enumerated() {
+        if Task.isCancelled || accountId != requestedAccount { break }
+        unreadSummaryProgress = "正在总结第 \(index + 1)/\(pending.count) 封，每次处理一封。"
+        do {
+          _ = try await runAI(task: "summary", message: message, background: true)
+          completed += 1
+        } catch is CancellationError { break
+        } catch {
+          failures.append("\(message.subject)：\(error.localizedDescription)")
+          if KeychainService.requiresAuthorization(error) { break }
+          try? await refresh(reloadContent: false)
+          // A failed progress request does not cancel the server's model call.
+          // Wait for that job to finish before accepting another batch.
+          if jobs.contains(where: { $0.messageId == message.id && $0.status == "running" }) { break }
+        }
+      }
+      if accountId == requestedAccount {
+        unreadSummaryProgress = "已完成 \(completed)/\(pending.count) 封\(failures.isEmpty ? "。" : "，失败 \(failures.count) 封，可再次点击重试未完成邮件。")"
+        if !failures.isEmpty { summaryListError = failures.joined(separator: "\n") }
+      } else { unreadSummaryProgress = nil }
+      try? await refresh()
+    }
+  }
+
   var summaryOverviewMessages: [MailMessage] {
     accountMessages.filter(\.isInSummaryOverview).sorted { $0.date > $1.date }
   }

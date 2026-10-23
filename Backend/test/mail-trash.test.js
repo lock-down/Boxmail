@@ -45,6 +45,7 @@ function mailbox() {
       this.mailbox = { uidValidity: selected.validity, exists: selected.messages.size };
       return { release() {} };
     },
+    async status() { return { messages: selected.messages.size, uidValidity: selected.validity }; },
     async *fetch() {
       for (const [uid, item] of selected.messages)
         yield { uid, flags: item.flags, size: item.source.length };
@@ -52,6 +53,7 @@ function mailbox() {
     async fetchOne(uid) { return selected.messages.get(uid); },
     async search(query, options) {
       assert.equal(options.uid, true);
+      if (query.all) return [...selected.messages.keys()];
       const id = query.header['Message-ID'];
       return [...selected.messages].filter(([, item]) => item.source.includes(`Message-ID: ${id}\r\n`)).map(([uid]) => uid);
     },

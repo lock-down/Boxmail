@@ -50,7 +50,9 @@ try {
     async connect() {}, async logout() {}, close() {},
     async list() { return [{ path: 'INBOX' }]; },
     async getMailboxLock() { return { release() {} }; },
-    async *fetch() { for (const item of target) yield { uid: item.uid, flags: new Set(['\\Seen']), size: 100 }; },
+    async status() { return { messages: target.length, uidValidity: '10' }; },
+    async search() { return target.map(item => item.uid); },
+    async *fetch(range) { for (const item of target.filter(item => range.includes(item.uid))) yield { uid: item.uid, flags: new Set(['\\Seen']), size: 100 }; },
     async fetchOne() { throw new Error('完整缓存不应重复下载正文'); },
   };
   await measure('unchangedSyncMs', async () => {
