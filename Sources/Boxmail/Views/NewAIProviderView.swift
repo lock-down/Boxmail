@@ -66,7 +66,7 @@ struct NewAIProviderView: View {
           HStack {
             Text("模型参数按服务商提供的能力填写。").font(UIType.small).foregroundStyle(Palette.muted)
             Spacer()
-            SettingsInlineAction(title: fetching ? "正在获取…" : "获取可用模型", icon: "arrow.clockwise") { fetchModels() }
+            SettingsInlineAction(title: fetching ? "正在获取…" : "获取模型", icon: "arrow.clockwise") { fetchModels() }
               .disabled(fetching || provider.id.isEmpty || provider.baseURL.isEmpty)
           }
           AIModelCatalogEditor(models: $models, selectedModel: $model, apiProtocol: apiProtocol)
