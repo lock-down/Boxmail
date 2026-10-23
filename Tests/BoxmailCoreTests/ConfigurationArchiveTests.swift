@@ -29,7 +29,7 @@ private func configurationFixture() -> ConfigurationArchive {
 @Test func configurationArchiveRejectsUnknownFormatsIncompleteSecretsAndOversizedFiles() throws {
   let original = try JSONEncoder().encode(configurationFixture())
   var object = try #require(JSONSerialization.jsonObject(with: original) as? [String: Any])
-  for (key, replacement) in [("format", "foreign-document" as Any), ("version", 2 as Any),
+  for (key, replacement) in [("format", "foreign-document" as Any), ("version", 3 as Any),
     ("credentials", ["mailPasswords": [:], "aiKey": ""] as Any)] {
     var damaged = object; damaged[key] = replacement
     let bytes = try JSONSerialization.data(withJSONObject: damaged)

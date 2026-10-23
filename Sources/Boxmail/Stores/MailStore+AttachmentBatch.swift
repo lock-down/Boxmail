@@ -14,10 +14,11 @@ extension MailStore {
     Task {
       defer { busy.remove(control) }
       do {
-        let key = try KeychainService.read("ai-key")
+        let key = try KeychainService.read(settings.ai.credentialAccount)
         let updated: AgentJob = try await BackendService.shared.request(
           job.map { "/jobs/\($0.id)/retry" } ?? "/messages/\(message.id)/attachments/analyze",
-          method: "POST", body: ["accountId": message.accountId, "apiKey": key, "force": force],
+          method: "POST", body: ["accountId": message.accountId, "apiKey": key,
+            "providerId": settings.ai.providerId, "force": force],
           timeout: 15)
         replaceJob(updated)
         watchAttachmentBatches()

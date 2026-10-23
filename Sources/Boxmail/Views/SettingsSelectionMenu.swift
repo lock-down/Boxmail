@@ -29,7 +29,8 @@ struct SettingsSelectionMenu: NSViewRepresentable {
   func updateNSView(_ button: SelectionButton, context: Context) {
     button.model = model
     button.effort = effort
-    button.setAccessibilityValue(model + "，" + effort)
+    button.setAccessibilityLabel(effort.isEmpty ? "模型" : "模型与思考等级")
+    button.setAccessibilityValue(effort.isEmpty ? model : model + "，" + effort)
     button.menu = context.coordinator.makeMenu(groups)
     button.needsDisplay = true
   }
@@ -130,7 +131,7 @@ struct SettingsSelectionMenu: NSViewRepresentable {
       let font = NSFont.systemFont(ofSize: 12)
       let y = (bounds.height - 16) / 2
       (model as NSString).draw(
-        in: NSRect(x: 10, y: y, width: bounds.width - 92, height: 18),
+        in: NSRect(x: 10, y: y, width: bounds.width - (effort.isEmpty ? 36 : 92), height: 18),
         withAttributes: [.font: font, .foregroundColor: NSColor(Palette.ink), .paragraphStyle: paragraph])
       paragraph.alignment = .right
       (effort as NSString).draw(

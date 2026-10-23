@@ -302,9 +302,10 @@ import SwiftUI
     guard !busy.contains("agent") else { throw BackendService.shared.failure("AI 正在执行任务，请稍候") }
     busy.insert("agent")
     defer { busy.remove("agent") }
-    let key = try KeychainService.read("ai-key")
+    let key = try KeychainService.read(settings.ai.credentialAccount)
     var input: [String: Any] = [
-      "task": task, "apiKey": key, "accountId": message?.accountId ?? accountId, "prompt": prompt,
+      "task": task, "apiKey": key, "providerId": settings.ai.providerId,
+      "accountId": message?.accountId ?? accountId, "prompt": prompt,
       "body": body,
       "tone": tone, "length": length,
     ]
@@ -360,10 +361,10 @@ import SwiftUI
     Task {
       defer { busy.remove("organize-control") }
       do {
-        let key = try KeychainService.read("ai-key")
+        let key = try KeychainService.read(settings.ai.credentialAccount)
         let updated: AgentJob = try await BackendService.shared.request(
           job.map { "/jobs/\($0.id)/retry" } ?? "/organize", method: "POST",
-          body: ["accountId": accountId, "apiKey": key, "scope": scope, "limit": limit])
+          body: ["accountId": accountId, "apiKey": key, "providerId": settings.ai.providerId, "scope": scope, "limit": limit])
         replaceJob(updated)
         watchOrganizer()
       } catch { organizeError = error.localizedDescription }

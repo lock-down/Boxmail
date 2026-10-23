@@ -93,6 +93,12 @@ export async function startServer({
   if (!saved.ai.effort && !saved.ai.model && saved.ai.baseURL === 'https://api.openai.com/v1')
     savedAI = { ...savedAI, baseURL: DEFAULT_AI.baseURL, model: DEFAULT_AI.model };
   repo.put('settings', { ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, ai: aiConfig(savedAI, { requireModel: false }) });
+  function requestedAI(body) {
+    const config = repo.get('settings', 'settings').ai;
+    if (body.providerId !== undefined && body.providerId !== config.providerId)
+      throw new ServiceError('AI 服务商已切换，请刷新后重试', 409);
+    return config;
+  }
   categoryCatalog(repo);
   function presentMessage(message) {
     if (message.folder === 'trash') return { ...message,
@@ -326,8 +332,13 @@ export async function startServer({
         result = repo.put('message', m);
       } else if (req.method === 'POST' && route === '/settings') {
         const old = repo.get('settings', 'settings');
+        // Older clients edit the active connection through flat fields.
+        const providerChanges = body.ai && !body.ai.providers && old.ai.providers
+          ? { providers: old.ai.providers.map(provider => provider.id === (body.ai.providerId || old.ai.providerId)
+            ? { ...provider, ...Object.fromEntries(['baseURL', 'model', 'apiProtocol']
+              .filter(key => body.ai[key] !== undefined).map(key => [key, body.ai[key]])) } : provider) } : {};
         const ai = body.ai
-          ? aiConfig({ ...old.ai, ...body.ai, prompts: { ...old.ai.prompts, ...body.ai.prompts } }, { requireModel: false })
+          ? aiConfig({ ...old.ai, ...body.ai, ...providerChanges, prompts: { ...old.ai.prompts, ...body.ai.prompts } }, { requireModel: false })
           : old.ai;
         const p = body.preferences || old.preferences;
         const preferences = {
@@ -344,18 +355,22 @@ export async function startServer({
         });
         result = { ok: true };
       } else if (req.method === 'GET' && route === '/ai/models') {
-        result = cachedModelCatalog(repo,
-          url.searchParams.get('baseURL') || repo.get('settings', 'settings').ai.baseURL);
+        const ai = repo.get('settings', 'settings').ai;
+        result = cachedModelCatalog(repo, {
+          baseURL: url.searchParams.get('baseURL') || ai.baseURL,
+          providerId: url.searchParams.get('providerId') || (url.searchParams.has('baseURL') ? 'default' : ai.providerId),
+          apiProtocol: url.searchParams.get('apiProtocol') || (url.searchParams.has('baseURL') ? 'openai-responses' : ai.apiProtocol),
+        });
       } else if (req.method === 'POST' && route === '/ai/models') {
         result = await refreshModelCatalog(repo, body.config, body.apiKey);
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/attachments\/analyze$/.test(route)) {
         const message = repo.get('message', route.split('/')[2]);
         if (clearingTrash.has(message?.accountId)) throw new ServiceError('正在清空已删除邮件，请稍候', 409);
         if (locks.has('agent')) throw new ServiceError('AI 正在执行任务，请等待完成', 409);
-        result = attachmentBatch.start({ ...body, messageId: route.split('/')[2], config: repo.get('settings', 'settings').ai });
+        result = attachmentBatch.start({ ...body, messageId: route.split('/')[2], config: requestedAI(body) });
       } else if (req.method === 'POST' && (route === '/organize' || (route === '/agent' && body.task === 'classify'))) {
         if (clearingTrash.has(body.accountId)) throw new ServiceError('正在清空已删除邮件，请稍候', 409);
-        result = organizer.start({ ...body, config: repo.get('settings', 'settings').ai });
+        result = organizer.start({ ...body, config: requestedAI(body) });
       } else if (req.method === 'GET' && /^\/jobs\/[^/]+$/.test(route)) {
         result = repo.get('job', route.split('/')[2]);
         if (!result) throw new ServiceError('任务不存在', 404);
@@ -371,10 +386,10 @@ export async function startServer({
         if (job.task === 'attachmentBatch' && locks.has('agent'))
           throw new ServiceError('AI 正在执行任务，请等待完成', 409);
         result = (job.task === 'attachmentBatch' ? attachmentBatch : organizer).start({ accountId: job.accountId, apiKey: body.apiKey,
-          config: repo.get('settings', 'settings').ai }, id);
+          config: requestedAI(body) }, id);
       } else if (req.method === 'POST' && route === '/agent') {
-        const message = repo.get('message', body.messageId
-          || repo.get('attachment', body.attachmentId)?.messageId);
+        const messageId = body.messageId || (body.attachmentId ? repo.get('attachment', body.attachmentId)?.messageId : null);
+        const message = messageId ? repo.get('message', messageId) : null;
         if (clearingTrash.has(message?.accountId || body.accountId))
           throw new ServiceError('正在清空已删除邮件，请稍候', 409);
         if (body.task === 'attachment') {
@@ -388,7 +403,7 @@ export async function startServer({
         try {
           result = await agentRun(repo, {
             ...body,
-            config: repo.get('settings', 'settings').ai,
+            config: requestedAI(body),
           });
         } finally {
           locks.delete('agent');

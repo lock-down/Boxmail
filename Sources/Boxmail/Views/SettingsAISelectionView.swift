@@ -1,34 +1,38 @@
+import BoxmailCore
 import SwiftUI
 
 struct SettingsAISelectionView: View {
   @Binding var model: String
   @Binding var effort: String
-  let models: [String]
+  let models: [AIModel]
+  var effortLevels: [String] = []
+  private var showsEffort: Bool { !effortLevels.isEmpty }
   @ViewState<Bool> private var editingModel = false
 
   private var effortName: String { effort.capitalized }
   private var availableModels: [String] {
     var seen = Set<String>()
-    return ([model] + models).filter { !$0.isEmpty && seen.insert($0).inserted }
+    return ([model] + models.map(\.id)).filter { !$0.isEmpty && seen.insert($0).inserted }
   }
 
   var body: some View {
     SettingsSelectionMenu(
-      model: model.isEmpty ? "选择模型" : model, effort: effortName,
+      model: displayName(model), effort: showsEffort ? effortName : "",
       groups: [
-        .init(title: "模型", value: model.isEmpty ? "选择模型" : model, items: modelItems),
-        .init(title: "思考等级", value: effortName, items: effortItems),
-      ])
+        .init(title: "模型", value: displayName(model), items: modelItems),
+      ] + (showsEffort ? [.init(title: "思考等级", value: effortName, items: effortItems)] : []))
       .frame(width: SettingsFormLayout.modelSelectorWidth, height: SettingsFormLayout.controlHeight)
-      .help("选择模型与思考等级")
+      .help(showsEffort ? "选择模型与思考等级" : "选择模型")
       .sheet(isPresented: $editingModel) {
         SettingsCustomModelEditor(model: $model)
       }
   }
 
+  private func displayName(_ id: String) -> String { models.first { $0.id == id }?.displayName ?? (id.isEmpty ? "选择模型" : id) }
+
   private var modelItems: [SettingsSelectionItem] {
     var result = availableModels.map { value in
-      SettingsSelectionItem.choice(value, selected: value == model) {
+      SettingsSelectionItem.choice(displayName(value), selected: value == model) {
         model = value
       }
     }
@@ -41,7 +45,7 @@ struct SettingsAISelectionView: View {
   }
 
   private var effortItems: [SettingsSelectionItem] {
-    ["low", "high", "max"].map { value in
+    effortLevels.map { value in
       .choice(value.capitalized, selected: value == effort) {
         effort = value
       }
@@ -50,7 +54,7 @@ struct SettingsAISelectionView: View {
 
 }
 
-private struct SettingsCustomModelEditor: View {
+struct SettingsCustomModelEditor: View {
   @Binding var model: String
   @ViewState<String> private var draft: String
   @FocusState private var focused: Bool

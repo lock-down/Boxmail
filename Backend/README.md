@@ -76,7 +76,7 @@ npm start
 | 方法 | 路径 | 参数与行为 |
 | --- | --- | --- |
 | POST | `/ai/test` | `config`、`apiKey`；实际请求模型，可能产生费用 |
-| GET | `/ai/models` | 可选 `baseURL`；只读取本机列表缓存 |
+| GET | `/ai/models` | 可选 `baseURL`、`providerId`、`apiProtocol`；只读取本机列表缓存 |
 | POST | `/ai/models` | `config`、`apiKey`；刷新服务商列表，成功后替换缓存 |
 | POST | `/agent` | `task`、`apiKey` 及任务参数；单封任务返回结果，classify 兼容后台整理 |
 | POST | `/organize` | `accountId`、`apiKey`、`scope`（unclassified / inbox）、`limit`（1 至 200）；立即返回后台任务 |
@@ -87,13 +87,15 @@ npm start
 | POST | `/jobs/:id/approve`、`/jobs/:id/undo` | 确认 / 撤销分类 |
 | POST | `/todos` | `messageId`、`todoId`、`done`；更新摘要待办 |
 
-字段以 [Swift 模型](../Sources/BoxmailCore/Models.swift)、[客户端状态与调用](../Sources/Boxmail/Stores/MailStore.swift) 和 [server.js](src/server.js) 为准。新增字段需同步两端及相关契约测试。
+字段以 [Swift 模型](../Sources/BoxmailCore/Models.swift)、[AI 配置](../Sources/BoxmailCore/AIConfig.swift)、[客户端状态与调用](../Sources/Boxmail/Stores/MailStore.swift) 和 [server.js](src/server.js) 为准。新增字段需同步两端及相关契约测试。
 
 ## 数据与同步契约
 
 `database.js` 在 WAL 模式保存 `records(kind, id, JSON)` 和活动 `events`，结构版本为 2。迁移前在数据目录 `backups/` 保存一致性数据库备份，不重置较新版本数据库。外置附件放在 `attachments/`，迁移位置由客户端在服务启动前完成，双方共同持有数据目录锁。
 
 密钥由客户端从钥匙串读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机钥匙串引用，普通设置保存和重启保留；导出移除引用，导入按邮箱合并，客户端先写新凭证，再事务切换账号、设置和引用。修订冲突及提交失败保持旧配置。
+
+导入要求精确提供文件内邮箱与服务商的凭证引用：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；所有服务商的密钥由 Swift 客户端读写，不进入配置 HTTP 请求。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
 
 每个文件夹同步先完整校准 UID 和标志，再下载最多 200 封缺失或需修复正文，逐封持久化 `sync` 进度；元数据读取不完整时不据此删除缓存。UIDVALIDITY 变化取消旧待提交操作，本机附加信息放入 `recovery`，只按同账户唯一 Message-ID 恢复，歧义记录保留。同步结束以最新账户记录为基准合并 `folders` 与 `lastSync`，同步期间保存的账号设置不被覆盖。
 
@@ -103,13 +105,39 @@ npm start
 
 全文搜索通过 SQLite 触发器登记 message / attachment / job 变化，检索时增量补齐双字符 n-gram 索引并核对子串，单字符回退。`q` 支持关键词、短语及 from / to / cc / subject / category / after / before / is / has / account / folder，参数绑定不执行原始查询。明确 `folder:drafts` 时查询未发送本机草稿，ID 带 `draft:` 前缀及 `draftId`，日期取最后更新时间，不增加普通邮件索引数。
 
-会话按同账户引用链归并，联系人只来自当前账户，分类目录及任务快照保存在 records。模型列表以规范化 API 地址作为 `modelCatalog` ID，只保存 models 和 updatedAt；成功刷新替换、合法空数组清空、失败保留，独立于设置应用与取消。
+会话按同账户引用链归并，联系人只来自当前账户，分类目录及任务快照保存在 records。模型列表按服务商 ID、协议和规范化 API 地址隔离，只保存模型 ID、服务商返回的名称及能力元数据和 updatedAt；原默认 Responses 连接沿用旧缓存 ID。成功刷新替换、合法空数组清空、失败保留，独立于设置应用与取消。Anthropic 模型列表按游标获取后一次提交，分页失败不覆盖旧缓存。
 
 备份为 SQLite 快照、附件及逐项 SHA-256 清单。恢复核验路径、未知文件、完整性、必要字段和引用，恢复前备份失败即停止；事务失败回滚并清理暂存，成功后重建派生索引。维护期拒绝并发写入，容量边界见使用指南。
 
 ## AI 请求与任务恢复
 
-`responses.js` 发送 `instructions`、`input`、`reasoning.effort` 和 JSON 输出格式，使用 SSE `stream: true`，兼容普通 JSON 响应。只读取完成的 assistant `output_text`，忽略思考内容；不发送温度或 token 上限。断流、无效或不完整结果不覆盖原结果。
+`ai` 的 `providerId` 指定当前连接，`providers` 保存最多 20 个服务商，各项包括 id、name、baseURL、apiProtocol、model、models 和 catalogConfigured。Provider ID 以小写字母开头，仅含小写字母、数字和连字符；密钥单独使用 `ai-provider-<id>` 钥匙串项，默认连接继续使用 `ai-key`。旧版平面配置自动作为默认连接，baseURL / model / apiProtocol 仍返回当前连接的镜像字段。模型 ID 可不在目录中，catalogConfigured 标记用户已配置目录，保留显式空目录。
+
+`responses.js` 统一任务提示词、Files 附件生命周期与 JSON 结果校验。`ai-protocols.js` 使用 `@earendil-works/pi-ai@1.1.0` 的三个 lazy API 工厂及 `streamSimple`，由 pi-ai 调用 `openai@7.19.0`、`@anthropic-ai/sdk@0.129.0`；模型发现和 Files 上传、删除也使用同一版本的官方 SDK。依赖精确锁定并去重，不再维护自己的推理 HTTP 请求或 SSE 解析器。
+
+| apiProtocol | 请求和完成条件 |
+| --- | --- |
+| `openai-responses` | `/responses`、Bearer 密钥、instructions / input / reasoning.effort / JSON 格式；以 completed 及 assistant output_text 为完成结果，原默认连接的图片通过 Files API，自定义连接由 pi-ai 内联 |
+| `openai-completions` | `/chat/completions`、Bearer 密钥、system / user messages / JSON 格式；只接受 assistant 正文及 stop，图片通过 data URL |
+| `anthropic-messages` | `/v1/messages`、x-api-key 和 anthropic-version；基础地址已含 `/v1` 时不重复添加；system / messages / 必需的 max_tokens，未配置时使用 32768 的能力回退值并按上下文可用量收缩，图片为 base64。流需 message_stop 及 end_turn / stop_sequence |
+
+模型目录的 `models` 现为对象数组，兼容读取旧的模型 ID 字符串数组。每个模型支持以下字段，显示名称仅用于界面，实际请求始终使用 `id`：
+
+| 字段 | 行为 |
+| --- | --- |
+| `id` / `name` | 必填且唯一的模型 ID、可选显示名称 |
+| `contextWindow` | 输入与输出共用的上下文容量。未设置时回退 262144；使用 pi-ai 的 token 估算和上下文余量收缩输出容量，显式配置且输入估算已超出时在联网前拒绝。估算不等于服务商的精确分词 |
+| `maxTokens` | 可选的单次输出上限，包含推理和回答。能力回退值 32768；OpenAI 未明确配置时不附加请求上限；明确配置后 Responses 发 `max_output_tokens`，Chat 发所选上限字段，Anthropic 发 `max_tokens` |
+| `input` | `text`、`image` 的非空数组；未知自定义模型默认仅文本，不凭协议或模型名称推断视觉能力。文本模型收到图片时在上传前拒绝 |
+| `reasoningEfforts` | `false` 关闭，或等级到发送值的字典；支持 off / minimal / low / medium / high / xhigh / max。只允许 off 的值为 null，表示不发送推理参数；启用时至少包含一个非 off 等级。模型菜单只提供已声明等级 |
+| `compat.maxTokensField` | Chat Completions 的输出上限字段，默认 `max_completion_tokens`，可选 `max_tokens` |
+| `compat.forceAdaptiveThinking` | Anthropic 为 true 时使用 `thinking: adaptive` 与 `output_config.effort` 映射值；否则使用 pi-ai 的预算模式，按等级分配思考 token 并为回答保留空间 |
+
+客户端接受 K、M 容量输入，按十进制换算为正整数保存，1K = 1000。模型获取返回 `models` ID 数组及可选 `details` 元数据，供用户勾选加入目录；已有模型的自定义参数不会被刷新覆盖。旧默认 Responses 连接保留原有视觉及 Low / High / Max 配置，明确的逐模型声明优先。
+
+三种协议均由 pi-ai 使用 SSE 请求并检查完整结束状态，只保存最终正文，忽略思考和工具内容。超时与调用者取消传给 SDK；`maxRetries: 0` 禁止一次操作隐式重试付费请求。客户端任务携带 providerId，服务端在调用前核对当前连接，不匹配返回 409；断流、无效或不完整结果不覆盖原结果。密钥只从本次调用传入，空密钥的本机服务不会读取 SDK 环境变量中的密钥或租户信息。
+
+实现对照的参考版本为 DeepSeek Harness `687f282e8625c6b8d11ff58211a90524be2e4317`：表单参数见 [ModelRow](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/ModelRow.tsx)、[容量编辑和校验](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/DeepSeekModelsEditor.tsx) 和 [推理映射](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/ModelReasoningEfforts.tsx)；运行链路见 [provider.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/provider.ts)、[catalog.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/catalog.ts) 和 [adapter.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/adapter.ts)。协议语义另核对 [OpenAI SDK](https://developers.openai.com/api/docs/libraries) 和 [Anthropic 思考模式](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)。
 
 单封总结、回复和翻译携带每份附件的名称、最多 16,000 字符提取文本和 16,000 字符已有分析，截取单独标明，整体保持有效 JSON。附件分析校验邮件归属，附带主题、发件人及最多 5,000 字正文。
 
@@ -123,7 +151,7 @@ npm start
 
 附件批量任务按邮件顺序保存 attachmentItems，状态为 pending / running / completed / existing / failed / unsupported。重复点击复用运行任务，重试保留原范围，新增任务才纳入新附件；入队和执行前检查所属邮件及账户，失败继续后续文件并保留旧分析。
 
-图片通过 Files 上传，以 `input_image.file_id` 引用，设置一小时过期并在结束后尝试删除。PDF 逐页转 PNG，PPT 经 `presentations.js` 和原生组件转 PDF 后共用流程；PPTX 隐藏页在临时副本展开，原件不变，转换支持取消、60 秒子进程超时及清理。限制与预览差异统一见使用指南。
+原默认 Responses 连接的图片继续通过 Files 上传，以 `input_image.file_id` 引用，设置一小时过期并在结束后尝试删除；自定义 Responses 连接与其他协议按 pi-ai 的内容格式内联发送图片，无需 Files API。PDF 逐页转 PNG，PPT 经 `presentations.js` 和原生组件转 PDF 后共用流程；PPTX 隐藏页在临时副本展开，原件不变，转换支持取消、60 秒子进程超时及清理。限制与预览差异统一见使用指南。
 
 同账户同步互斥，单封 AI 串行，同账户最多一个整理任务。发送前在事务内认领草稿，同一草稿并发只投递一次、重复请求返回 409，投递前失败恢复为草稿；SMTP 接受后归档失败不能重发。收件人接受 RFC 5322 显示名形式（`姓名 <邮箱>`），仍拒绝控制字符与注入式分隔符。
 

@@ -138,3 +138,20 @@ test('HTTP configuration routes persist references through ordinary settings sav
   assert.equal((await request('/configuration/export', {})).data.settings.credentialReferences, undefined);
   assert.doesNotMatch(JSON.stringify(app.repo.list('settings')), /mailPasswords|apiKey|password/);
 });
+
+test('custom-only configuration imports require exactly their provider keys and preserve unrelated credentials', async t => {
+  const repo = await fixture(t), oldReference = reference();
+  repo.put('settings', { ...settings(), credentialReferences: { 'ai-key': oldReference, 'mail-other': reference() } });
+  const custom = settings();
+  custom.ai = { providerId: 'work', providers: [{ id: 'work', name: '工作模型', baseURL: 'https://example.com/v1',
+    apiProtocol: 'openai-completions', model: 'work-model', models: [{ id: 'work-model', name: '工作', contextWindow: 256000,
+      maxTokens: 32000, input: ['text', 'image'], reasoningEfforts: { off: null, high: 'max' } }] }] };
+  const configuration = { accounts: [], settings: custom }, plan = inspectConfiguration(repo, configuration);
+  const request = { configuration, ...plan, approved: true, credentialReferences: { 'ai-provider-work': reference() } };
+  assert.throws(() => importConfiguration(repo, { ...request,
+    credentialReferences: { ...request.credentialReferences, 'ai-key': reference() } }), /凭证保存状态/);
+  importConfiguration(repo, request);
+  assert.equal(repo.get('settings', 'settings').credentialReferences['ai-key'], oldReference);
+  assert.deepEqual(exportConfiguration(repo).settings.ai.providers[0].models, custom.ai.providers[0].models);
+  assert.equal(exportConfiguration(repo).settings.credentialReferences, undefined);
+});

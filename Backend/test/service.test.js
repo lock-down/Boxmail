@@ -1,3 +1,4 @@
+import { responsesWire } from './helpers/ai-streams.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
@@ -84,9 +85,9 @@ async function mockAI(t, respond) {
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     requests.push(body);
-    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Type', 'text/event-stream');
     res.end(
-      JSON.stringify({
+      responsesWire({
         status: 'completed',
         output: [
           {

@@ -1,3 +1,4 @@
+import { responsesWire } from './helpers/ai-streams.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -242,8 +243,8 @@ test('real attachment agent sends each file with its email context and saves onl
     const context = JSON.parse(request.input[0].content[0].text);
     requests.push(context);
     const text = context.name === '附件2.txt' ? '  ' : '## 项目资料\n已理解全部内容';
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ status: 'completed', output: [{ type: 'message', role: 'assistant',
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.end(responsesWire({ status: 'completed', output: [{ type: 'message', role: 'assistant',
       content: [{ type: 'output_text', text: JSON.stringify({ text }) }] }] }));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

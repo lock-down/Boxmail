@@ -116,14 +116,6 @@ public struct MailDraft: Codable, Identifiable, Hashable {
     attachmentIds = []
   }
 }
-public struct AIConfig: Codable, Hashable {
-  public var baseURL = "https://api.deepseek.com", model = "deepseek-flash"
-  public var effort = "high"
-  public var timeout = 120
-  public var enabled = true
-  public var prompts: [String: String] = AIPromptDefaults.values
-  public init() {}
-}
 public struct Preferences: Codable, Hashable {
   public var syncMinutes = 5, fontSize = 14
   public var markRead = true, launchAtLogin = false, notifications = false,

@@ -42,6 +42,8 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 
 正式回归测试保留在 `Backend/test/` 和 `Tests/BoxmailCoreTests/`，使用临时目录、模拟 IMAP / AI 和本机 TLS SMTP，不访问真实邮箱、不发送外部邮件、不调用云端 AI。SMTP 测试需要系统 `openssl`。测试应验证数据契约、故障处理或用户行为，避免重复实现细节。
 
+配置迁移的实际客户端流程复用 `BoxmailCore.ConfigurationTransfer`。`ConfigurationTransferIntegrationTests.swift` 启动两个隔离后端，经真实 HTTP、SQLite 和 JSON 文件检查多服务商参数与凭证往返、账号映射、版本 1 迁移和预览冲突；凭证写入失败、提交失败和响应丢失由独立行为测试覆盖。测试密钥均为合成值，并检查数据库未写入这些值。
+
 ### PPT 合成样例
 
 `Backend/test/responses.test.js` 使用以下 5 份附件，均无用户邮件数据，全部保留在 `Backend/test/fixtures/`，不进入 Release App。
@@ -58,7 +60,7 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 
 ## 联调与界面检查
 
-使用独立测试账号、收件人、数据目录和合成附件。原生验收副本如需隔离凭证，还应使用独立 Bundle ID 与钥匙串服务名。App 可通过绝对路径 `BOXMAIL_DATA` 使用临时目录，不改变日常数据位置；不要与正在运行的 App 共用后端目录。
+使用独立测试账号、收件人、数据目录和合成附件。原生验收副本使用独立 Bundle ID，钥匙串服务名自动取 `<Bundle ID>.credentials`；正式 App 仍为 `com.boxmail.desktop.credentials`。App 可通过绝对路径 `BOXMAIL_DATA` 使用临时目录，不改变日常数据位置；不要与正在运行的 App 共用后端目录。
 
 | 流程 | 检查重点 |
 | --- | --- |
@@ -114,6 +116,7 @@ codesign --verify --deep --strict dist/Boxmail.app
 2. 提交源码和文档后建立 `v<版本>` 标签，从干净标签或独立检出执行 `./script/package_app.sh`。脚本拒绝未提交及未跟踪的源码修改。
 3. 核对版本、构建号、内置资源、Node.js 及原生依赖、嵌套签名、包内说明、源码标签和完整提交号。
 4. 校验 ZIP 的 SHA-256、解压一致性及签名，并用独立空目录检查首次启动。最低系统、其他架构和设备需分别验证。
+5. 推送发布提交和新标签至 GitHub，在对应标签的 Release 上传 ZIP 与 SHA-256 文件，并核对远端提交、资产大小和校验值。
 
 发布模式用 Release 构建，只复制后端源码及生产依赖，关闭演示数据，不关闭或启动日常 App。`docs/USER_GUIDE.md` 复制为包内`使用说明.md`，因此保持指南可独立阅读，不依赖仓库内链接。`版本信息.txt`记录版本、源码标识和上海时区生成时间。产物在 `dist/`，日常 App 为 `dist/Boxmail.app`。
 

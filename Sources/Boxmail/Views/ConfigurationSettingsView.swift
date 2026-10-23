@@ -66,7 +66,7 @@ struct ConfigurationSettingsView: View {
       defer { transferring = false }
       do {
         let archive = try await ConfigurationTransferService.export(to: url)
-        status = "已导出 \(archive.configuration.accounts.count) 个邮箱账号及 AI、签名和偏好设置。\n\(url.path)"
+        status = "已导出 \(archive.configuration.accounts.count) 个邮箱账号、\(archive.configuration.settings.ai.providers.count) 个 AI 服务商及签名和偏好设置。\n\(url.path)"
       } catch { status = nil; failure = error.localizedDescription }
     }
   }
@@ -143,9 +143,18 @@ private struct ConfigurationImportReview: View {
           Divider()
           VStack(alignment: .leading, spacing: 7) {
             Text("AI、签名与偏好").font(UIType.section)
-            Text(candidate.archive.configuration.settings.ai.baseURL).font(UIType.caption).textSelection(.enabled)
-            Text("模型：\(candidate.archive.configuration.settings.ai.model.isEmpty ? "未选择" : candidate.archive.configuration.settings.ai.model) · API Key：\(candidate.archive.credentials.aiKey.isEmpty ? "未配置" : "已包含")")
+            Text("\(candidate.archive.configuration.settings.ai.providers.count) 个 AI 服务商 · 当前：\(candidate.archive.configuration.settings.ai.activeProvider.name)")
               .font(UIType.small).foregroundStyle(Palette.muted)
+            Text("模型：\(candidate.archive.configuration.settings.ai.model.isEmpty ? "未选择" : candidate.archive.configuration.settings.ai.model) · 协议：\(candidate.archive.configuration.settings.ai.apiProtocol.title)")
+              .font(UIType.small).foregroundStyle(Palette.muted)
+            ForEach(candidate.archive.configuration.settings.ai.providers) { provider in
+              VStack(alignment: .leading, spacing: 3) {
+                Text(provider.name).font(UIType.caption)
+                Text(provider.baseURL).font(UIType.small).textSelection(.enabled)
+                Text("\(provider.apiProtocol.title) · \(provider.models.count) 个目录模型 · \(hasKey(provider) ? "包含 API 密钥" : "未配置 API 密钥")")
+                  .font(UIType.small)
+              }.foregroundStyle(Palette.muted).padding(.vertical, 3)
+            }
             Text("包括自定义提示词、邮件签名、同步和阅读设置。").font(UIType.small).foregroundStyle(Palette.muted)
           }
           Text("将更新同邮箱账号的参数与授权码，替换 AI、签名和偏好设置。其他账号及已有邮件、附件和草稿保留。")
@@ -162,5 +171,10 @@ private struct ConfigurationImportReview: View {
           .keyboardShortcut(.defaultAction).disabled(importing)
       }.padding(.horizontal, 22).frame(height: 60).background(Palette.chrome)
     }.frame(width: 560, height: 540).background(Palette.paper).tint(Palette.blue)
+  }
+
+  private func hasKey(_ provider: AIProvider) -> Bool {
+    (provider.id == "default" ? candidate.archive.credentials.aiKey
+      : candidate.archive.credentials.aiProviderKeys?[provider.id] ?? "").isEmpty == false
   }
 }

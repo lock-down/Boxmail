@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { accountInput, aiConfig, ServiceError } from './validation.js';
+import { accountInput, aiConfig, aiCredentialAccounts, ServiceError } from './validation.js';
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const fail = message => { throw new ServiceError(message); };
@@ -80,7 +80,7 @@ export function importConfiguration(repo, body) {
   if (body.revision !== revision(repo)) throw new ServiceError('账号或设置已变化，请重新选择配置文件再导入', 409);
   const plan = inspectConfiguration(repo, configuration, body.accounts);
   const references = body.credentialReferences;
-  const expected = new Set(['ai-key', ...plan.accounts.map(account => `mail-${account.accountId}`)]);
+  const expected = new Set([...aiCredentialAccounts(configuration.settings.ai), ...plan.accounts.map(account => `mail-${account.accountId}`)]);
   if (!object(references) || Object.keys(references).length !== expected.size
     || Object.entries(references).some(([key, value]) => !expected.has(key) || !referenceValid(value))
     || new Set(Object.values(references)).size !== expected.size) fail('凭证保存状态无效，请重新导入配置');

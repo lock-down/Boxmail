@@ -13,9 +13,11 @@ public struct ConfigurationSnapshot: Codable {
 public struct ConfigurationCredentials: Codable {
   public var mailPasswords: [String: String]
   public var aiKey: String
-  public init(mailPasswords: [String: String], aiKey: String) {
+  public var aiProviderKeys: [String: String]?
+  public init(mailPasswords: [String: String], aiKey: String, aiProviderKeys: [String: String] = [:]) {
     self.mailPasswords = mailPasswords
     self.aiKey = aiKey
+    self.aiProviderKeys = aiProviderKeys
   }
 }
 
@@ -30,7 +32,7 @@ public struct ConfigurationArchive: Codable {
 
   public init(configuration: ConfigurationSnapshot, credentials: ConfigurationCredentials, appVersion: String) {
     format = "boxmail-configuration"
-    version = 1
+    version = configuration.settings.ai.usesBYOK ? 2 : 1
     createdAt = ISO8601DateFormatter().string(from: Date())
     self.appVersion = appVersion
     self.configuration = configuration
@@ -43,13 +45,18 @@ public struct ConfigurationArchive: Codable {
 
   public func validated() throws -> Self {
     guard format == "boxmail-configuration" else { throw failure("请选择 Boxmail 导出的配置 JSON 文件。") }
-    guard version == 1 else { throw failure("此配置文件版本暂不支持，请使用兼容版本的 Boxmail。") }
+    guard [1, 2].contains(version), version != 1 || !configuration.settings.ai.usesBYOK else {
+      throw failure("此配置文件版本暂不支持，请使用兼容版本的 Boxmail。")
+    }
+    if let issue = configuration.settings.ai.validationIssue { throw failure(issue) }
     let accounts = configuration.accounts
     guard accounts.count <= 100, accounts.allSatisfy({ !$0.isDemo && !$0.id.isEmpty }),
       Set(accounts.map(\.id)).count == accounts.count,
       Set(credentials.mailPasswords.keys) == Set(accounts.map(\.id)),
       credentials.mailPasswords.values.allSatisfy({ $0.utf8.count <= 16_384 }),
-      credentials.aiKey.utf8.count <= 16_384 else {
+      credentials.aiKey.utf8.count <= 16_384,
+      Set((credentials.aiProviderKeys ?? [:]).keys) == Set(configuration.settings.ai.providers.filter { $0.id != "default" }.map(\.id)),
+      (credentials.aiProviderKeys ?? [:]).values.allSatisfy({ $0.utf8.count <= 16_384 }) else {
       throw failure("配置文件中的邮箱账号或密钥字段不完整，请重新导出。")
     }
     var result = self
@@ -75,7 +82,7 @@ public struct ConfigurationArchive: Codable {
   public func write(to url: URL) throws {
     let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     let data = try encoder.encode(validated())
-    guard data.count <= Self.maximumBytes else { throw failure("配置内容超过 2 MB，请缩短自定义提示词或减少账号后再导出。") }
+    guard data.count <= Self.maximumBytes else { throw failure("配置内容超过 2 MB，请减少模型目录、账号或自定义提示词后再导出。") }
     let temporary = url.deletingLastPathComponent().appendingPathComponent(".Boxmail-Configuration-\(UUID().uuidString).tmp")
     let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
     guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }

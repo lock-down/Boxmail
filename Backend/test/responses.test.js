@@ -7,6 +7,7 @@ import path from 'node:path';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { completion } from '../src/responses.js';
+import { responseOutputEvents, responsesEvents, sse } from './helpers/ai-streams.js';
 import { runAgent } from '../src/agent.js';
 import { saveAttachment, modelAttachment } from '../src/attachments.js';
 import { Repository } from '../src/database.js';
@@ -70,9 +71,12 @@ async function provider(t, options = {}) {
     };
     if (options.events) {
       res.setHeader('Content-Type', 'text/event-stream');
+      res.write(sse(responseOutputEvents(payload)));
       for (const chunk of options.events(payload)) { res.write(chunk); await delay(1); }
       if (options.disconnect) res.destroy();
       else res.end();
+    } else if (!options.httpStatus && body.stream) {
+      res.setHeader('Content-Type', 'text/event-stream'); res.end(sse(responsesEvents(payload)));
     } else res.end(JSON.stringify(payload));
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -123,7 +127,7 @@ test('Responses sends all three effort levels without sampling or token limits a
     assert.match(request.instructions, /待分析的数据/);
     assert.equal(request.input[0].role, 'user');
   }
-  assert.throws(() => aiConfig({ ...ai.config, effort: 'medium' }), /思考等级/);
+  assert.throws(() => aiConfig({ ...ai.config, effort: 'unknown' }), /思考等级/);
 });
 
 test('legacy settings migrate while preserving custom prompts and providers; blank prompts restore defaults', async (t) => {
@@ -303,7 +307,7 @@ test('DeepSeek text-only model rejects image tasks before uploading', async (t) 
   const ai = await provider(t);
   await assert.rejects(completion({ ...ai.config, model: 'deepseek-v4-pro' }, '', 'attachment', {}, [
     { name: 'image.png', buffer: png, contentType: 'image/png' },
-  ]), /deepseek-flash/);
+  ]), /不支持图片输入/);
   assert.equal(ai.uploads.length, 0);
 });
 
@@ -426,8 +430,8 @@ test('a disconnected summary stream keeps the existing summary and returns a spe
   repo.put('message', { id: 'bulk', accountId: 'a1', sender: '演示', subject: '资料', body: '正文', attachmentIds: [], summary });
   const ai = await provider(t, { disconnect: true,
     events: () => ['data: {"type":"response.output_text.delta","delta":"unfinished"}\n\n'] });
-  await assert.rejects(runAgent(repo, { task: 'summary', messageId: 'bulk', config: ai.config }), /连接已中断/);
+  await assert.rejects(runAgent(repo, { task: 'summary', messageId: 'bulk', config: ai.config }), /连接中断/);
   assert.deepEqual(repo.get('message', 'bulk').summary, summary);
   assert.equal(repo.list('job')[0].status, 'failed');
-  assert.match(repo.list('job')[0].error, /连接已中断/);
+  assert.match(repo.list('job')[0].error, /连接中断/);
 });

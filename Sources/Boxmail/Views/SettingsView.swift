@@ -7,10 +7,8 @@ struct SettingsView: View {
   @Environment(\.dismiss) private var dismiss
   @ViewState<AIConfig> private var config = AIConfig()
   @ViewState<Preferences> private var preferences = Preferences()
-  @ViewState<String> private var key = ""
-  @ViewState<String?> private var originalKey: String?
-  @ViewState<[String]> private var models: [String] = []
-  @ViewState<Int> private var modelCatalogRevision = 0
+  @ViewState<[String: String]> private var aiKeys = [:]
+  @ViewState<[String: String]> private var originalAIKeys = [:]
   @ViewState<String> private var promptTab = "summary"
   @ViewState<String> private var status = ""
   @ViewState<MailAccount> private var account = MailAccount()
@@ -23,6 +21,11 @@ struct SettingsView: View {
   @ViewState<URL?> private var pendingDataDirectory = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let tabs = ["常用", "账号", "写邮件", "阅读邮件", "反垃圾", "高级", "AI 助手"]
+  init(store: MailStore) {
+    self.store = store
+    _config = ViewState(wrappedValue: store.settings.ai)
+    _preferences = ViewState(wrappedValue: store.settings.preferences)
+  }
   var body: some View {
     VStack(spacing: 0) {
       HStack {
@@ -134,14 +137,11 @@ struct SettingsView: View {
         config = store.settings.ai
         preferences = store.settings.preferences
         pendingDataDirectory = BackendService.shared.pendingDataDirectory
-        if store.settingsTab == "AI 助手" { loadAIKey() }
       }
-      .onChange(of: store.settingsTab) { _, tab in if tab == "AI 助手" { loadAIKey() } }
       .onChange(of: store.restoreRevision) { _, _ in
         config = store.settings.ai; preferences = store.settings.preferences
-        models = []; key = ""; originalKey = nil; editingAccount = false; password = ""
+        aiKeys = [:]; originalAIKeys = [:]; editingAccount = false; password = ""
       }
-      .task(id: config.baseURL) { await loadCachedModels() }
   }
   private var subtitle: String {
     switch store.settingsTab {
@@ -167,38 +167,8 @@ struct SettingsView: View {
   }
   private var aiSettings: some View {
     VStack(spacing: 16) {
-      SectionCard(title: "云端 / 本地 AI 模型", icon: "cloud") {
-        HStack {
-          Tag(text: "DeepSeek · Responses API", ai: true)
-          Spacer()
-        }
-        field("API 地址", text: $config.baseURL, prompt: "https://api.deepseek.com")
-        HStack(spacing: SettingsFormLayout.columnGap) {
-          SettingsFormLabel(title: "API Key")
-          SecureField("", text: $key).settingsTextInput()
-            .inputPlaceholder("密钥保存在系统钥匙串", visible: key.isEmpty).accessibilityLabel("API Key")
-          SettingsInlineAction(title: "测试连接", icon: "bolt") { testAI() }
-            .disabled(loading || config.model.isEmpty)
-        }
-        HStack(spacing: SettingsFormLayout.columnGap) {
-          SettingsFormLabel(title: "模型设置")
-          SettingsAISelectionView(model: $config.model, effort: $config.effort, models: models)
-          Spacer(minLength: 0)
-          SettingsInlineAction(title: "刷新列表", icon: "arrow.clockwise") { refreshModels() }
-            .disabled(loading)
-        }
-        HStack(spacing: SettingsFormLayout.columnGap) {
-          SettingsFormLabel(title: "请求超时")
-          TextField("120", value: $config.timeout, format: .number.grouping(.never))
-            .settingsTextInput().frame(width: SettingsFormLayout.portWidth)
-            .accessibilityLabel("请求超时（秒）")
-          Text("秒").font(UIType.caption).foregroundStyle(Palette.muted)
-          Spacer(minLength: 0)
-        }
-        Text("超时可设为 10 至 600 秒。图片和 PDF 理解请使用支持视觉输入的模型，如 deepseek-flash。")
-          .font(UIType.small).foregroundStyle(Palette.muted)
-          .padding(.leading, SettingsFormLayout.labelWidth + SettingsFormLayout.columnGap)
-      }
+      AIProviderSettingsView(config: $config, keys: $aiKeys, originalKeys: $originalAIKeys,
+        status: $status, loading: $loading)
       SectionCard(title: "系统默认提示词", icon: "curlybraces") {
         WrappingFlowLayout(spacing: 6) {
           ForEach(
@@ -423,77 +393,26 @@ struct SettingsView: View {
           if close { dismiss() }
           return
         }
-        if originalKey.map({ key != $0 }) ?? !key.isEmpty {
-          try KeychainService.save(key, account: "ai-key")
-          originalKey = key
+        if let issue = config.validationIssue { throw BackendService.shared.failure(issue) }
+        for account in config.credentialAccounts {
+          if let key = aiKeys[account], originalAIKeys[account] != key {
+            if key.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) {
+              throw BackendService.shared.failure("API Key 不能包含控制字符。")
+            }
+            try KeychainService.save(key.trimmingCharacters(in: .whitespacesAndNewlines), account: account)
+            originalAIKeys[account] = key
+          }
         }
+        let removedProviders = store.settings.ai.providers.filter { old in !config.providers.contains { $0.id == old.id } }
         try await BackendService.shared.perform(
           "/settings",
           body: ["ai": try jsonObject(config), "preferences": try jsonObject(preferences)])
         try await store.refresh()
+        for provider in removedProviders { try KeychainService.save("", account: provider.credentialAccount) }
         try BackendService.shared.scheduleDataDirectory(pendingDataDirectory)
         status = pendingDataDirectory == nil ? "设置已保存" : "设置已保存，重新打开 Boxmail 后迁移本机数据。"
         if close { dismiss() }
       } catch { status = "保存失败：\(error.localizedDescription)" }
-    }
-  }
-  private func loadAIKey() {
-    guard originalKey == nil, key.isEmpty else { return }
-    do {
-      key = try KeychainService.read("ai-key")
-      originalKey = key
-    } catch { status = error.localizedDescription }
-  }
-  private func testAI() {
-    loading = true
-    status = "正在测试…"
-    Task {
-      defer { loading = false }
-      do {
-        let _: EmptyResponse = try await BackendService.shared.request(
-          "/ai/test", method: "POST", body: ["config": try jsonObject(config), "apiKey": key],
-          timeout: TimeInterval(max(10, min(600, config.timeout)) + 30))
-        status = "AI 服务连接成功"
-      } catch { status = "连接失败：\(error.localizedDescription)" }
-    }
-  }
-  private func refreshModels() {
-    let requestedConfig = config
-    modelCatalogRevision += 1
-    let revision = modelCatalogRevision
-    loading = true
-    Task {
-      defer { loading = false }
-      do {
-        let result: ModelsResponse = try await BackendService.shared.request(
-          "/ai/models", method: "POST", body: ["config": try jsonObject(requestedConfig), "apiKey": key])
-        guard config.baseURL == requestedConfig.baseURL, modelCatalogRevision == revision else { return }
-        modelCatalogRevision += 1
-        models = result.models
-        status = "已读取 \(models.count) 个模型"
-      } catch {
-        if config.baseURL == requestedConfig.baseURL {
-          status = (models.isEmpty ? "获取失败：" : "获取失败，已保留原模型列表：") + error.localizedDescription
-        }
-      }
-    }
-  }
-  private func loadCachedModels() async {
-    let endpoint = config.baseURL
-    let revision = modelCatalogRevision
-    models = []
-    guard !endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-    var components = URLComponents()
-    components.queryItems = [URLQueryItem(name: "baseURL", value: endpoint)]
-    do {
-      let result: ModelsResponse = try await BackendService.shared.request(
-        "/ai/models?" + (components.percentEncodedQuery ?? ""))
-      guard !Task.isCancelled, config.baseURL == endpoint, modelCatalogRevision == revision else { return }
-      models = result.models
-    } catch {
-      // A stale or cancelled cache read must not replace a newer refresh.
-      guard !Task.isCancelled, config.baseURL == endpoint, modelCatalogRevision == revision else { return }
-      models = []
     }
   }
   private func testMail() {

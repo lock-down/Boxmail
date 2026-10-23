@@ -174,7 +174,11 @@ import Foundation
 struct EmptyResponse: Decodable {}
 struct APIError: Decodable { let error: String }
 struct IDResponse: Decodable { let id: String }
-struct ModelsResponse: Decodable { let models: [String] }
+struct ModelsResponse: Decodable {
+  let models: [String]
+  let details: [AIModel]?
+  var catalog: [AIModel] { details ?? models.map { AIModel(id: $0) } }
+}
 struct FileResponse: Decodable { let name, content: String }
 struct SendResponse: Decodable {
   let ok: Bool
