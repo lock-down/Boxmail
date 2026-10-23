@@ -68,9 +68,16 @@ private func backendFixture() throws -> URL {
   let pidFile = root.appendingPathComponent("pid")
   var lease: DataDirectoryLease? = try DataDirectoryLease(directory: root)
   let supervisor = Process()
-  supervisor.executableURL = URL(fileURLWithPath: "/bin/sh")
-  // The fixture must survive its supervisor's exit instead of racing SIGHUP.
-  supervisor.arguments = ["-c", "trap '' HUP; \"$1\" 30 0<&0 >/dev/null 2>&1 & echo $! > \"$2\"", "test", runtime.path, pidFile.path]
+  supervisor.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+  // Foundation launches each backend in its own process group. Detach the
+  // fixture too, so its supervisor's group cannot terminate it during cleanup.
+  supervisor.arguments = ["node", "--input-type=module", "-e", """
+    import { spawn } from 'node:child_process';
+    import { writeFileSync } from 'node:fs';
+    const child = spawn(process.argv[1], ['30'], { detached: true, stdio: [0, 'ignore', 'ignore'] });
+    writeFileSync(process.argv[2], String(child.pid));
+    child.unref();
+    """, runtime.path, pidFile.path]
   let handle = try #require(lease).inheritedFileHandle()
   supervisor.standardInput = handle
   try supervisor.run()
@@ -86,7 +93,7 @@ private func backendFixture() throws -> URL {
     var path = [CChar](repeating: 0, count: 4096)
     _ = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout.size(ofValue: info)))
     _ = proc_pidpath(pid, &path, UInt32(path.count))
-    if info.pbi_ppid == 1,
+    if info.pbi_ppid == 1, info.pbi_pgid == UInt32(pid),
       URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath() == runtime.resolvingSymlinksInPath() {
       ready = true
       break
@@ -108,15 +115,7 @@ private func backendFixture() throws -> URL {
     #expect(await LocalBackendProcess.recoverOrphan(in: otherLease.directory, executable: runtime) == false)
   }
   let recovered = await LocalBackendProcess.recoverOrphan(in: root, executable: runtime)
-  if !recovered {
-    // The replaced executable may already have exited on macOS. The unchanged
-    // runtime must always be recovered; replacement may bypass recovery only
-    // after the process has gone and the lock is available below.
-    #expect(replacingRuntime)
-    var remaining = proc_bsdinfo()
-    #expect(proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &remaining,
-      Int32(MemoryLayout.size(ofValue: remaining))) == 0)
-  }
+  #expect(recovered)
   for _ in 0..<100 {
     if (try? DataDirectoryLease(directory: root)) != nil { return }
     try await Task.sleep(for: .milliseconds(10))

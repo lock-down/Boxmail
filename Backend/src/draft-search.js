@@ -3,11 +3,14 @@ import { mailPreview, mailPreviewText } from './mail-preview.js';
 
 const normalize = value => String(value || '').normalize('NFKC').toLocaleLowerCase();
 const prefix = 'draft:';
+export function draftPreview(draft, account = {}) {
+  return mailPreview({ body: draft.body, sender: account.name || account.email });
+}
 function presentDraft(draft, account) {
   return { id: prefix + draft.id, draftId: draft.id, accountId: draft.accountId, folder: 'drafts',
     sender: account.name || account.email, senderEmail: account.email, to: draft.to || '', cc: draft.cc || '', bcc: draft.bcc || '',
     subject: draft.subject || '无主题草稿', body: draft.body || '',
-    preview: mailPreview({ body: draft.body, sender: account.name || account.email }),
+    preview: draftPreview(draft, account),
     date: draft.updatedAt, category: '未分类', unread: false, starred: false,
     attachmentIds: draft.attachmentIds || [], bodyLoaded: true };
 }

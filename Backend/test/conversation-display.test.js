@@ -156,6 +156,43 @@ test('draft list previews exclude signatures and preserve quoted history', async
   assert.match(page.messages[0].body, /我的签名/);
 });
 
+test('draft cards in full and compact snapshots receive clean previews without changing editable bodies', async t => {
+  const repo = await fixture(t), token = 'synthetic-draft-preview-session-123456';
+  repo.put('account', { id: 'a1', name: '张三', email: 'me@example.com' });
+  const signature = '----------------------------------------------------------\n示例网络科技股份有限公司\n张三\n电话：010-12345678';
+  const bodies = { signatureOnly: '\n\n' + signature,
+    reply: '请核对合同。\n' + signature + '\n-----原始邮件-----\n发件人：李四\n历史正文',
+    empty: '', ordinary: '请联系 person@example.com\n----------------\n下一步：核对合同。' };
+  for (const [id, body] of Object.entries(bodies)) repo.put('draft', { id, accountId: 'a1', status: 'draft',
+    subject: '', body, updatedAt: '2026-10-23T00:00:00Z', preview: '不应使用的旧预览' });
+  const app = await startServer({ directory: repo.directory, token, demo: false });
+  t.after(() => app.close());
+  for (const route of ['/state', '/state?compact=1']) {
+    const response = await fetch(`http://127.0.0.1:${app.port}${route}`, { headers: { 'X-Boxmail-Token': token } });
+    assert.equal(response.status, 200);
+    const drafts = new Map((await response.json()).drafts.map(draft => [draft.id, draft]));
+    assert.equal(drafts.get('signatureOnly').preview, '');
+    assert.equal(drafts.get('empty').preview, '');
+    assert.equal(drafts.get('reply').preview, '请核对合同。 -----原始邮件----- 发件人：李四 历史正文');
+    assert.equal(drafts.get('ordinary').preview, '请联系 person@example.com ---------------- 下一步：核对合同。');
+    for (const [id, body] of Object.entries(bodies)) {
+      assert.equal(drafts.get(id).body, body);
+      assert.equal(repo.get('draft', id).body, body);
+      assert.equal(repo.get('draft', id).preview, '不应使用的旧预览');
+    }
+  }
+  const body = '新增正文\n' + signature;
+  const response = await fetch(`http://127.0.0.1:${app.port}/drafts`, { method: 'POST',
+    headers: { 'X-Boxmail-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'signatureOnly', accountId: 'a1', body, preview: '客户端过时预览' }) });
+  assert.equal(response.status, 200);
+  const saved = await response.json();
+  assert.equal(saved.preview, '新增正文');
+  assert.equal(saved.body, body);
+  assert.equal(repo.get('draft', saved.id).body, body);
+  assert.equal(Object.hasOwn(repo.get('draft', saved.id), 'preview'), false);
+});
+
 test('HTTP lists, snapshots and conversations filter previews while full mail retains signatures and quotes', async t => {
   const repo = await fixture(t), token = 'synthetic-conversation-session-123456';
   const original = repo.get('message', 'selected');

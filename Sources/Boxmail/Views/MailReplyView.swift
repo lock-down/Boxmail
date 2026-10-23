@@ -124,10 +124,12 @@ struct MailReplyView: View {
         Text("本封邮件的 AI 回复草稿").font(.system(size: 11, weight: .medium)).foregroundStyle(
           Palette.muted)
         ForEach(relatedDrafts) { draft in
+          let preview = draft.preview ?? ""
           HStack {
             VStack(alignment: .leading, spacing: 4) {
               Text(draft.subject).font(.system(size: 12, weight: .medium)).lineLimit(1)
-              Text(draft.body).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2)
+              Text(preview.isEmpty ? "尚未撰写正文" : preview)
+                .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2)
             }
             Spacer()
             ActionButton(title: "审核草稿") { store.composer = draft }

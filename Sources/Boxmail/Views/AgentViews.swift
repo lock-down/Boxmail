@@ -17,6 +17,7 @@ struct DraftsView: View {
         Text("\(drafts.count) 份草稿").font(.system(size: 12, weight: .medium)).foregroundStyle(
           Palette.muted)
         ForEach(drafts) { draft in
+          let preview = draft.preview ?? ""
           VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 10) {
               Image(systemName: "doc.text").foregroundStyle(Palette.muted).frame(
@@ -32,10 +33,7 @@ struct DraftsView: View {
               Text(displayTime(draft.updatedAt)).font(.system(size: 11)).monospacedDigit()
                 .foregroundStyle(Palette.muted)
             }
-            Text(
-              draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "尚未撰写正文" : draft.body.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
+            Text(preview.isEmpty ? "尚未撰写正文" : preview)
             .font(UIType.body).foregroundStyle(Palette.muted).lineLimit(2).lineSpacing(4)
             .frame(maxWidth: UILayout.document, alignment: .leading)
             HStack {

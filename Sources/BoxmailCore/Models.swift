@@ -113,6 +113,7 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
 }
 public struct MailDraft: Codable, Identifiable, Hashable {
   public var id, accountId, to, cc, bcc, subject, body, status, updatedAt: String
+  public var preview: String?
   public var attachmentIds: [String]
   public var inReplyTo, sourceMessageId: String?
   public var references: [String]?

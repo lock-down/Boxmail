@@ -21,7 +21,7 @@ import { workbookPreview } from './workbook-preview.js';
 import { AttachmentBatch } from './attachment-batch.js';
 import { cachedModelCatalog, refreshModelCatalog } from './model-catalog.js';
 import { categoryCatalog, editCategory } from './categories.js';
-import { draftSearchMessage } from './draft-search.js';
+import { draftPreview, draftSearchMessage } from './draft-search.js';
 import { contactSuggestions } from './contacts.js';
 import { conversation } from './threads.js';
 import { parseSearch } from './search-query.js';
@@ -114,10 +114,13 @@ export async function startServer({
     return message;
   }
   function state(compact = false) {
+    const accounts = repo.list('account');
+    const byAccount = new Map(accounts.map(account => [account.id, account]));
     return {
-      accounts: repo.list('account'),
+      accounts,
       messages: (compact ? repo.messageHeaders() : repo.search('')).map(presentMessage),
-      drafts: repo.list('draft').filter((d) => d.status !== 'sent'),
+      drafts: repo.list('draft').filter((d) => d.status !== 'sent')
+        .map(draft => ({ ...draft, preview: draftPreview(draft, byAccount.get(draft.accountId)) })),
       attachments: compact ? repo.attachmentHeaders() : repo.list('attachment'),
       jobs: (compact ? repo.jobHeaders() : repo.list('job'))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
@@ -453,7 +456,8 @@ export async function startServer({
           route.endsWith('/undo'),
         );
       else if (req.method === 'POST' && route === '/drafts') {
-        if (!repo.get('account', body.accountId))
+        const account = repo.get('account', body.accountId);
+        if (!account)
           throw new ServiceError('请选择发送账户');
         const id = body.id || randomUUID();
         const old = repo.get('draft', id);
@@ -476,7 +480,7 @@ export async function startServer({
           updatedAt: new Date().toISOString(),
           sourceMessageId: body.sourceMessageId || null,
         };
-        result = repo.put('draft', draft);
+        result = { ...repo.put('draft', draft), preview: draftPreview(draft, account) };
       } else if (req.method === 'DELETE' && route.startsWith('/drafts/')) {
         const id = route.split('/')[2];
         if (['sending', 'uncertain'].includes(repo.get('draft', id)?.status))

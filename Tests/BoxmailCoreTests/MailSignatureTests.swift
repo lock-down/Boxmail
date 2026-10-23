@@ -2,6 +2,22 @@ import Foundation
 import Testing
 @testable import BoxmailCore
 
+@Test func draftPreviewsDecodeWithoutChangingTheEditableBodyAndAllowLegacyRecords() throws {
+  let draft = MailDraft(accountId: "a1", body: "\n\n-- \n张三\n示例公司")
+  let bytes = try JSONEncoder().encode(draft)
+  let legacy = try JSONDecoder().decode(MailDraft.self, from: bytes)
+  #expect(legacy.preview == nil)
+  #expect(legacy.body == draft.body)
+  var wire = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+  for preview in ["", "草稿正文 On Tuesday, someone wrote: > 历史正文"] {
+    wire["preview"] = preview
+    let decoded = try JSONDecoder().decode(MailDraft.self, from: JSONSerialization.data(withJSONObject: wire))
+    #expect(decoded.preview == preview)
+    #expect(decoded.body == draft.body)
+    #expect(decoded.status == "draft")
+  }
+}
+
 @Test func signatureAnchorRequiresCompleteFinalLines() {
   let signature = "张三\n示例公司\nzhang@example.test"
   let body = "正文\n\n" + signature
