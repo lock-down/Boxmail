@@ -8,6 +8,7 @@ struct MailReplyView: View {
   @ViewState<ReplyPreset?> private var selectedPreset: ReplyPreset?
   @ViewState<String> private var request = ""
   @ViewState<Set<String>> private var hiddenPreviews = []
+  @FocusState private var requestFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var preview: AgentJob? {
     guard
@@ -52,8 +53,12 @@ struct MailReplyView: View {
           Palette.muted)
         Spacer()
         if selectedPreset != nil {
-          Button("改为自定义") { selectedPreset = nil }
-            .buttonStyle(.plain).font(UIType.small).foregroundStyle(Palette.accent)
+          Button { selectedPreset = nil } label: {
+            Text("改为自定义").font(.system(size: 12, weight: .semibold))
+              .foregroundStyle(Palette.accent)
+              .padding(.horizontal, 6).padding(.vertical, 3)
+              .contentShape(RoundedRectangle(cornerRadius: 5))
+          }.buttonStyle(ControlFeedback(corner: 5)).controlFocus(corner: 5)
             .disabled(store.busy.contains("agent"))
         }
       }
@@ -61,8 +66,16 @@ struct MailReplyView: View {
         selectedPreset == nil ? "例如：确认收到，询问下一步安排" : "补充要求（可选），例如：语气简洁，控制在 100 字内", text: $request,
         axis: .vertical
       )
-      .textFieldStyle(.plain).lineLimit(2...4).font(.system(size: 12)).padding(10)
-      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 6)).controlFocus(corner: 6)
+      .textFieldStyle(.plain).lineLimit(2...4).font(.system(size: 12)).foregroundStyle(Palette.ink)
+      .padding(.horizontal, 11).padding(.vertical, 10)
+      .background(Palette.paper, in: RoundedRectangle(cornerRadius: 8))
+      .overlay {
+        RoundedRectangle(cornerRadius: 8).strokeBorder(
+          requestFocused ? Palette.accent : Palette.accent.opacity(0.45),
+          lineWidth: requestFocused ? 1.6 : 1.2)
+      }
+      .focused($requestFocused)
+      .animation(UIMotion.feedback(reduceMotion), value: requestFocused)
       HStack {
         ActionButton(title: "生成回复预览", icon: "sparkles", kind: .ai) { generate() }
           .disabled(
