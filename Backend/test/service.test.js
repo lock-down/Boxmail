@@ -216,7 +216,9 @@ test('compact summary contract persists next steps without executing suggested a
   assert.equal(summary.overview, '路线图评审需要在周五前确认排期。');
   assert.equal(summary.nextSteps[0].action, 'reply');
   assert.equal(job.status, 'completed');
-  assert.match(ai.requests[0].instructions, /内容概要、待处理、您可继续/);
+  assert.match(ai.requests[0].instructions, /内容概要、待处理、关键信息与您可继续/);
+  assert.match(ai.requests[0].instructions, /关键信息从原文提取 2 至 10 项/);
+  assert.match(ai.requests[0].instructions, /"keyInfo":\[\{"label"/);
   assert.match(ai.requests[0].instructions, /"overview"/);
   assert.equal(repo.list('draft').length, 0);
   assert.equal(repo.list('job').length, 1);

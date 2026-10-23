@@ -6,7 +6,7 @@ import { partialResult } from './ai-progress.js';
 const unsignedWritingRule = '邮件撰写规则：生成或润色邮件正文时，只撰写待审阅的正文，不添加签名或署名段，不在结尾附上发件人的姓名、职位、公司、联系方式、发送日期，也不输出“[您的姓名]”“[联系方式]”等签名占位符。不模仿或复制来信、附件、已有正文中的签名段。总结建议中起草回复的 prompt 和附件理解中的回复草稿、邮件示例遵守同一规则。可保留自然称呼、简短礼貌结束语，以及正文或分析所需的联系人、提交邮箱、数字和日期等事实；此规则不要求删改原邮件或附件的分析内容。';
 
 const formats = {
-  summary: '{"overview":"一小段内容概要","points":[],"todos":[{"title":"需要用户处理的事项","due":"原文截止时间或空字符串"}],"keyInfo":[],"nextSteps":[{"title":"短建议","action":"reply、attachments 或 note","prompt":"仅 reply 填写起草回复的要求，其他留空"}]}',
+  summary: '{"overview":"一小段内容概要","points":[],"todos":[{"title":"需要用户处理的事项","due":"原文截止时间或空字符串"}],"keyInfo":[{"label":"关键信息名称","value":"原文值或简短说明"}],"nextSteps":[{"title":"短建议","action":"reply、attachments 或 note","prompt":"仅 reply 填写起草回复的要求，其他留空"}]}',
   reply: '{"subject":"主题","body":"回复正文"}',
   compose: '{"subject":"主题","body":"邮件正文"}',
   classify: '{"items":[{"id":"输入邮件ID","category":"本次允许分类中的完整名称","reason":"简短依据"}]}',

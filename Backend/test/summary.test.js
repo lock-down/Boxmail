@@ -5,7 +5,7 @@ import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { summaryResult } from '../src/summary.js';
 import { DEFAULT_PROMPTS, upgradeDefaultPrompts } from '../src/ai-settings.js';
-import { LEGACY_PROMPTS, V008_PROMPTS } from '../src/legacy-prompts.js';
+import { LEGACY_PROMPTS, V008_PROMPTS, V018_PROMPTS } from '../src/legacy-prompts.js';
 import { Repository } from '../src/database.js';
 import { startServer } from '../src/server.js';
 
@@ -43,6 +43,25 @@ test('legacy summaries still decode, malformed suggestions cannot introduce arbi
   assert.throws(() => summaryResult({ overview: ' ', points: [null, ''] }, {}), /摘要格式/);
 });
 
+test('structured key information survives normalization while invalid entries are dropped', () => {
+  const result = summaryResult({
+    overview: '年度计划优惠截止 10 月 31 日。',
+    todos: [],
+    keyInfo: [
+      { label: ' 截止时间 ', value: ' 10月31日 ' },
+      { label: '', value: '没有名称' },
+      { label: '链接', value: '' },
+      null,
+      { label: '报价', value: '14.97 万元' },
+    ],
+    nextSteps: [],
+  }, { attachmentIds: [] });
+  assert.deepEqual(result.keyInfo, [
+    { label: '截止时间', value: '10月31日' },
+    { label: '报价', value: '14.97 万元' },
+  ]);
+});
+
 test('summary defaults upgrade exactly while custom prompts remain editable', () => {
   const upgraded = upgradeDefaultPrompts({ ...LEGACY_PROMPTS, reply: '使用原有自定义语气' });
   assert.equal(upgraded.summary, DEFAULT_PROMPTS.summary);
@@ -50,7 +69,10 @@ test('summary defaults upgrade exactly while custom prompts remain editable', ()
   assert.equal(upgraded.reply, '使用原有自定义语气');
   const custom = LEGACY_PROMPTS.summary + ' 仅关注采购事项。';
   assert.equal(upgradeDefaultPrompts({ summary: custom }).summary, custom);
-  assert.match(DEFAULT_PROMPTS.summary, /内容概要、待处理、您可继续/);
+  assert.match(DEFAULT_PROMPTS.summary, /内容概要、待处理、关键信息与您可继续/);
+  assert.match(DEFAULT_PROMPTS.summary, /关键信息从原文提取 2 至 10 项/);
+  assert.match(DEFAULT_PROMPTS.summary, /即使概要与待处理已经提到也照常列出/);
+  assert.doesNotMatch(DEFAULT_PROMPTS.summary, /keyInfo 只保留/);
   assert.match(DEFAULT_PROMPTS.summary, /不能为精简删掉关键事实/);
   assert.match(DEFAULT_PROMPTS.attachment, /Markdown 表格/);
 });
@@ -84,6 +106,16 @@ test('0.0.8 defaults migrate all writing entry points exactly and leave custom p
     assert.equal(upgradeDefaultPrompts({ [task]: `\n${previous[task]}\n` })[task], DEFAULT_PROMPTS[task]);
   }
   assert.deepEqual(previous, V008_PROMPTS);
+  assert.deepEqual(upgradeDefaultPrompts(upgraded), upgraded);
+});
+
+test('0.0.18 summary default upgrades to structured key information while custom prompts survive', () => {
+  const upgraded = upgradeDefaultPrompts({ ...V018_PROMPTS });
+  assert.equal(upgraded.summary, DEFAULT_PROMPTS.summary);
+  assert.notEqual(upgraded.summary, V018_PROMPTS.summary);
+  const custom = `${V018_PROMPTS.summary} 只关注采购事项。`;
+  assert.equal(upgradeDefaultPrompts({ summary: custom }).summary, custom);
+  assert.equal(upgradeDefaultPrompts({ summary: `\n${V018_PROMPTS.summary}\n` }).summary, DEFAULT_PROMPTS.summary);
   assert.deepEqual(upgradeDefaultPrompts(upgraded), upgraded);
 });
 

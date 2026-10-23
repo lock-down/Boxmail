@@ -167,6 +167,18 @@ test('custom system prompt is used with the required result contract', async (t)
   assert.match(ai.requests[0].instructions, /"text"/);
 });
 
+test('summary requests structured key information with an element contract', async (t) => {
+  const ai = await provider(t, { result: {
+    overview: '年度计划优惠截止 10 月 31 日。', todos: [],
+    keyInfo: [{ label: '截止时间', value: '10月31日' }], nextSteps: [],
+  } });
+  const result = await completion(ai.config, '', 'summary', { subject: '优惠', body: '正文' });
+  assert.deepEqual(result.keyInfo, [{ label: '截止时间', value: '10月31日' }]);
+  const instructions = ai.requests[0].instructions;
+  assert.match(instructions, /关键信息从原文提取 2 至 10 项/);
+  assert.match(instructions, /"keyInfo":\[\{"label":"关键信息名称"/);
+});
+
 test('image attachments without extracted text upload through Files, persist analysis and clean up', async (t) => {
   const repo = await repository(t);
   const attachment = await saveAttachment(repo, 'm1', '进度图.png', png, 'image/png');

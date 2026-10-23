@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { LEGACY_PROMPTS, V008_PROMPTS, V012_PROMPTS } from './legacy-prompts.js';
+import { LEGACY_PROMPTS, V008_PROMPTS, V012_PROMPTS, V018_PROMPTS } from './legacy-prompts.js';
 
 const packaged = new URL('../Resources/DefaultPrompts.json', import.meta.url);
 const source = new URL('../../Sources/BoxmailCore/Resources/DefaultPrompts.json', import.meta.url);
 export const DEFAULT_PROMPTS = Object.freeze(JSON.parse(readFileSync(existsSync(packaged) ? packaged : source, 'utf8')));
 export function upgradeDefaultPrompts(prompts) {
   const next = { ...prompts };
-  for (const version of [LEGACY_PROMPTS, V008_PROMPTS, V012_PROMPTS])
+  for (const version of [LEGACY_PROMPTS, V008_PROMPTS, V012_PROMPTS, V018_PROMPTS])
     for (const [task, previous] of Object.entries(version))
       if (next[task]?.trim() === previous) next[task] = DEFAULT_PROMPTS[task];
   return next;
