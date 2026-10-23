@@ -164,7 +164,7 @@ struct SidebarView: View {
         if destination == .organize, store.latestOrganization?.status == "running" {
           ProgressView().controlSize(.mini)
         }
-        if count(destination) > 0 || destination == .sent {
+        if count(destination) > 0 {
           Text(String(count(destination))).font(.system(size: 11, weight: .medium))
             .monospacedDigit().contentTransition(reduceMotion ? .identity : .numericText()).foregroundStyle(
               selected ? Palette.blue : Palette.muted)
