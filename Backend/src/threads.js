@@ -11,7 +11,7 @@ export function conversation(repo, id, { offset = 0, limit = 100 } = {}) {
   if (!selected) throw new ServiceError('邮件不存在或已移动，请刷新列表', 404);
   if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200)
     throw new ServiceError('会话分页参数无效');
-  const messages = repo.messageHeaders().filter(message => message.accountId === selected.accountId);
+  const messages = repo.messageHeaders(selected.accountId);
   const parent = new Map();
   const find = key => {
     if (!parent.has(key)) parent.set(key, key);

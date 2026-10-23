@@ -10,8 +10,8 @@ export function setSummaryVisibility(repo, input) {
     throw new ServiceError('请选择单项或全部摘要');
   let messages;
   if (input.all === true) {
-    messages = repo.list('message').filter(message => message.accountId === input.accountId
-      && message.summary && message.folder !== 'trash');
+    messages = repo.list('message', { accountId: input.accountId })
+      .filter(message => message.summary && message.folder !== 'trash');
   } else {
     if (!Array.isArray(input.messageIds) || !input.messageIds.length || input.messageIds.length > 10000
       || input.messageIds.some(id => typeof id !== 'string' || !id))

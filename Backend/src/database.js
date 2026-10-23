@@ -36,13 +36,20 @@ export class Repository {
         PRAGMA user_version=2;
       `));
     }
+    this.db.exec("CREATE INDEX IF NOT EXISTS records_account ON records(kind,json_extract(data,'$.accountId'))");
     this.searchIndex = new SearchIndex(this);
   }
   rebuildSearch() { return this.searchIndex.rebuild(); }
-  list(kind) {
+  list(kind, { accountId, remotePath, messageId } = {}) {
+    const clauses = ['kind=?'], params = [kind];
+    for (const [field, value] of Object.entries({ accountId, remotePath, messageId })) {
+      if (value === undefined) continue;
+      clauses.push(`json_extract(data,'$.${field}')=?`);
+      params.push(value);
+    }
     return this.db
-      .prepare('SELECT data FROM records WHERE kind=?')
-      .all(kind)
+      .prepare(`SELECT data FROM records WHERE ${clauses.join(' AND ')} ORDER BY id`)
+      .all(...params)
       .map((r) => JSON.parse(r.data));
   }
   get(kind, id) {
@@ -54,7 +61,7 @@ export class Repository {
   put(kind, value) {
     this.db
       .prepare(
-        'INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data',
+        'INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data WHERE records.data<>excluded.data',
       )
       .run(kind, value.id, JSON.stringify(value));
     return value;
@@ -63,13 +70,14 @@ export class Repository {
     this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id);
   }
   transaction(fn) {
-    this.db.exec('BEGIN IMMEDIATE');
+    const savepoint = this.db.isTransaction ? `boxmail_${randomUUID().replaceAll('-', '')}` : null;
+    this.db.exec(savepoint ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE');
     try {
       const r = fn();
-      this.db.exec('COMMIT');
+      this.db.exec(savepoint ? `RELEASE SAVEPOINT ${savepoint}` : 'COMMIT');
       return r;
     } catch (e) {
-      this.db.exec('ROLLBACK');
+      this.db.exec(savepoint ? `ROLLBACK TO SAVEPOINT ${savepoint}; RELEASE SAVEPOINT ${savepoint}` : 'ROLLBACK');
       throw e;
     }
   }
@@ -97,10 +105,22 @@ export class Repository {
     if (fullText.clause) { clauses.push(fullText.clause); params.push(...fullText.params); }
     return { where: clauses.join(' AND '), params };
   }
-  messageHeaders() {
+  messageHeaders(accountId) {
     return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML') AS data
-      FROM records WHERE kind='message' ORDER BY json_extract(data,'$.date') DESC, id`)
-      .all().map(row => ({ ...JSON.parse(row.data), body: '', bodyLoaded: false }));
+      FROM records WHERE kind='message'${accountId === undefined ? '' : " AND json_extract(data,'$.accountId')=?"}
+      ORDER BY json_extract(data,'$.date') DESC, id`)
+      .all(...(accountId === undefined ? [] : [accountId]))
+      .map(row => ({ ...JSON.parse(row.data), body: '', bodyLoaded: false }));
+  }
+  contactHeaders(accountId) {
+    return this.db.prepare(`SELECT json_extract(data,'$.senderEmail') AS senderEmail,
+      json_extract(data,'$.sender') AS sender, json_extract(data,'$.to') AS "to",
+      json_extract(data,'$.cc') AS cc, json_extract(data,'$.bcc') AS bcc,
+      json_extract(data,'$.replyTo') AS replyTo,
+      coalesce(nullif(json_extract(data,'$.date'),''),json_extract(data,'$.updatedAt'),'') AS date
+      FROM records WHERE kind IN ('message','draft') AND json_extract(data,'$.accountId')=?
+      AND (kind='draft' OR coalesce(json_extract(data,'$.folder'),'') NOT IN ('trash','spam'))
+      ORDER BY kind DESC,CASE WHEN kind='message' THEN json_extract(data,'$.date') END DESC,id`).all(accountId);
   }
   attachmentHeaders() {
     return this.db.prepare(`SELECT json_remove(data,'$.text','$.analysis') AS data,

@@ -260,10 +260,13 @@ export async function startServer({
         result = { id: a.id, ok: true };
       } else if (req.method === 'DELETE' && route.startsWith('/accounts/')) {
         const id = route.split('/')[2];
-        if (locks.has(id) || locks.has('agent') || organizer.busy(id) || attachmentBatch.busy(id))
+        if (locks.has(id) || locks.has('agent') || organizer.busy(id) || attachmentBatch.busy(id)
+          || repo.list('draft', { accountId: id }).some(draft => draft.status === 'sending'))
           throw new ServiceError('账户正在执行任务，请完成后再移除', 409);
         const candidates = new Set(
-          [...repo.list('message'), ...repo.list('draft')]
+          [...repo.list('message'), ...repo.list('draft'),
+            ...repo.list('relocation').map(record => record.original),
+            ...repo.list('recovery').map(record => record.original)]
             .filter((m) => m.accountId === id)
             .flatMap((m) => m.attachmentIds || []),
         );
@@ -282,7 +285,9 @@ export async function startServer({
               repo.remove(kind, v.id);
         });
         const referenced = new Set(
-          [...repo.list('message'), ...repo.list('draft')].flatMap(
+          [...repo.list('message'), ...repo.list('draft'),
+            ...repo.list('relocation').map(record => record.original),
+            ...repo.list('recovery').map(record => record.original)].flatMap(
             (m) => m.attachmentIds || [],
           ),
         );
@@ -349,7 +354,7 @@ export async function startServer({
         const ai = body.ai
           ? aiConfig({ ...old.ai, ...body.ai, ...providerChanges, prompts: { ...old.ai.prompts, ...body.ai.prompts } }, { requireModel: false })
           : old.ai;
-        const p = body.preferences || old.preferences;
+        const p = { ...old.preferences, ...body.preferences };
         const preferences = {
           ...old.preferences,
           ...p,

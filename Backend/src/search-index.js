@@ -55,14 +55,19 @@ export class SearchIndex {
   }
   flush() {
     const pending = this.repo.db.prepare('SELECT message_id FROM search_dirty').all();
-    for (const { message_id: id } of pending) this.update(id);
-    if (pending.length) this.repo.db.prepare('INSERT OR REPLACE INTO search_meta VALUES(1,?,?)').run(INDEX_VERSION, new Date().toISOString());
+    if (!pending.length) return;
+    this.repo.transaction(() => {
+      for (const { message_id: id } of pending) this.update(id);
+      this.repo.db.prepare('INSERT OR REPLACE INTO search_meta VALUES(1,?,?)').run(INDEX_VERSION, new Date().toISOString());
+    });
   }
   rebuild() {
-    this.repo.db.exec(`DELETE FROM mail_fts; DELETE FROM search_documents; DELETE FROM search_dirty;
-      INSERT INTO search_dirty SELECT id FROM records WHERE kind='message';`);
-    this.flush();
-    this.repo.db.prepare('INSERT OR REPLACE INTO search_meta VALUES(1,?,?)').run(INDEX_VERSION, new Date().toISOString());
+    this.repo.transaction(() => {
+      this.repo.db.exec(`DELETE FROM mail_fts; DELETE FROM search_documents; DELETE FROM search_dirty;
+        INSERT INTO search_dirty SELECT id FROM records WHERE kind='message';`);
+      this.flush();
+      this.repo.db.prepare('INSERT OR REPLACE INTO search_meta VALUES(1,?,?)').run(INDEX_VERSION, new Date().toISOString());
+    });
     return this.status();
   }
   status() {

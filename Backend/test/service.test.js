@@ -181,6 +181,22 @@ test('search includes Chinese attachment contents; star and delete survive resta
   assert.equal(second.get('message', 'm1').starred, true);
   second.close();
 });
+
+test('rejected compound message edits leave both the message and remote mutations unchanged', async t => {
+  const repo = await fixture(t);
+  repo.put('account', account);
+  const original = { ...message, uid: 12, uidValidity: '10', remotePath: 'INBOX' };
+  repo.put('message', original);
+  for (const changes of [
+    { starred: true, folder: 'invalid' },
+    { unread: false, category: '' },
+    { starred: true, unread: 'invalid' },
+  ]) {
+    assert.throws(() => updateMessage(repo, original.id, changes));
+    assert.deepEqual(repo.get('message', original.id), original);
+    assert.deepEqual(repo.list('mutation'), []);
+  }
+});
 test('AI summary produces persisted todos and sends untrusted mail as user data', async (t) => {
   const repo = await fixture(t);
   repo.put('message', message);
@@ -628,6 +644,19 @@ test('preferences can be saved before choosing an AI model', async (t) => {
   assert.equal(response.status, 200);
   assert.equal(app.repo.get('settings', 'settings').ai.model, '');
   assert.equal(app.repo.get('settings', 'settings').preferences.syncMinutes, 3);
+});
+
+test('partial preference saves preserve the existing signature, interval and font size', async t => {
+  const app = await apiFixture(t);
+  assert.equal((await app.request('/settings', { preferences: {
+    signature: '保留现有签名', syncMinutes: 17, fontSize: 18,
+  } })).status, 200);
+  const result = await app.request('/settings', { preferences: { markRead: false } });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.preferences.markRead, false);
+  assert.equal(result.body.preferences.signature, '保留现有签名');
+  assert.equal(result.body.preferences.syncMinutes, 17);
+  assert.equal(result.body.preferences.fontSize, 18);
 });
 
 test('moving a message retains local summary, categories and attachment text', async (t) => {

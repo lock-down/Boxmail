@@ -1,0 +1,88 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { Repository } from '../src/database.js';
+
+const message = { id: 'm1', accountId: 'a', folder: 'inbox', remotePath: 'INBOX', uid: 1,
+  subject: '检索测试', body: '旧检索内容', html: '<p>正文</p>', translation: '译文', translationHTML: '<p>译文</p>',
+  date: '2026-10-23T00:00:00Z', attachmentIds: [] };
+async function fixture(t) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'boxmail-repository-'));
+  const repo = new Repository(directory);
+  t.after(async () => { repo.close(); await rm(directory, { recursive: true, force: true }); });
+  repo.put('message', message);
+  return repo;
+}
+
+test('identical writes leave a clean search index while real changes remain searchable', async t => {
+  const repo = await fixture(t);
+  repo.searchIndex.flush();
+  repo.put('message', repo.get('message', 'm1'));
+  assert.equal(repo.searchIndex.status().pending, 0);
+  repo.put('message', { ...message, body: '新检索内容' });
+  assert.equal(repo.searchIndex.status().pending, 1);
+  assert.deepEqual(repo.search('新检索内容').map(item => item.id), ['m1']);
+  assert.deepEqual(repo.search('旧检索内容'), []);
+});
+
+test('search index refresh rolls back every document and dirty marker on failure', async t => {
+  const repo = await fixture(t);
+  repo.put('message', { ...message, id: 'm2' });
+  repo.searchIndex.flush();
+  for (const id of ['m1', 'm2']) repo.put('message', { ...message, id, body: '替换后的正文' });
+  const update = repo.searchIndex.update.bind(repo.searchIndex);
+  repo.searchIndex.update = id => { if (id === 'm2') throw new Error('模拟索引失败'); update(id); };
+  assert.throws(() => repo.searchIndex.flush(), /模拟索引失败/);
+  assert.equal(repo.searchIndex.status().pending, 2);
+  assert.equal(repo.db.prepare("SELECT count(*) AS n FROM mail_fts WHERE instr(text,'替换后的正文')>0").get().n, 0);
+  repo.searchIndex.update = update;
+  assert.deepEqual(repo.search('替换后的正文').map(item => item.id), ['m1', 'm2']);
+});
+
+test('search rebuild failure retains the previously usable index', async t => {
+  const repo = await fixture(t);
+  repo.put('message', { ...message, id: 'm2' });
+  repo.searchIndex.flush();
+  const update = repo.searchIndex.update.bind(repo.searchIndex);
+  repo.searchIndex.update = id => { if (id === 'm2') throw new Error('模拟重建失败'); update(id); };
+  assert.throws(() => repo.rebuildSearch(), /模拟重建失败/);
+  assert.equal(repo.searchIndex.status().indexed, 2);
+  assert.equal(repo.searchIndex.status().pending, 0);
+  repo.searchIndex.update = update;
+  assert.deepEqual(repo.search('旧检索内容').map(item => item.id), ['m1', 'm2']);
+  repo.transaction(() => repo.rebuildSearch());
+  assert.equal(repo.searchIndex.status().indexed, 2);
+});
+
+test('scoped repository reads isolate accounts and mailboxes and keep headers lightweight', async t => {
+  const repo = await fixture(t);
+  repo.put('message', { ...message, id: 'sent', remotePath: 'Sent', folder: 'sent' });
+  repo.put('message', { ...message, id: 'foreign', accountId: 'b' });
+  assert.deepEqual(repo.list('message', { accountId: 'a', remotePath: 'INBOX' }).map(item => item.id), ['m1']);
+  const headers = repo.messageHeaders('a');
+  assert.deepEqual(headers.map(item => item.id), ['m1', 'sent']);
+  assert.ok(headers.every(item => item.body === '' && item.bodyLoaded === false
+    && item.html === undefined && item.translation === undefined && item.translationHTML === undefined));
+  assert.equal(repo.messageHeaders().length, 3);
+  assert.deepEqual(repo.messageHeaders('missing'), []);
+});
+
+test('nested transactions can roll back their own writes while the outer transaction continues', async t => {
+  const repo = await fixture(t);
+  repo.transaction(() => {
+    repo.put('message', { ...message, body: '外层更新' });
+    assert.throws(() => repo.transaction(() => {
+      repo.put('message', { ...message, body: '内层失败' });
+      repo.put('message', { ...message, id: 'inner' });
+      throw new Error('内层回滚');
+    }), /内层回滚/);
+    assert.equal(repo.get('message', 'm1').body, '外层更新');
+    assert.equal(repo.get('message', 'inner'), null);
+    repo.put('message', { ...message, id: 'outer' });
+  });
+  assert.equal(repo.get('message', 'm1').body, '外层更新');
+  assert.ok(repo.get('message', 'outer'));
+  assert.equal(repo.db.isTransaction, false);
+});

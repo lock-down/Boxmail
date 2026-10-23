@@ -306,6 +306,20 @@ test('empty trash keeps local mail when the server fails or rejects expunge', as
   assert.ok(repo.get('message', id)); assert.equal(remote.folders.get('Trash').messages.size, 1);
 });
 
+test('account edits made while clearing trash survive discovered folder updates', async t => {
+  const repo = await fixture(t), remote = mailbox();
+  const list = remote.client.list;
+  remote.client.list = async () => {
+    repo.put('account', { ...repo.get('account', account.id), name: '新账户名称', signature: '新签名' });
+    return list();
+  };
+  await emptyTrash(repo, account.id, 'pw', true, remote.options);
+  const saved = repo.get('account', account.id);
+  assert.equal(saved.name, '新账户名称');
+  assert.equal(saved.signature, '新签名');
+  assert.equal(saved.folders.trash, 'Trash');
+});
+
 test('trash API exposes the same restore target in compact state, pages and details and enforces account locks', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'boxmail-trash-api-'));
   let release, started;

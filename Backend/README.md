@@ -38,11 +38,11 @@ npm start
 | GET | `/messages/:id` | 完整邮件及 `bodyLoaded: true`，也支持草稿搜索结果 |
 | GET | `/messages/:id/thread` | 同账户引用链、原邮件头、总数、分页及未缓存提示 |
 | POST | `/messages/:id/reply-draft` | `all`、`forward`，按原账户生成草稿和引用头 |
-| PATCH | `/messages/:id` | 更新 `unread`、`starred`、`folder` 或本机 `category` |
+| PATCH | `/messages/:id` | 事务更新 `unread`、`starred`、`folder` 或本机 `category`；任一字段失败时整体回滚，包括待同步操作 |
 | POST | `/messages/:id/restore`、`/messages/:id/unarchive` | 返回删除或归档前的文件夹 |
 | POST | `/trash/empty` | `accountId`、`password`、`approved: true`；清空整个服务器及本机 Trash |
 | POST | `/accounts/test` | `account`、`password`；分别测试 IMAP / SMTP |
-| POST / DELETE | `/accounts`、`/accounts/:id` | 保存账号配置 / 移除本机账号及缓存，保留服务器邮件 |
+| POST / DELETE | `/accounts`、`/accounts/:id` | 保存账号配置 / 移除本机账号及缓存，保留服务器邮件；发送中禁止移除，清理包含 recovery / relocation 附件并保留其他引用 |
 | POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台模式立即返回 |
 | GET | `/sync-status` | 运行账号、文件夹进度及本次结果 |
 | POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿 |
@@ -63,7 +63,7 @@ npm start
 | GET | `/contacts` | `accountId`、`q`；当前账户历史及草稿联系人 |
 | GET / POST | `/categories` | 读取目录 / 新增 `name` 和可选 `description` |
 | PATCH / DELETE | `/categories/:id` | 修改名称及说明 / 删除并将相关邮件归为未分类 |
-| POST | `/settings` | `ai`、`preferences`；保留已有凭证引用和独立模型缓存 |
+| POST | `/settings` | `ai`、`preferences`；允许部分更新偏好，未提交字段保留；保留已有凭证引用和独立模型缓存 |
 | POST | `/configuration/export` | 返回真实账号、AI 和偏好，不含密钥、本机凭证引用或邮件数据 |
 | POST | `/configuration/inspect` | `configuration`；返回合并映射及当前修订值 |
 | POST | `/configuration/import` | 配置、账号映射、修订值、凭证引用及 `approved: true`；事务提交并返回账号与设置 |
@@ -103,7 +103,7 @@ npm start
 
 删除与归档来源保存在 `deletedFromFolder/Path`、`archivedFromFolder/Path`，接口返回可选 `restoreFolder`、`unarchiveFolder`。恢复先更新本机并登记远端移动，清空先提交待处理恢复，再清理整个服务器 Trash；失败保留本机记录，其他邮件、草稿及 recovery 引用的附件保留。
 
-全文搜索通过 SQLite 触发器登记 message / attachment / job 变化，检索时增量补齐双字符 n-gram 索引并核对子串，单字符回退。`q` 支持关键词、短语及 from / to / cc / subject / category / after / before / is / has / account / folder，参数绑定不执行原始查询。明确 `folder:drafts` 时查询未发送本机草稿，ID 带 `draft:` 前缀及 `draftId`，日期取最后更新时间，不增加普通邮件索引数。
+全文搜索通过 SQLite 触发器登记 message / attachment / job 变化，检索时增量补齐双字符 n-gram 索引并核对子串，单字符回退。完全相同的记录写入不触发更新，无变化同步不重写邮件；索引更新与重建在事务内完成，失败保留原索引及待更新标记。`q` 支持关键词、短语及 from / to / cc / subject / category / after / before / is / has / account / folder，参数绑定不执行原始查询。明确 `folder:drafts` 时查询未发送本机草稿，ID 带 `draft:` 前缀及 `draftId`，日期取最后更新时间，不增加普通邮件索引数。
 
 会话按同账户引用链归并，联系人只来自当前账户，分类目录及任务快照保存在 records。模型列表按服务商 ID、协议和规范化 API 地址隔离，只保存模型 ID、服务商返回的名称及能力元数据和 updatedAt；原默认 Responses 连接沿用旧缓存 ID。成功刷新替换、合法空数组清空、失败保留，独立于设置应用与取消。Anthropic 模型列表按游标获取后一次提交，分页失败不覆盖旧缓存。
 
@@ -163,6 +163,6 @@ npm start
 
 同账户同步互斥，单封 AI 串行，同账户最多一个整理任务。发送前在事务内认领草稿，同一草稿并发只投递一次、重复请求返回 409，投递前失败恢复为草稿；SMTP 接受后归档失败不能重发。收件人接受 RFC 5322 显示名形式（`姓名 <邮箱>`），仍拒绝控制字符与注入式分隔符。
 
-发送前为转发等借用的附件复制独立 ID 和文件，并与草稿引用在同一事务保存；失败清理新副本，SMTP 明确拒绝后的重试复用已准备的副本。发送成功后附件归属已发送邮件。同步也会修复旧版共享附件，覆盖已缓存邮件和服务器关联，保留原件及其分析，重复同步不再复制。附件理解任务同步改用新 ID，失败任务可继续重试，运行中的批量任务会跟随新引用。原邮件和转发副本可以分别预览、理解和删除。
+发送前为转发等借用的附件复制独立 ID 和文件，并与草稿引用在同一事务保存；失败清理新副本，SMTP 明确拒绝后的重试复用已准备的副本。发送成功后附件归属已发送邮件，本机副本同时保留 In-Reply-To 和 References，可立即关联原会话。同步也会修复旧版共享附件，覆盖已缓存邮件和服务器关联，保留原件及其分析，重复同步不再复制。附件理解任务同步改用新 ID，失败任务可继续重试，运行中的批量任务会跟随新引用。原邮件和转发副本可以分别预览、理解和删除。
 
 启动时发送中草稿转 uncertain、单封 AI 转失败、整理与附件批量任务转 paused，并保留结果和进度。

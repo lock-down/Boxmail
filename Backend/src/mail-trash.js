@@ -24,7 +24,8 @@ export async function clearTrash(repo, accountId, password, approved, { clientFa
             throw new ServiceError('服务器未确认清空已删除邮件，请同步后重试');
         } finally { lock.release(); }
       }
-      repo.put('account', account);
+      const latest = repo.get('account', accountId);
+      if (latest) repo.put('account', { ...latest, folders: account.folders });
     } finally { await client.logout().catch(() => client.close()); }
   }
 

@@ -20,7 +20,7 @@ function remapAttachmentJobs(repo, messageId, previousIds, attachmentIds) {
   const changed = new Map(previousIds.map((id, index) => [id, attachmentIds[index]])
     .filter(([before, after]) => before !== after));
   if (!changed.size) return;
-  for (const job of repo.list('job').filter(job => job.messageId === messageId)) {
+  for (const job of repo.list('job', { messageId })) {
     if (!changed.has(job.attachmentId) && !job.attachmentItems?.some(item => changed.has(item.id))) continue;
     repo.put('job', { ...job,
       ...(job.attachmentId ? { attachmentId: changed.get(job.attachmentId) || job.attachmentId } : {}),
@@ -126,13 +126,6 @@ export async function syncAccount(
       const lock = await client.getMailboxLock(remotePath, { readOnly: true });
       try {
         const validity = String(client.mailbox.uidValidity);
-        repo.transaction(() => {
-          for (const old of repo.list('message').filter(m => m.accountId === account.id
-            && m.remotePath === remotePath && m.uidValidity !== validity)) {
-            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: old });
-            repo.remove('message', old.id);
-          }
-        });
         // Finish the metadata pass before reconciling deletions or issuing another IMAP command.
         const fetched = [];
         if (client.mailbox.exists) {
@@ -144,9 +137,13 @@ export async function syncAccount(
         }
         signal?.throwIfAborted();
         const seen = new Set(fetched.map(m => m.uid));
-        const cached = new Map(repo.list('message').filter(m => m.accountId === account.id
-          && m.remotePath === remotePath && m.uidValidity === validity).map(m => [m.uid, m]));
+        const stored = repo.list('message', { accountId: account.id, remotePath });
+        const cached = new Map(stored.filter(m => m.uidValidity === validity).map(m => [m.uid, m]));
         repo.transaction(() => {
+          for (const old of stored) if (old.uidValidity !== validity) {
+            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: old });
+            repo.remove('message', old.id);
+          }
           for (const [uid, old] of cached) if (!seen.has(uid)) {
             repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: old });
             repo.remove('message', old.id); cached.delete(uid);
@@ -156,9 +153,10 @@ export async function syncAccount(
             if (!old) continue;
             const unreadPending = repo.get('mutation', `${old.id}:unread`);
             const starPending = repo.get('mutation', `${old.id}:starred`);
-            const updated = { ...old,
-              unread: unreadPending ? !unreadPending.value : !remote.flags.has('\\Seen'),
-              starred: starPending ? starPending.value : remote.flags.has('\\Flagged') };
+            const unread = unreadPending ? !unreadPending.value : !remote.flags.has('\\Seen');
+            const starred = starPending ? starPending.value : remote.flags.has('\\Flagged');
+            if (old.unread === unread && old.starred === starred) continue;
+            const updated = { ...old, unread, starred };
             repo.put('message', updated); cached.set(remote.uid, updated);
           }
         });
@@ -184,6 +182,11 @@ export async function syncAccount(
         const missing = fetched.filter(remote => !cached.has(remote.uid)
           || cached.get(remote.uid).bodyVersion !== MAIL_BODY_VERSION
           || cached.get(remote.uid).headersVersion !== 1).sort((a,b) => b.uid-a.uid);
+        let beforeUID = Infinity, highestUID = -Infinity;
+        for (const uid of cached.keys()) {
+          beforeUID = Math.min(beforeUID, uid);
+          highestUID = Math.max(highestUID, uid);
+        }
         currentSync = { ...currentSync, uidValidity: validity, total: fetched.length,
           downloaded: cached.size, remaining: missing.length, hasMore: missing.length > 0 };
         repo.put('sync', currentSync);
@@ -224,17 +227,17 @@ export async function syncAccount(
               unread: !remote.flags.has('\\Seen'), starred: remote.flags.has('\\Flagged'),
               category: '未分类', summary: null, attachmentIds: [], oversized: remote.size > 25 * 1024 * 1024,
             };
-            const relocations = repo.list('relocation').filter(r => r.accountId === account.id
-              && r.destination === remotePath);
+            const relocations = repo.list('relocation', { accountId: account.id })
+              .filter(r => r.destination === remotePath);
             const legacyRelocations = relocations.filter(r => (!r.destinationUID || r.uidValidity !== validity)
               && parsed.messageId && r.original.messageId === parsed.messageId);
             const relocation = relocations.find(r => r.destinationUID === remote.uid && r.uidValidity === validity)
               || (legacyRelocations.length === 1 ? legacyRelocations[0] : null);
-            const recoveries = repo.list('recovery').filter(r => r.accountId === account.id
-              && parsed.messageId && r.original.messageId === parsed.messageId);
+            const recoveries = parsed.messageId ? repo.list('recovery', { accountId: account.id })
+              .filter(r => r.original.messageId === parsed.messageId) : [];
             const sameFolder = recoveries.filter(r => r.remotePath === remotePath);
-            const localSent = folder === 'sent' ? repo.list('message').find(m => m.accountId === account.id
-              && m.id.startsWith('sent-') && parsed.messageId && m.messageId === parsed.messageId) : null;
+            const localSent = folder === 'sent' && parsed.messageId
+              ? repo.list('message', { accountId: account.id }).find(m => m.id.startsWith('sent-') && m.messageId === parsed.messageId) : null;
             const retained = relocation || (sameFolder.length === 1 ? sameFolder[0]
               : recoveries.length === 1 ? recoveries[0] : null)
               || (localSent ? { id: localSent.id, original: localSent } : null);
@@ -264,7 +267,7 @@ export async function syncAccount(
               reassignAttachments(repo, message.attachmentIds, id, retained.original.id);
               for (const draft of repo.list('draft').filter(d => d.sourceMessageId === retained.original.id))
                 repo.put('draft', { ...draft, sourceMessageId: id });
-              for (const job of repo.list('job').filter(j => j.messageId === retained.original.id))
+              for (const job of repo.list('job', { messageId: retained.original.id }))
                 repo.put('job', { ...job, messageId: id });
               repo.remove(relocation ? 'relocation' : retained.id === localSent?.id ? 'message' : 'recovery', retained.id);
             } else {
@@ -280,9 +283,11 @@ export async function syncAccount(
             count++;
           }
           cached.set(remote.uid, repo.get('message', id));
+          beforeUID = Math.min(beforeUID, remote.uid);
+          highestUID = Math.max(highestUID, remote.uid);
           currentSync = { ...currentSync, downloaded: cached.size,
             remaining: Math.max(0, currentSync.remaining - 1),
-            beforeUID: Math.min(...cached.keys()), highestUID: Math.max(...cached.keys()),
+            beforeUID, highestUID,
             updatedAt: new Date().toISOString() };
           currentSync.hasMore = currentSync.remaining > 0;
           repo.put('sync', currentSync);
@@ -317,6 +322,9 @@ export async function syncAccount(
   }
 }
 export function updateMessage(repo, id, input) {
+  return repo.transaction(() => applyMessageUpdate(repo, id, input));
+}
+function applyMessageUpdate(repo, id, input) {
   const message = repo.get('message', id);
   if (!message) throw new ServiceError('邮件不存在', 404);
   const account = repo.get('account', message.accountId);
@@ -516,6 +524,8 @@ export async function sendDraft(
         summary: null,
         attachmentIds: draft.attachmentIds || [],
         messageId: result.messageId,
+        inReplyTo: draft.inReplyTo || '',
+        references: draft.references?.length ? draft.references : draft.inReplyTo ? [draft.inReplyTo] : [],
       });
       // Borrowed files were copied before SMTP, so every sent attachment belongs to this draft.
       reassignAttachments(repo, draft.attachmentIds || [], sentId, draft.id);

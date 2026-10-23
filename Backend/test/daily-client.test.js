@@ -98,6 +98,35 @@ test('metadata reconciliation updates old flags and deletions, and never prunes 
   assert.equal(repo.list('message').find(m=>m.uid===1).starred,true);
   assert.equal(state.fetched.length,5);
 });
+
+test('an interrupted listing after a UIDVALIDITY reset retains cached mail until reconciliation succeeds', async t => {
+  const repo = await fixture(t), { state, client } = mailbox(5);
+  await syncAccount(repo, { ...account }, 'pw', { clientFactory: () => client });
+  const original = repo.list('message');
+  state.validity = '11'; state.failListing = true;
+  await assert.rejects(syncAccount(repo, { ...account }, 'pw', { clientFactory: () => client }));
+  assert.deepEqual(repo.list('message'), original);
+  assert.deepEqual(repo.list('recovery'), []);
+  state.failListing = false;
+  await syncAccount(repo, { ...account }, 'pw', { clientFactory: () => client });
+  assert.equal(repo.list('message').length, 5);
+  assert.ok(repo.list('message').every(item => item.uidValidity === '11'));
+});
+
+test('unchanged synchronization keeps the index clean and later flag changes remain visible', async t => {
+  const repo = await fixture(t), { state, client } = mailbox(3);
+  await syncAccount(repo, { ...account }, 'pw', { clientFactory: () => client });
+  repo.searchIndex.flush();
+  await syncAccount(repo, { ...account }, 'pw', { clientFactory: () => client });
+  assert.equal(repo.searchIndex.status().pending, 0);
+  state.flags.set(1, new Set(['\\Seen', '\\Flagged']));
+  await syncAccount(repo, { ...account }, 'pw', { clientFactory: () => client });
+  assert.equal(repo.searchIndex.status().pending, 1);
+  const updated = repo.list('message').find(item => item.uid === 1);
+  assert.equal(updated.unread, false);
+  assert.equal(updated.starred, true);
+  assert.equal(state.fetched.length, 3);
+});
 test('UIDVALIDITY reset retains AI results, attachments, drafts and preview job associations',async t=>{
   const repo=await fixture(t), {state,client}=mailbox(1);
   await syncAccount(repo,{...account},'pw',{clientFactory:()=>client});

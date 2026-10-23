@@ -41,10 +41,12 @@ struct HTMLMailBodyView: NSViewRepresentable {
 
   func updateNSView(_ webView: WKWebView, context: Context) {
     context.coordinator.height = $height
+    let layoutKey = "\(fontSize)-\(allowRemoteImages)-\(collapseQuotes)"
+    guard html != context.coordinator.html || layoutKey != context.coordinator.layoutKey else { return }
+    context.coordinator.html = html
     let document = MailHTMLDocument.make(
       html: html, fontSize: fontSize, allowRemoteImages: allowRemoteImages, collapseQuotes: collapseQuotes)
     guard document != context.coordinator.document else { return }
-    let layoutKey = "\(fontSize)-\(allowRemoteImages)-\(collapseQuotes)"
     context.coordinator.update(document, layoutKey: layoutKey, textOnly: updatesTextOnly)
   }
 
@@ -60,6 +62,7 @@ struct HTMLMailBodyView: NSViewRepresentable {
 
   final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var height: Binding<CGFloat>
+    var html: String?
     var document = ""
     var renderedDocument = ""
     var layoutKey = ""

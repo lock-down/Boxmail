@@ -12,6 +12,7 @@ import { attachmentBytes, modelAttachment, saveAttachment } from '../src/attachm
 import { createReplyDraft } from '../src/reply.js';
 import { AttachmentBatch } from '../src/attachment-batch.js';
 import { DEFAULT_AI } from '../src/ai-settings.js';
+import { conversation } from '../src/threads.js';
 import { simpleParser } from 'mailparser';
 
 async function smtpFixture(t) {
@@ -134,6 +135,11 @@ test('SMTP sends Chinese MIME through verified TLS exactly once after approval',
   assert.equal(parsed.bcc, undefined);
   assert.equal(parsed.inReplyTo, '<previous@example.com>');
   assert.deepEqual(parsed.references, ['<root@example.com>', '<previous@example.com>']);
+  const sent = repo.get('message', 'sent-d1');
+  assert.equal(sent.inReplyTo, '<previous@example.com>');
+  assert.deepEqual(sent.references, ['<root@example.com>', '<previous@example.com>']);
+  repo.put('message', { ...sent, id: 'previous', messageId: '<previous@example.com>', inReplyTo: '', references: [] });
+  assert.equal(conversation(repo, sent.id).total, 2);
   assert.equal(repo.get('draft', 'd1').status, 'sent');
   const again = await sendDraft(repo, 'd1', 'mail-app-password', true, {
     storeSent,

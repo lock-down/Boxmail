@@ -189,6 +189,16 @@ test('local contact suggestions match display names and addresses, rank frequenc
   assert.equal(contactSuggestions(repo, 'a', '新联系人').contacts[0].email, 'new@example.com');
 });
 
+test('contact suggestions keep the most recent known name when newer mail has only an address', async t => {
+  const { repo } = await fixture(t);
+  for (const [id, sender, date] of [
+    ['contact-a', '旧名字', '2026-10-20T00:00:00Z'],
+    ['contact-b', '', '2026-10-23T00:00:00Z'],
+    ['contact-c', '新名字', '2026-10-22T00:00:00Z'],
+  ]) repo.put('message', { ...base, id, sender, senderEmail: 'contact@example.com', date });
+  assert.equal(contactSuggestions(repo, 'a', 'contact@example.com').contacts[0].name, '新名字');
+});
+
 test('API exposes dynamic categories, reference conversations, structured search, contacts and index maintenance', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'boxmail-priority-api-'));
   const token = 'priority-api-test-session-token-0123';

@@ -7,9 +7,7 @@ export function contactSuggestions(repo, accountId, query = '', limit = 8) {
   if (typeof query !== 'string' || query.length > 500) throw new ServiceError('联系人查询过长');
   const own = new Set([account.email, account.username, ...(account.aliases || [])].filter(Boolean).map(item => item.toLowerCase()));
   const contacts = new Map();
-  const messages = repo.messageHeaders().filter(m => m.accountId === accountId && !['trash', 'spam'].includes(m.folder));
-  const drafts = repo.list('draft').filter(d => d.accountId === accountId);
-  for (const message of [...messages, ...drafts]) {
+  for (const message of repo.contactHeaders(accountId)) {
     const date = message.date || message.updatedAt || '';
     const parsed = [
       { address: message.senderEmail, name: message.sender },

@@ -36,7 +36,7 @@ export class Organizer {
       || previous.accountId !== input.accountId)) throw new ServiceError('该任务不能重试', 409);
     const scope = previous?.scope || (input.scope === 'inbox' ? 'inbox' : 'unclassified');
     const limit = Math.min(200, Math.max(1, Math.floor(Number(input.limit) || 50)));
-    const messages = this.repo.list('message').filter(m => m.accountId === input.accountId && m.folder === 'inbox'
+    const messages = this.repo.list('message', { accountId: input.accountId }).filter(m => m.folder === 'inbox'
       && (scope === 'inbox' || m.category === '未分类')).sort((a,b) => b.date.localeCompare(a.date)).slice(0, limit);
     const messageIds = previous?.messageIds || messages.map(m => m.id);
     if (!messageIds.length) throw new ServiceError('所选范围内没有需要整理的邮件');

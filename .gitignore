@@ -8,4 +8,5 @@ Backend/node_modules/
 !.env.example
 *.log
 artifacts/
+.scratch/
 .boxmail-signing-identity
