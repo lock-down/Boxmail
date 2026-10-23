@@ -34,3 +34,16 @@ import Testing
   file.name = "备份.zip"
   #expect(!file.canAnalyze)
 }
+
+@Test func releasingAttachmentTextKeepsAnalysisStatusAndUsefulPreviews() throws {
+  let raw = #"{"id":"a","messageId":"m","name":"报告.txt","contentType":"text/plain","path":"/synthetic","text":"正文","analysis":"已有分析","parseError":"","date":"","size":1024}"#
+  var file = try JSONDecoder().decode(MailAttachment.self, from: Data(raw.utf8))
+  file.text = String(repeating: "很长的提取正文", count: 10000)
+  file.analysis = String(repeating: "很长的已有分析", count: 10000)
+  let compact = file.compact
+  #expect(compact.text.isEmpty && compact.analysis == nil)
+  #expect(compact.isAnalyzed && compact.canAnalyze)
+  #expect(compact.textPreview?.count == 160 && compact.analysisPreview?.count == 160)
+  #expect(compact.compact == compact)
+  #expect(file.text.count > 10000 && file.analysis!.count > 10000)
+}

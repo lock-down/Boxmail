@@ -86,3 +86,29 @@ test('nested transactions can roll back their own writes while the outer transac
   assert.ok(repo.get('message', 'outer'));
   assert.equal(repo.db.isTransaction, false);
 });
+
+test('sent identity lookups isolate accounts and preserve complete cached content', async t => {
+  const repo = await fixture(t);
+  for (const value of [
+    { ...message, id: 'sent-b', accountId: 'b', messageId: '<same@test>' },
+    { ...message, id: 'inbox-copy', messageId: '<same@test>' },
+    { ...message, id: 'sent-a', messageId: '<same@test>' },
+  ]) repo.put('message', value);
+  assert.equal(repo.localSentMessage('a', '<same@test>').id, 'sent-a');
+  assert.equal(repo.localSentMessage('a', '<same@test>').body, message.body);
+  assert.equal(repo.localSentMessage('missing', '<same@test>'), null);
+  const sync = repo.syncMessageHeaders('a', 'INBOX');
+  assert.ok(sync.every(value => !Object.hasOwn(value, 'body') && !Object.hasOwn(value, 'html')
+    && !Object.hasOwn(value, 'translation') && !Object.hasOwn(value, 'translationHTML')));
+  assert.equal(repo.get('message', 'sent-a').translationHTML, message.translationHTML);
+});
+
+test('compact jobs omit duplicate results while retaining reply previews and reviewable tasks', async t => {
+  const repo = await fixture(t);
+  for (const task of ['summary', 'translate', 'attachment', 'reply', 'classify', 'attachmentBatch'])
+    repo.put('job', { id: task, task, status: 'completed', result: { text: '完整结果', body: '回复预览', items: [] } });
+  for (const job of repo.jobHeaders()) {
+    assert.equal(Object.hasOwn(job, 'result'), !['summary', 'translate', 'attachment'].includes(job.task));
+    assert.ok(repo.get('job', job.id).result);
+  }
+});

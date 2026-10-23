@@ -15,6 +15,7 @@ import { startServer } from '../src/server.js';
 import { DEFAULT_AI, DEFAULT_PROMPTS } from '../src/ai-settings.js';
 import { aiConfig } from '../src/validation.js';
 import { presentationRendererPath } from '../src/presentations.js';
+import { processPDF } from '../src/pdf-processing.js';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=', 'base64');
 const sessionToken = 'test-responses-session-0123456789';
@@ -114,6 +115,19 @@ function blankPDF(pages = 1) {
   return Buffer.from(result);
 }
 
+test('PDF processing remains cancellable and another document still renders after cancellation', async () => {
+  const controller = new AbortController();
+  const work = processPDF(blankPDF(20), { signal: controller.signal });
+  const timer = setTimeout(() => controller.abort(), 20);
+  try { await assert.rejects(work, { name: 'AbortError' }); }
+  finally { clearTimeout(timer); }
+  const rendered = await processPDF(blankPDF(1));
+  assert.equal(rendered.pages, 1);
+  assert.equal(rendered.images.length, 1);
+  assert.ok(Buffer.isBuffer(rendered.images[0].buffer));
+  assert.deepEqual([...rendered.images[0].buffer.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+});
+
 test('Responses sends all three effort levels without sampling or token limits and ignores reasoning output', async (t) => {
   const ai = await provider(t, { result: { subject: '主题', body: '正文' } });
   for (const effort of ['low', 'high', 'max']) {
@@ -195,6 +209,22 @@ test('image attachments without extracted text upload through Files, persist ana
   assert.equal(ai.uploads[0].authorization, 'Bearer test-key');
   assert.deepEqual(ai.requests[0].input[0].content[1], { type: 'input_image', file_id: 'file-api-1' });
   assert.deepEqual(ai.deleted, ['/v1/files/file-api-1']);
+});
+
+test('Files-backed image requests do not allocate an unused base64 copy', async t => {
+  const ai = await provider(t);
+  const image = Buffer.from(png);
+  const encode = image.toString;
+  image.toString = function (encoding, ...args) {
+    assert.notEqual(encoding, 'base64', 'Files requests must upload the original bytes');
+    return encode.call(this, encoding, ...args);
+  };
+  const result = await completion(ai.config, '', 'attachment', { name: 'synthetic.png' }, [
+    { name: 'synthetic.png', contentType: 'image/png', buffer: image },
+  ]);
+  assert.equal(result.text, '图表显示项目已完成');
+  assert.deepEqual(ai.uploads[0].bytes, png);
+  assert.deepEqual(ai.requests[0].input[0].content[1], { type: 'input_image', file_id: 'file-api-1' });
 });
 
 test('PDF with no readable text renders every page for model understanding without OCR', async (t) => {

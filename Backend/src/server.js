@@ -29,6 +29,7 @@ import { createBackup, inspectBackup, restoreBackup } from './backups.js';
 import { exportConfiguration, inspectConfiguration, importConfiguration } from './configuration.js';
 import { AIProgress } from './ai-progress.js';
 import { setSummaryVisibility } from './summary-overview.js';
+import { serviceLifecycle } from './service-lifecycle.js';
 
 export async function startServer({
   directory,
@@ -118,8 +119,7 @@ export async function startServer({
       messages: (compact ? repo.messageHeaders() : repo.search('')).map(presentMessage),
       drafts: repo.list('draft').filter((d) => d.status !== 'sent'),
       attachments: compact ? repo.attachmentHeaders() : repo.list('attachment'),
-      jobs: repo
-        .list('job')
+      jobs: (compact ? repo.jobHeaders() : repo.list('job'))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       settings: repo.get('settings', 'settings'),
       events: repo.events(),
@@ -174,7 +174,8 @@ export async function startServer({
       if (maintenance && req.method !== 'GET') throw new ServiceError('正在维护本机数据，请稍候', 409);
       if (req.method !== 'GET') { activeWrites++; countedWrite = true; }
       let result;
-      if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1');
+      if (req.method === 'GET' && route === '/health') result = { ok: true };
+      else if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1');
       else if (req.method === 'GET' && route === '/sync-status') result = syncStatus();
       else if (req.method === 'POST' && route === '/summaries/visibility') result = setSummaryVisibility(repo, body);
       else if (req.method === 'POST' && route === '/configuration/export') result = exportConfiguration(repo, body.settings);
@@ -550,25 +551,15 @@ export async function startServer({
   };
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const app = await startServer({
+  let app;
+  serviceLifecycle(() => app?.close(), {
+    parentPID: Number(process.env.BOXMAIL_PARENT_PID || process.ppid),
+  });
+  app = await startServer({
     directory: process.env.BOXMAIL_DATA,
     token: process.env.BOXMAIL_TOKEN,
     port: Number(process.env.BOXMAIL_PORT || 0),
     demo: process.env.BOXMAIL_DEMO !== '0',
   });
   process.stdout.write(JSON.stringify({ port: app.port }) + '\n');
-  const stop = async () => {
-    await app.close();
-    process.exit(0);
-  };
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
-  const parent = process.ppid;
-  setInterval(() => {
-    try {
-      process.kill(parent, 0);
-    } catch {
-      stop();
-    }
-  }, 5000).unref();
 }

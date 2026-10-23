@@ -38,6 +38,8 @@ export class Repository {
       `));
     }
     this.db.exec("CREATE INDEX IF NOT EXISTS records_account ON records(kind,json_extract(data,'$.accountId'))");
+    this.db.exec(`CREATE INDEX IF NOT EXISTS message_identity ON records(
+      json_extract(data,'$.accountId'),json_extract(data,'$.messageId')) WHERE kind='message'`);
     this.searchIndex = new SearchIndex(this);
   }
   rebuildSearch() { return this.searchIndex.rebuild(); }
@@ -58,6 +60,24 @@ export class Repository {
       .prepare('SELECT data FROM records WHERE kind=? AND id=?')
       .get(kind, id);
     return r ? JSON.parse(r.data) : null;
+  }
+  localSentMessage(accountId, messageId) {
+    const row = this.db.prepare(`SELECT data FROM records WHERE kind='message'
+      AND json_extract(data,'$.accountId')=? AND json_extract(data,'$.messageId')=?
+      AND id LIKE 'sent-%' ORDER BY id LIMIT 1`).get(accountId, messageId);
+    return row ? JSON.parse(row.data) : null;
+  }
+  syncMessageHeaders(accountId, remotePath) {
+    return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML','$.summary') AS data
+      FROM records WHERE kind='message' AND json_extract(data,'$.accountId')=?
+      AND json_extract(data,'$.remotePath')=? ORDER BY id`).all(accountId, remotePath).map(row => JSON.parse(row.data));
+  }
+  jobHeaders() {
+    // These results already live on the message/attachment and are loaded there.
+    // Reply previews and reviewable workflows still need their complete results.
+    return this.db.prepare(`SELECT CASE WHEN json_extract(data,'$.task') IN ('summary','translate','attachment')
+      THEN json_remove(data,'$.result') ELSE data END AS data FROM records WHERE kind='job' ORDER BY id`)
+      .all().map(row => JSON.parse(row.data));
   }
   put(kind, value) {
     const result = this.db

@@ -110,6 +110,8 @@ private struct ConversationMessageView: View {
       }
     }.task(id: "\(expanded)-\(store.conversationBodies[header.id] != nil)") {
       if expanded && store.conversationBodies[header.id] == nil { await store.loadConversationBody(header) }
+    }.onChange(of: expanded) { _, value in
+      if !value { store.unloadConversationBody(header.id) }
     }
   }
 }

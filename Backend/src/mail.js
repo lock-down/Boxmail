@@ -146,15 +146,15 @@ export async function syncAccount(
           },
         });
         const seen = new Set(fetched.map(m => m.uid));
-        const stored = repo.list('message', { accountId: account.id, remotePath });
+        const stored = repo.syncMessageHeaders(account.id, remotePath);
         const cached = new Map(stored.filter(m => m.uidValidity === validity).map(m => [m.uid, m]));
         repo.transaction(() => {
           for (const old of stored) if (old.uidValidity !== validity) {
-            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: old });
+            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: repo.get('message', old.id) });
             repo.remove('message', old.id);
           }
           for (const [uid, old] of cached) if (!seen.has(uid)) {
-            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: old });
+            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: repo.get('message', old.id) });
             repo.remove('message', old.id); cached.delete(uid);
           }
           for (const remote of fetched) {
@@ -165,8 +165,8 @@ export async function syncAccount(
             const unread = unreadPending ? !unreadPending.value : !remote.flags.has('\\Seen');
             const starred = starPending ? starPending.value : remote.flags.has('\\Flagged');
             if (old.unread === unread && old.starred === starred) continue;
-            const updated = { ...old, unread, starred };
-            repo.put('message', updated); cached.set(remote.uid, updated);
+            repo.put('message', { ...repo.get('message', old.id), unread, starred });
+            cached.set(remote.uid, { ...old, unread, starred });
           }
         });
         // Legacy forwards may already be fully cached; repair ownership without downloading again.
@@ -252,7 +252,7 @@ export async function syncAccount(
               .filter(r => r.original.messageId === parsed.messageId) : [];
             const sameFolder = recoveries.filter(r => r.remotePath === remotePath);
             const localSent = folder === 'sent' && parsed.messageId
-              ? repo.list('message', { accountId: account.id }).find(m => m.id.startsWith('sent-') && m.messageId === parsed.messageId) : null;
+              ? repo.localSentMessage(account.id, parsed.messageId) : null;
             const retained = relocation || (sameFolder.length === 1 ? sameFolder[0]
               : recoveries.length === 1 ? recoveries[0] : null)
               || (localSent ? { id: localSent.id, original: localSent } : null);

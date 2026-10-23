@@ -89,6 +89,7 @@ extension MailStore {
       guard id == selectedMessageId, generation == detailGeneration else { return }
       // Keep only the selected body; headers and summaries remain available for overview screens.
       detailCache = [id: full]
+      trimAttachmentCache(keeping: full.attachmentIds)
       for aid in full.attachmentIds { await loadAttachment(aid) }
       if full.draftId != nil {
         conversation = nil; conversationAnchor = nil; conversationError = nil
@@ -104,6 +105,7 @@ extension MailStore {
   }
 
   func loadAttachment(_ id: String) async {
+    guard !Task.isCancelled else { return }
     do {
       let full: MailAttachment = try await BackendService.shared.request(
         "/attachments/\(id)/metadata")

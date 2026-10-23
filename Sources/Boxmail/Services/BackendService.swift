@@ -3,8 +3,7 @@ import Foundation
 
 @MainActor final class BackendService {
   static let shared = BackendService()
-  private var process: Process?
-  private var directoryLease: DataDirectoryLease?
+  private var process: LocalBackendProcess?
   private var activeDirectory: URL?
   private let storageKey = "BoxmailDataDirectoryConfiguration"
   var startupNotice: String?
@@ -51,6 +50,8 @@ import Foundation
   }
   func start() async throws {
     if process?.isRunning == true { return }
+    // Release the previous owned lease before trying to acquire it again.
+    await stop()
     startupNotice = nil
     var value = try configuration()
     let source = try value.resolvedDirectory(defaultDirectory: defaultDataDirectory,
@@ -77,7 +78,7 @@ import Foundation
         startupNotice = "本机数据已迁移至 \(targetLease.directory.path)。原目录保留在 \(source.path)，可核对后自行处理。"
         return
       } catch {
-        stop()
+        await stop()
         value.pendingDirectory = nil
         try saveConfiguration(value)
         startupNotice = "数据目录迁移未完成，继续使用原位置。\(error.localizedDescription)"
@@ -91,6 +92,12 @@ import Foundation
       do { return try DataDirectoryLease(directory: directory, create: create) }
       catch {
         guard (error as NSError).code == 2, attempt < 49 else { throw error }
+        if attempt == 0 {
+          let node = Bundle.main.resourceURL!.appendingPathComponent("Runtime/node")
+          if await LocalBackendProcess.recoverOrphan(in: directory, executable: node) {
+            startupNotice = "已关闭上次退出后残留的本机服务，继续使用原数据。"
+          }
+        }
         try await Task.sleep(for: .milliseconds(100))
       }
     }
@@ -104,43 +111,36 @@ import Foundation
       FileManager.default.fileExists(atPath: backend.path)
     else { throw failure("本机服务资源缺失，请通过项目 Run 按钮重新构建") }
     port = Int.random(in: 49152...65000)
-    let child = Process()
-    child.executableURL = node
-    child.arguments = [backend.path]
-    child.currentDirectoryURL = backend.deletingLastPathComponent()
     var environment = ProcessInfo.processInfo.environment
     environment["BOXMAIL_DATA"] = lease.directory.path
     environment["BOXMAIL_TOKEN"] = token
     environment["BOXMAIL_PORT"] = String(port)
+    environment["BOXMAIL_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
     if let demoEnabled = Bundle.main.object(forInfoDictionaryKey: "BoxmailDemoDataEnabled") as? Bool {
       environment["BOXMAIL_DEMO"] = demoEnabled ? "1" : "0"
     }
-    child.environment = environment
-    child.standardInput = try lease.inheritedFileHandle()
-    child.standardOutput = FileHandle.nullDevice
-    child.standardError = FileHandle.nullDevice
-    try child.run()
+    let child = try LocalBackendProcess(executable: node, arguments: [backend.path],
+      directory: backend.deletingLastPathComponent(), environment: environment, lease: lease)
     process = child
-    directoryLease = lease
     activeDirectory = lease.directory
     do {
       for _ in 0..<60 {
         guard child.isRunning else { throw failure("本机邮件服务启动失败") }
         do {
-          let _: AppSnapshot = try await request("/state?compact=1", timeout: 1)
+          let _: EmptyResponse = try await request("/health", timeout: 1)
           return
         } catch { try await Task.sleep(for: .milliseconds(100)) }
       }
       throw failure("本机邮件服务启动超时")
     } catch {
-      stop()
+      await stop()
       throw error
     }
   }
-  func stop() {
-    process?.terminate()
-    process = nil
-    directoryLease = nil
+  func stop() async {
+    guard let child = process else { return }
+    await child.stop()
+    if process === child { process = nil }
   }
   func request<T: Decodable>(
     _ path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval = 190

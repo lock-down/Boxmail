@@ -22,6 +22,10 @@ struct ConfigurationSettingsView: View {
           WorkflowAction(title: "选择配置…", icon: "folder") { chooseConfiguration() }
         }
       }.disabled(transferring || !store.ready || !store.busy.isEmpty || store.composer != nil)
+      if !store.ready {
+        WorkflowNotice(text: "本机服务尚未启动，配置导入导出暂不可用。关闭设置后，在主窗口重试启动。",
+          icon: "info.circle", color: Palette.muted)
+      }
       if transferring && pending == nil {
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)

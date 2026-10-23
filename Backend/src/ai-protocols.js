@@ -28,7 +28,7 @@ export function providerClient(config, apiKey) {
       defaultHeaders: apiKey ? {} : { Authorization: null } });
 }
 
-export function validateModelInput(config, instructions, content, images) {
+export function validateModelInput(config, instructions, content, images, { inlineImages = true } = {}) {
   const capability = selectedModel(config);
   if (config.apiProtocol === 'openai-responses' && capability.configuredMaxTokens < 16)
     throw new ServiceError('Responses 的最大输出 token 数至少为 16');
@@ -38,7 +38,9 @@ export function validateModelInput(config, instructions, content, images) {
   const reasoning = reasoningLevel(capability, config.effort);
   const context = { messages: [{ role: 'system', content: instructions, timestamp: 0 }, { role: 'user', timestamp: Date.now(), content: [
     { type: 'text', text: JSON.stringify(content) }, ...images.map(image => ({
-      type: 'image', data: image.buffer.toString('base64'), mimeType: image.contentType,
+      // The estimator counts image blocks, independent of their encoded bytes.
+      // Files-backed Responses replaces these blocks with uploaded file IDs.
+      type: 'image', data: inlineImages ? image.buffer.toString('base64') : '', mimeType: image.contentType,
     })),
   ] }] };
   if (capability.configuredContextWindow && estimateContextTokens(context).tokens >= capability.contextWindow)
@@ -103,13 +105,18 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
       return payload;
     },
   });
+  let lastPreview = -Infinity;
   try {
     for await (const event of events) {
       if (event.partial?.content.reduce((n, p) => n + (p.text?.length || p.thinking?.length || 0), 0) > 2_000_000)
         throw new ServiceError('模型响应过长，请缩小处理范围', 502);
       if (event.type === 'text_delta' || event.type === 'text_end') {
-        const answer = event.partial?.content.filter(part => part.type === 'text').map(part => part.text).join('');
-        if (answer) onText?.(answer);
+        // Coalesce before assembling the growing answer, not after copying it.
+        if (onText && performance.now() - lastPreview >= 100) {
+          lastPreview = performance.now();
+          const answer = event.partial?.content.filter(part => part.type === 'text').map(part => part.text).join('');
+          if (answer) onText(answer);
+        }
       }
     }
     if (signal.aborted) throw signal.reason;
@@ -120,7 +127,6 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
     if (result.stopReason !== 'stop') throw incomplete();
     const text = terminalText ?? result.content.filter(part => part.type === 'text').map(part => part.text).join('');
     if (text.length > 2_000_000) throw new ServiceError('模型响应过长，请缩小处理范围', 502);
-    onText?.(text);
     return text;
   } finally { controller.abort(); }
 }

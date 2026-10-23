@@ -100,6 +100,16 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
     isImage || isPDF || isPresentation || hasExtractedText == true
       || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
+  public var compact: MailAttachment {
+    var value = self
+    value.hasExtractedText = hasExtractedText == true || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    value.hasAnalysis = isAnalyzed
+    value.textPreview = textPreview ?? (text.isEmpty ? nil : String(text.prefix(160)))
+    value.analysisPreview = analysisPreview ?? analysis.map { String($0.prefix(160)) }
+    value.text = ""
+    value.analysis = nil
+    return value
+  }
 }
 public struct MailDraft: Codable, Identifiable, Hashable {
   public var id, accountId, to, cc, bcc, subject, body, status, updatedAt: String

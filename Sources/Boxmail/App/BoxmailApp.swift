@@ -8,7 +8,10 @@ import SwiftUI
   var body: some Scene {
     WindowGroup("Boxmail", id: "main") {
       ContentView(store: store).frame(minWidth: 1150, minHeight: 720).preferredColorScheme(.light)
-        .task { if !store.ready { await store.load() } }
+        .task {
+          delegate.store = store
+          if !store.ready { await store.load() }
+        }
     }
     .defaultSize(width: 1440, height: 900)
     .windowStyle(.hiddenTitleBar)
@@ -49,6 +52,7 @@ import SwiftUI
   }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
+  weak var store: MailStore?
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
@@ -56,8 +60,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     MainActor.assumeIsolated {
       KeychainService.clearSession()
-      BackendService.shared.stop()
     }
+  }
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    Task { @MainActor in
+      if let store { await store.stop() }
+      else { await BackendService.shared.stop() }
+      sender.reply(toApplicationShouldTerminate: true)
+    }
+    return .terminateLater
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }

@@ -101,6 +101,25 @@ test('server-confirmed empty folders still reconcile genuine deletions', async t
   assert.equal(repo.list('sync')[0].highestUID, undefined);
 });
 
+test('lightweight sync reconciliation retains bodies, translations and AI results in recovered mail', async t => {
+  const repo = await fixture(t), { state, options } = remote({ INBOX: [1, 2] });
+  await syncAccount(repo, { ...account }, 'pw', options);
+  const original = repo.list('message')[0];
+  const saved = { ...original, summary: { overview: '已保存总结' }, summaryHidden: true,
+    translation: '已保存译文', translationHTML: '<p>已保存译文</p>', starred: true };
+  repo.put('message', saved);
+  await syncAccount(repo, { ...account }, 'pw', options);
+  assert.deepEqual(repo.get('message', saved.id), { ...saved, starred: false });
+  state.boxes.INBOX = [];
+  await syncAccount(repo, { ...account }, 'pw', options);
+  assert.deepEqual(repo.get('recovery', saved.id).original, { ...saved, starred: false });
+  state.boxes.INBOX = [1, 2];
+  await syncAccount(repo, { ...account }, 'pw', options);
+  const restored = repo.get('message', saved.id);
+  for (const key of ['body', 'html', 'summary', 'summaryHidden', 'translation', 'translationHTML'])
+    assert.deepEqual(restored[key], saved[key]);
+});
+
 test('mail exposed again after a provider changes its collection range restores retained summaries', async t => {
   const repo = await fixture(t), { state, options } = remote({ INBOX: [], Sent: [1, 2] });
   await syncAccount(repo, { ...account }, 'pw', options);

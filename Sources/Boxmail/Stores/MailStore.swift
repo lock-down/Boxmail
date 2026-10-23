@@ -274,6 +274,7 @@ import SwiftUI
     do {
       var pollingFailures = 0
       var lastRefresh = Date.distantPast
+      var lastDownloaded = syncSnapshot?.folders.reduce(0) { $0 + ($1.downloaded ?? 0) } ?? -1
       while !started.isEmpty && !Task.isCancelled {
         let snapshot: MailSyncSnapshot
         do {
@@ -295,9 +296,11 @@ import SwiftUI
           }
           break
         }
-        if Date().timeIntervalSince(lastRefresh) >= 4 {
+        let downloaded = snapshot.folders.reduce(0) { $0 + ($1.downloaded ?? 0) }
+        if downloaded != lastDownloaded && Date().timeIntervalSince(lastRefresh) >= 4 {
           try? await refresh(reloadContent: false)
           lastRefresh = Date()
+          lastDownloaded = downloaded
         }
         try await Task.sleep(for: .seconds(1))
       }
@@ -488,7 +491,7 @@ import SwiftUI
       }
     }
   }
-  func stop() {
+  func stop() async {
     aiStreamTask?.cancel()
     polling?.cancel()
     organizePolling?.cancel()
@@ -497,6 +500,6 @@ import SwiftUI
     externalPreviewFiles.forEach { $0.remove() }
     if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     KeychainService.clearSession()
-    BackendService.shared.stop()
+    await BackendService.shared.stop()
   }
 }
