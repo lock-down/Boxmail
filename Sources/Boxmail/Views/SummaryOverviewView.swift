@@ -75,7 +75,7 @@ struct SummaryOverviewView: View {
             icon: showingRemoved ? "tray" : "sparkles")
             .frame(minHeight: 240)
         }
-      }.frame(maxWidth: 1200, alignment: .leading).workspacePage()
+      }.workspacePage()
     }.background(Palette.canvas)
       .animation(UIMotion.disclosure(reduceMotion), value: messages.map(\.id))
       .animation(UIMotion.disclosure(reduceMotion), value: selecting)
