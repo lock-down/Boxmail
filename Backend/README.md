@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.0.21 包含邮件操作事务、账户清理保护及查询优化；数据库结构版本继续为 2。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 ## 独立启动
 
@@ -97,11 +97,11 @@ npm start
 
 导入要求精确提供文件内邮箱与服务商的凭证引用：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；所有服务商的密钥由 Swift 客户端读写，不进入配置 HTTP 请求。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
 
-每个文件夹同步先完整校准 UID 和标志，再下载最多 200 封缺失或需修复正文，逐封持久化 `sync` 进度；元数据读取不完整时不据此删除缓存。UIDVALIDITY 变化取消旧待提交操作，本机附加信息放入 `recovery`，只按同账户唯一 Message-ID 恢复，歧义记录保留。同步结束以最新账户记录为基准合并 `folders` 与 `lastSync`，同步期间保存的账号设置不被覆盖。
+每个文件夹同步先完整读取 UID 和标志，再校准本机缓存，下载最多 200 封缺失或需修复正文，逐封持久化 `sync` 进度；元数据读取不完整时不据此删除缓存，包括 UIDVALIDITY 已变化的旧缓存。UIDVALIDITY 变化取消旧待提交操作，本机附加信息放入 `recovery`，只按同账户唯一 Message-ID 恢复，歧义记录保留。同步按账户和服务器文件夹查询记录，标志无变化时跳过写入；UID 上下界增量计算。同步结束以最新账户记录为基准合并 `folders` 与 `lastSync`，同步期间保存的账号设置不被覆盖。
 
 `imapTLS` / `smtpTLS` 的 true 表示 SSL/TLS 直连，false 表示必须 STARTTLS，均验证证书。连接测试分别报告协议结果，错误不回显凭证或原始认证数据。邮件保留 Reply-To、In-Reply-To、References；`bodyVersion: 1` 标记清理后的 HTML / CID 正文，旧缓存修复保留附件、摘要和标签。
 
-删除与归档来源保存在 `deletedFromFolder/Path`、`archivedFromFolder/Path`，接口返回可选 `restoreFolder`、`unarchiveFolder`。恢复先更新本机并登记远端移动，清空先提交待处理恢复，再清理整个服务器 Trash；失败保留本机记录，其他邮件、草稿及 recovery 引用的附件保留。
+删除与归档来源保存在 `deletedFromFolder/Path`、`archivedFromFolder/Path`，接口返回可选 `restoreFolder`、`unarchiveFolder`。恢复先更新本机并登记远端移动，清空先提交待处理恢复，再清理整个服务器 Trash；失败保留本机记录，其他邮件、草稿及 recovery 引用的附件保留。清空结束只将发现的文件夹合并到最新账户记录，保留期间保存的其他字段。
 
 全文搜索通过 SQLite 触发器登记 message / attachment / job 变化，检索时增量补齐双字符 n-gram 索引并核对子串，单字符回退。完全相同的记录写入不触发更新，无变化同步不重写邮件；索引更新与重建在事务内完成，失败保留原索引及待更新标记。`q` 支持关键词、短语及 from / to / cc / subject / category / after / before / is / has / account / folder，参数绑定不执行原始查询。明确 `folder:drafts` 时查询未发送本机草稿，ID 带 `draft:` 前缀及 `draftId`，日期取最后更新时间，不增加普通邮件索引数。
 

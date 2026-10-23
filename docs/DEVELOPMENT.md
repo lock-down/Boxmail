@@ -29,6 +29,8 @@ git diff --check
 
 `test.sh` 先构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
+0.0.21 的完整回归基线为 205 项后端测试、69 项 Swift 测试，无失败或跳过。原生验收使用独立 Bundle ID 和合成邮件，覆盖 HTML 原文、译文、表格及链接；发布时另用空目录验证 Release 首次启动与退出后的子进程清理。
+
 | 需要验证的范围 | 命令 |
 | --- | --- |
 | 完整回归 | `./script/test.sh` |
@@ -64,7 +66,7 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 
 基准检查联系人数量、会话范围、分页总数和缓存正文不重复下载，再输出耗时与同步后的待索引数量。联系人、会话和分页取 5 次中位数，同步取 3 次中位数；首次索引更新和同步后首次分页搜索分别取单次。比较版本时使用相同 Node.js、数据规模和脚本，串行运行，避免构建或测试争用 CPU。
 
-2026-10-23 在 Apple Silicon、Node.js 24.22.1 下，对比 `9f0f346` 与本轮优化：
+2026-10-23 在 Apple Silicon、Node.js 24.22.1 下，对比 0.0.20 的 `9f0f346` 与 0.0.21 包含的优化提交 `1c1775c`：
 
 | 操作 | 优化前 | 优化后 |
 | --- | ---: | ---: |
