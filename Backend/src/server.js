@@ -1,7 +1,6 @@
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { rm } from 'node:fs/promises';
 import { Repository } from './database.js';
 import {
   ServiceError,
@@ -12,7 +11,7 @@ import {
 import { testAccount, syncAccount, updateMessage, restoreMessage, unarchiveMessage, emptyTrash, sendDraft } from './mail.js';
 import { archiveRestoreFolder, trashRestoreFolder } from './mail-folders.js';
 import { runAgent, approveClassification, useReplyPreview, completion } from './agent.js';
-import { saveAttachment, attachmentBytes } from './attachments.js';
+import { saveAttachment, attachmentBytes, removeUnusedAttachments } from './attachments.js';
 import { seedDemo } from './demo.js';
 import { DEFAULT_AI, upgradeDefaultPrompts } from './ai-settings.js';
 import { Organizer } from './organizer.js';
@@ -29,6 +28,8 @@ import { createBackup, inspectBackup, restoreBackup } from './backups.js';
 import { exportConfiguration, inspectConfiguration, importConfiguration } from './configuration.js';
 import { AIProgress } from './ai-progress.js';
 import { setSummaryVisibility } from './summary-overview.js';
+import { updateMessageBatch } from './mail-batch.js';
+import { savedForwardFields, upgradeForwardDraft } from './forward-content.js';
 import { serviceLifecycle } from './service-lifecycle.js';
 
 export async function startServer({
@@ -47,7 +48,7 @@ export async function startServer({
     throw new Error('A session token is required');
   const repo = new Repository(directory);
   if (demo) await seedDemo(repo);
-  for (const d of repo.list('draft').filter((d) => d.status === 'sending'))
+  for (const d of repo.activeDrafts().filter((d) => d.status === 'sending'))
     repo.put('draft', { ...d, status: 'uncertain' });
   for (const j of repo.list('job').filter((j) => j.status === 'running'))
     repo.put('job', {
@@ -113,13 +114,14 @@ export async function startServer({
       unarchiveFolder: archiveRestoreFolder(message, repo.get('account', message.accountId)) };
     return message;
   }
-  function state(compact = false) {
+  function state(compact = false, previews = true) {
     const accounts = repo.list('account');
     const byAccount = new Map(accounts.map(account => [account.id, account]));
     return {
       accounts,
-      messages: (compact ? repo.messageHeaders() : repo.search('')).map(presentMessage),
-      drafts: repo.list('draft').filter((d) => d.status !== 'sent')
+      messages: (compact ? repo.messageHeaders(undefined, { previews }) : repo.search('')).map(presentMessage),
+      drafts: repo.activeDrafts()
+        .map(draft => upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null))
         .map(draft => ({ ...draft, preview: draftPreview(draft, byAccount.get(draft.accountId)) })),
       attachments: compact ? repo.attachmentHeaders() : repo.list('attachment'),
       jobs: (compact ? repo.jobHeaders() : repo.list('job'))
@@ -178,7 +180,7 @@ export async function startServer({
       if (req.method !== 'GET') { activeWrites++; countedWrite = true; }
       let result;
       if (req.method === 'GET' && route === '/health') result = { ok: true };
-      else if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1');
+      else if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1', url.searchParams.get('previews') !== '0');
       else if (req.method === 'GET' && route === '/sync-status') result = syncStatus();
       else if (req.method === 'POST' && route === '/summaries/visibility') result = setSummaryVisibility(repo, body);
       else if (req.method === 'POST' && route === '/configuration/export') result = exportConfiguration(repo, body.settings);
@@ -223,7 +225,10 @@ export async function startServer({
         const id = route.split('/')[2];
         result = repo.get('message', id) || draftSearchMessage(repo, id);
         if (!result) throw new ServiceError('邮件不存在或已移动，请刷新列表', 404);
-        result = { ...presentMessage(result), bodyLoaded: true };
+        result = { ...presentMessage(result),
+          ...(result.draftId ? {} : { preview: repo.messageHeader(result).preview }), bodyLoaded: true };
+      } else if (req.method === 'POST' && route === '/messages/batch') {
+        result = updateMessageBatch(repo, body, locks);
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/restore$/.test(route)) {
         const id = route.split('/')[2], message = repo.get('message', id);
         if (message && locks.has(message.accountId))
@@ -266,7 +271,7 @@ export async function startServer({
       } else if (req.method === 'DELETE' && route.startsWith('/accounts/')) {
         const id = route.split('/')[2];
         if (locks.has(id) || locks.has('agent') || organizer.busy(id) || attachmentBatch.busy(id)
-          || repo.list('draft', { accountId: id }).some(draft => draft.status === 'sending'))
+          || repo.activeDrafts(id).some(draft => draft.status === 'sending'))
           throw new ServiceError('账户正在执行任务，请完成后再移除', 409);
         const candidates = new Set(
           [...repo.list('message'), ...repo.list('draft'),
@@ -289,20 +294,7 @@ export async function startServer({
             for (const v of repo.list(kind).filter((x) => x.accountId === id))
               repo.remove(kind, v.id);
         });
-        const referenced = new Set(
-          [...repo.list('message'), ...repo.list('draft'),
-            ...repo.list('relocation').map(record => record.original),
-            ...repo.list('recovery').map(record => record.original)].flatMap(
-            (m) => m.attachmentIds || [],
-          ),
-        );
-        for (const aid of candidates) {
-          if (referenced.has(aid)) continue;
-          const attachment = repo.get('attachment', aid);
-          repo.remove('attachment', aid);
-          if (attachment)
-            await rm(attachment.path, { force: true }).catch(() => {});
-        }
+        await removeUnusedAttachments(repo, candidates);
         result = { ok: true };
       } else if (req.method === 'POST' && route === '/sync') {
         if (body.folder && !['inbox','sent','trash','drafts','archive','spam'].includes(body.folder))
@@ -479,13 +471,20 @@ export async function startServer({
           status: 'draft',
           updatedAt: new Date().toISOString(),
           sourceMessageId: body.sourceMessageId || null,
+          ...savedForwardFields(body, old),
         };
-        result = { ...repo.put('draft', draft), preview: draftPreview(draft, account) };
+        const saved = upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null);
+        result = { ...repo.put('draft', saved), preview: draftPreview(saved, account) };
       } else if (req.method === 'DELETE' && route.startsWith('/drafts/')) {
         const id = route.split('/')[2];
-        if (['sending', 'uncertain'].includes(repo.get('draft', id)?.status))
+        const draft = repo.get('draft', id);
+        if (['sending', 'uncertain'].includes(draft?.status))
           throw new ServiceError('该草稿的发送结果待确认', 409);
-        repo.remove('draft', id);
+        if (draft) {
+          const owned = repo.db.prepare("SELECT id FROM records WHERE kind='attachment' AND json_extract(data,'$.messageId')=?").all(id);
+          repo.remove('draft', id);
+          await removeUnusedAttachments(repo, [...(draft.attachmentIds || []), ...owned.map(file => file.id)]);
+        }
         result = { ok: true };
       } else if (req.method === 'POST' && route === '/send')
         result = await sendDraft(

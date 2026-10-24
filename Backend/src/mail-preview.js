@@ -76,5 +76,9 @@ export function mailPreviewText(message) {
 }
 
 export function mailPreview(message) {
-  return mailPreviewText(message).replace(/\s+/g, ' ').trim().slice(0, 140);
+  const text = mailPreviewText(message);
+  const readable = text.replace(/\[https?:\/\/[^\]\s]+\]/gi, '')
+    .replace(/https?:\/\/[^\s<>\[\]\p{Script=Han}，。；！？、）】“”]+/giu, '').replace(/\s+/g, ' ').trim();
+  // Link-only messages still need a useful preview. Search retains all URLs.
+  return (readable || text.replace(/\s+/g, ' ').trim()).slice(0, 140);
 }

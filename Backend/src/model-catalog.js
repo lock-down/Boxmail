@@ -1,5 +1,4 @@
 import { aiConfig, aiModel, ServiceError } from './validation.js';
-import { providerClient } from './ai-protocols.js';
 
 function catalogKey(config) {
   return config.providerId === 'default' && config.apiProtocol === 'openai-responses'
@@ -29,6 +28,7 @@ function discoveredModel(item) {
 
 export async function refreshModelCatalog(repo, input, apiKey) {
   const config = aiConfig(input, { requireModel: false });
+  const { providerClient } = await import('./ai-protocols.js');
   const client = providerClient(config, apiKey);
   const models = new Map(), cursors = new Set(), signal = AbortSignal.timeout(15000);
   let cursor;

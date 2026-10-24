@@ -27,7 +27,9 @@ export function validateBackupRecords(records) {
       || !integers(value, ['imapPort', 'smtpPort']) || !bools(value, ['imapTLS', 'smtpTLS', 'isDemo']))) fail();
     if (kind === 'message' && !mailShape(value)) fail();
     if (kind === 'draft' && (!strings(value, ['accountId', 'to', 'cc', 'bcc', 'subject', 'body', 'status', 'updatedAt'])
-      || !stringArray(value.attachmentIds))) fail();
+      || !stringArray(value.attachmentIds)
+      || (value.forwardedHTML != null || value.forwardedText != null)
+        && !strings(value, ['forwardedHTML', 'forwardedText']))) fail();
     if (['message', 'draft'].includes(kind) && (!accountIDs.has(value.accountId)
       || value.attachmentIds.some(id => !attachmentIDs.has(id)))) fail();
     if (kind === 'attachment' && (!strings(value, ['messageId', 'name', 'contentType', 'path', 'text', 'parseError', 'date'])

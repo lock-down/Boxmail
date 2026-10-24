@@ -2,8 +2,6 @@ import { readFile, writeFile, mkdir, copyFile, chmod, rm } from 'node:fs/promise
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import mammoth from 'mammoth';
-import ExcelJS from 'exceljs';
 import { ServiceError } from './validation.js';
 import { isPresentation, presentationText, presentationPDF } from './presentations.js';
 import { processPDF } from './pdf-processing.js';
@@ -15,11 +13,14 @@ export async function extractText(buffer, name, contentType = '') {
   if (ext === '.pdf') {
     return (await processPDF(buffer, { task: 'text', name })).text;
   }
-  if (ext === '.docx')
+  if (ext === '.docx') {
+    const { default: mammoth } = await import('mammoth');
     return (await mammoth.extractRawText({ buffer })).value.slice(0, 200000);
+  }
   if (isPresentation({ name, contentType }))
     return presentationText(buffer, { name, contentType });
   if (ext === '.xlsx') {
+    const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
     let text = '';
@@ -85,6 +86,40 @@ export async function attachmentBytes(repo, id) {
   const a = repo.get('attachment', id);
   if (!a) throw new ServiceError('附件不存在', 404);
   return { metadata: a, buffer: await readFile(a.path) };
+}
+
+export async function removeUnusedAttachments(repo, ids) {
+  // Remove records before yielding to file I/O. A concurrent draft save then
+  // cannot acquire a reference to a file that is already scheduled for removal.
+  const files = repo.transaction(() => {
+    const candidates = new Set(ids);
+    // Old sent drafts are delivery receipts. Their files belong to the Sent
+    // message; stale receipt references must not prevent an approved purge.
+    const receipts = repo.db.prepare(`SELECT id,json_extract(data,'$.attachmentIds') AS ids FROM records
+      WHERE kind='draft' AND json_extract(data,'$.status')='sent'`).all();
+    for (const receipt of receipts) {
+      const previous = receipt.ids ? JSON.parse(receipt.ids) : [];
+      const kept = previous.filter(id => !candidates.has(id));
+      if (kept.length !== previous.length) repo.db.prepare(
+        "UPDATE records SET data=json_set(data,'$.attachmentIds',json(?)) WHERE kind='draft' AND id=?")
+        .run(JSON.stringify(kept), receipt.id);
+    }
+    const rows = repo.db.prepare(`SELECT json_extract(data,'$.attachmentIds') AS ids FROM records
+      WHERE kind IN ('message','draft') UNION ALL
+      SELECT json_extract(data,'$.original.attachmentIds') AS ids FROM records
+      WHERE kind IN ('relocation','recovery')`).all();
+    const referenced = new Set(rows.flatMap(row => row.ids ? JSON.parse(row.ids) : []));
+    const unused = [];
+    for (const id of candidates) {
+      if (referenced.has(id)) continue;
+      const attachment = repo.get('attachment', id);
+      if (!attachment) continue;
+      repo.remove('attachment', id);
+      unused.push(attachment.path);
+    }
+    return unused;
+  });
+  await Promise.allSettled(files.map(file => rm(file, { force: true })));
 }
 
 // Copies have independent ids and files so deleting or analyzing either mail cannot affect

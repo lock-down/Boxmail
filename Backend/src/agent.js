@@ -220,9 +220,15 @@ export function approveClassification(repo, id, undo = false) {
     throw new ServiceError('该整理任务不能执行此操作', 409);
   repo.transaction(() => {
     if (undo) {
+      const applied = new Map(job.result.items.map(item => [item.id, item.category]));
       for (const p of job.result.previous || []) {
+        if (p.category === applied.get(p.id)) continue;
         const m = repo.get('message', p.id);
-        if (m) repo.put('message', { ...m, category: p.category });
+        if (m) {
+          if (m.category !== applied.get(p.id))
+            throw new ServiceError('邮件分类已更改，未覆盖后续修改，无法撤销本次整理', 409);
+          repo.put('message', { ...m, category: p.category });
+        }
       }
       job.status = 'undone';
     } else {

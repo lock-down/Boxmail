@@ -13,6 +13,7 @@ struct ContentView: View {
         header
         Divider().overlay(Palette.softBorder)
         workspace
+        if store.mailChange != nil || store.mailActionError != nil { mailActionNotice }
       }
     }.foregroundStyle(Palette.ink).tint(Palette.blue).background(Palette.canvas).ignoresSafeArea(
       .container, edges: .top
@@ -104,7 +105,14 @@ struct ContentView: View {
     HSplitView {
       MailListView(store: store).frame(minWidth: 294, idealWidth: 332, maxWidth: 380)
       Group {
-        if let message = store.selectedMessage,
+        if store.selectedMails.count > 1 {
+          VStack(spacing: 14) {
+            Image(systemName: "envelope.stack").font(.system(size: 30, weight: .light)).foregroundStyle(Palette.muted)
+            Text("已选择 \(store.selectedMails.count) 封邮件").font(UIType.heading)
+            Text("使用列表上方的操作批量归档、标记或删除邮件。")
+              .font(UIType.caption).foregroundStyle(Palette.muted)
+          }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let message = store.selectedMessage,
           store.filteredMessages.contains(where: { $0.id == message.id })
         {
           if let error = store.detailError {
@@ -137,7 +145,7 @@ struct ContentView: View {
     HStack(spacing: 16) {
       Spacer(minLength: 0)
       HStack(spacing: 4) {
-        SearchField(placeholder: "搜索邮件、附件或输入条件", text: $store.search)
+        SearchField(placeholder: "搜索邮件、附件或输入条件", text: $store.search, focusRequest: store.searchFocusRequest)
         IconButton(icon: "line.3.horizontal.decrease", help: "组合条件搜索") { searchFilters = true }
           .popover(isPresented: $searchFilters, arrowEdge: .bottom) { SearchFiltersView(store: store) }
       }.frame(minWidth: 220, idealWidth: 420, maxWidth: 520)
@@ -150,7 +158,7 @@ struct ContentView: View {
           HStack(spacing: 6) {
             Circle().fill(store.settings.ai.enabled ? Palette.success : Palette.muted)
               .frame(width: 5, height: 5)
-            Text("AI 助手").font(.system(size: 11, weight: .medium))
+            Text(store.settings.ai.enabled ? "AI 已启用" : "AI 已关闭").font(.system(size: 11, weight: .medium))
           }.foregroundStyle(Palette.muted).padding(.horizontal, 9).frame(height: 32)
             .contentShape(RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(ControlFeedback()).controlFocus()
@@ -166,7 +174,23 @@ struct ContentView: View {
         IconButton(icon: "bell", help: "活动记录") { activity = true }
         IconButton(icon: "gearshape", help: "设置") { store.showSettings = true }
       }.padding(.trailing, 14)
-    }.padding(.leading, 16).frame(height: 54).background(Palette.chrome)
+    }.padding(.leading, 16).frame(height: 48).background(Palette.chrome)
+  }
+  private var mailActionNotice: some View {
+    HStack(spacing: 10) {
+      Text(store.mailActionError ?? store.mailChange?.title ?? "")
+        .font(UIType.caption).foregroundStyle(store.mailActionError == nil ? Palette.muted : Palette.amber)
+        .lineLimit(2).textSelection(.enabled)
+      Spacer(minLength: 8)
+      if store.mailChange?.undo.isEmpty == false {
+        ActionButton(title: "撤销", icon: "arrow.uturn.backward", kind: .primary) { store.undoMailChange() }
+          .disabled(store.mailActionInProgress).help("撤销最近一次邮件操作（Command-Z）")
+      }
+      IconButton(icon: "xmark", help: "关闭邮件操作提示", size: 24) {
+        store.mailChange = nil; store.mailActionError = nil
+        store.mailUndoManager?.removeAllActions(withTarget: store)
+      }.disabled(store.mailActionInProgress)
+    }.padding(.horizontal, 16).padding(.vertical, 4).background(Palette.canvas)
   }
 }
 

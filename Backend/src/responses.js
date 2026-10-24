@@ -1,6 +1,4 @@
 import { aiConfig, ServiceError } from './validation.js';
-import { protocolCompletion, providerClient, validateModelInput } from './ai-protocols.js';
-import { toFile } from 'openai';
 import { partialResult } from './ai-progress.js';
 
 const unsignedWritingRule = '邮件撰写规则：生成或润色邮件正文时，只撰写待审阅的正文，不添加签名或署名段，不在结尾附上发件人的姓名、职位、公司、联系方式、发送日期，也不输出“[您的姓名]”“[联系方式]”等签名占位符。不模仿或复制来信、附件、已有正文中的签名段。总结建议中起草回复的 prompt 和附件理解中的回复草稿、邮件示例遵守同一规则。可保留自然称呼、简短礼貌结束语，以及正文或分析所需的联系人、提交邮箱、数字和日期等事实；此规则不要求删改原邮件或附件的分析内容。';
@@ -28,6 +26,7 @@ export async function completion(configInput, apiKey, task, content, images = []
   const translationRule = task === 'translate' && Array.isArray(content.segments)
     ? '\n按输入顺序逐段翻译 segments 中的文字。每个 id 必须原样返回且仅出现一次，不合并、不遗漏。仅翻译文字，保留专有名词、命令、地址、URL 和占位符，不输出 HTML。' : '';
 
+  const { protocolCompletion, providerClient, validateModelInput } = await import('./ai-protocols.js');
   const client = config.apiProtocol === 'openai-responses' && config.providerId === 'default'
     ? providerClient(config, apiKey) : null;
   const deadline = AbortSignal.timeout(config.timeout * 1000);
@@ -38,6 +37,7 @@ export async function completion(configInput, apiKey, task, content, images = []
     const prepared = validateModelInput(config, instructions, content, images, { inlineImages: !client });
     const parts = client ? [{ type: 'input_text', text: prepared.context.messages[1].content[0].text }] : undefined;
     if (client) {
+      const { toFile } = images.length ? await import('openai') : {};
       for (const image of images) {
         let file;
         try {

@@ -12,7 +12,8 @@ let package = Package(
         .target(name: "BoxmailCore", resources: [.process("Resources")]),
         .executableTarget(name: "Boxmail", dependencies: ["BoxmailCore"]),
         .executableTarget(name: "BoxmailPresentationRenderer"),
-        .testTarget(name: "BoxmailCoreTests", dependencies: ["BoxmailCore"])
+        .testTarget(name: "BoxmailCoreTests", dependencies: ["BoxmailCore"]),
+        .testTarget(name: "BoxmailTests", dependencies: ["Boxmail"])
     ],
     swiftLanguageModes: [.v5]
 )

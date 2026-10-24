@@ -5,45 +5,38 @@ import SwiftUI
 struct MailAIBar: View {
   @Bindable var store: MailStore
   let message: MailMessage
-  @Namespace private var selection
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
-    HStack(spacing: 4) {
-      ForEach(MailAITab.allCases) { tab in
+    HStack(spacing: 8) {
+      ForEach([MailAITab.summary, .translate, .reply]) { tab in
         Button {
-          withAnimation(UIMotion.disclosure(reduceMotion)) { store.showMailAI(tab, message: message) }
+          if tab != .translate && store.mailAITab == tab { store.mailAITab = nil }
+          else { store.showMailAI(tab, message: message) }
         } label: {
-          HStack(spacing: 6) {
-            Image(systemName: tab.icon)
-              .symbolEffect(.pulse, options: .repeating,
-                isActive: !reduceMotion && store.busy.contains("agent")
-                  && store.activeAIMessageId == message.id && store.mailAITab == tab)
-            Text(tab == .translate ? (store.isShowingTranslation(message) ? "显示原文" : message.translation == nil ? "翻译" : "显示译文")
-              : tab == .summary ? "AI 总结" : tab.title)
-          }.font(.system(size: 12, weight: .medium)).padding(.horizontal, 10).frame(height: 30)
-            .foregroundStyle(store.mailAITab == tab ? Palette.accent : Palette.muted)
-            .background {
-              if store.mailAITab == tab {
-                if reduceMotion {
-                  RoundedRectangle(cornerRadius: 6).fill(Palette.accentSoft)
-                } else {
-                  RoundedRectangle(cornerRadius: 6).fill(Palette.accentSoft)
-                    .matchedGeometryEffect(id: "ai-tab", in: selection)
-                }
-              }
-            }.contentShape(Rectangle())
+          Label(title(tab), systemImage: tab.icon)
+            .font(.system(size: 12, weight: .medium)).padding(.horizontal, 8).frame(height: 30)
+            .foregroundStyle(store.mailAITab == tab ? Palette.blue : Palette.muted)
+            .background(store.mailAITab == tab ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
         }.buttonStyle(ControlFeedback(selected: store.mailAITab == tab, corner: 6))
           .controlFocus(corner: 6)
           .accessibilityAddTraits(store.mailAITab == tab ? .isSelected : [])
-          .disabled(tab == .attachment && message.attachmentIds.isEmpty)
-          .help(
-            tab == .translate ? (store.isShowingTranslation(message) ? "显示当前邮件原文" : "显示当前邮件译文")
-              : tab == .attachment && message.attachmentIds.isEmpty ? "本封邮件没有附件" : "\(tab.title)当前邮件")
+          .help(tab == .summary ? "总结本封邮件或查看已有总结"
+            : tab == .translate ? "在原文与译文之间切换" : "为本封邮件起草回复")
       }
       Spacer(minLength: 0)
-      if store.busy.contains("agent") { ProgressView().controlSize(.mini).padding(.trailing, 5) }
-    }.padding(.horizontal, 16).frame(height: 44).background(.white)
+      if store.busy.contains("agent") && store.activeAIMessageId == message.id {
+        ProgressView().controlSize(.mini)
+      }
+    }.padding(.horizontal, 16).frame(height: 36).background(.white)
       .animation(UIMotion.selection(reduceMotion), value: store.mailAITab)
+  }
+  private func title(_ tab: MailAITab) -> String {
+    switch tab {
+    case .summary: return "AI 总结"
+    case .translate: return store.isShowingTranslation(message) ? "显示原文" : message.translation == nil ? "翻译" : "显示译文"
+    default: return "AI 回复"
+    }
   }
 }
 

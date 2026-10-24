@@ -1,15 +1,18 @@
 import { parseSearch, searchWhere } from './search-query.js';
 import { mailPreview, mailPreviewText } from './mail-preview.js';
+import { draftContent, upgradeForwardDraft } from './forward-content.js';
 
 const normalize = value => String(value || '').normalize('NFKC').toLocaleLowerCase();
 const prefix = 'draft:';
 export function draftPreview(draft, account = {}) {
-  return mailPreview({ body: draft.body, sender: account.name || account.email });
+  return mailPreview({ body: draftContent(draft).text, sender: account.name || account.email });
 }
-function presentDraft(draft, account) {
+function presentDraft(draft, account, repo) {
+  draft = upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null);
+  const content = draftContent(draft);
   return { id: prefix + draft.id, draftId: draft.id, accountId: draft.accountId, folder: 'drafts',
     sender: account.name || account.email, senderEmail: account.email, to: draft.to || '', cc: draft.cc || '', bcc: draft.bcc || '',
-    subject: draft.subject || '无主题草稿', body: draft.body || '',
+    subject: draft.subject || '无主题草稿', body: content.text, ...(content.html ? { html: content.html } : {}),
     preview: draftPreview(draft, account),
     date: draft.updatedAt, category: '未分类', unread: false, starred: false,
     attachmentIds: draft.attachmentIds || [], bodyLoaded: true };
@@ -18,7 +21,7 @@ export function draftSearchMessage(repo, id) {
   if (!id.startsWith(prefix)) return null;
   const draft = repo.get('draft', id.slice(prefix.length));
   const account = draft && repo.get('account', draft.accountId);
-  return draft && account && draft.status !== 'sent' ? presentDraft(draft, account) : null;
+  return draft && account && draft.status !== 'sent' ? presentDraft(draft, account, repo) : null;
 }
 export function draftSearchPage(repo, { query = '', accountId, folder, filter, offset = 0, limit = 100 } = {}) {
   const parsed = parseSearch(query);
@@ -26,8 +29,8 @@ export function draftSearchPage(repo, { query = '', accountId, folder, filter, o
   if (!explicit && !(folder === 'drafts' && !parsed.terms.length && !parsed.conditions.length)) return null;
   const accounts = repo.list('account'), byAccount = new Map(accounts.map(item => [item.id, item]));
   const attachments = new Map(repo.list('attachment').map(item => [item.id, item]));
-  const messages = repo.list('draft').filter(draft => draft.status !== 'sent' && byAccount.has(draft.accountId)).map(draft => {
-    const message = presentDraft(draft, byAccount.get(draft.accountId));
+  const messages = repo.activeDrafts().filter(draft => byAccount.has(draft.accountId)).map(draft => {
+    const message = presentDraft(draft, byAccount.get(draft.accountId), repo);
     const files = message.attachmentIds.map(id => attachments.get(id)).filter(Boolean);
     return { ...message, draftSearchText: normalize([message.subject, message.body, message.sender, message.senderEmail,
       message.to, message.cc, message.bcc, ...files.flatMap(file => [file.name, file.text, file.analysis])].filter(Boolean).join('\n')) };

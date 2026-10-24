@@ -74,11 +74,18 @@ struct ComposerView: View {
               Palette.amber
             ).padding(14).background(Palette.blueSoft)
           }
-          PlainTextEditor(
-            text: $draft.body, fontSize: 14, lineSpacing: 5, inset: NSSize(width: 24, height: 18),
-            accessibilityLabel: "邮件正文", bottomAnchoredText: store.settings.preferences.signature,
-            onPaste: pasteAttachments
-          ).frame(minHeight: 120).background(.white)
+          if let forwardedText = draft.forwardedText {
+            OverlayScrollView {
+              VStack(spacing: 0) {
+                bodyEditor(label: "转发说明", placeholder: "在此填写转发说明")
+                  .frame(height: max(140, min(240, CGFloat(draft.body.components(separatedBy: "\n").count) * 22 + 44)))
+                Divider().overlay(Palette.softBorder)
+                ForwardedMailPreview(html: draft.forwardedHTML, text: forwardedText, preferences: store.settings.preferences)
+              }
+            }.background(.white)
+          } else {
+            bodyEditor(label: "邮件正文").frame(minHeight: 120).background(.white)
+          }
           Divider()
           VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -176,6 +183,11 @@ struct ComposerView: View {
           "收件人：\(draft.to)\n主题：\(draft.subject.isEmpty ? "无主题" : draft.subject)\n附件：\(draft.attachmentIds.count) 个"
         )
       }
+  }
+  private func bodyEditor(label: String, placeholder: String = "") -> some View {
+    PlainTextEditor(text: $draft.body, placeholder: placeholder, fontSize: 14, lineSpacing: 5,
+      inset: NSSize(width: 24, height: 18), accessibilityLabel: label,
+      bottomAnchoredText: store.settings.preferences.signature, onPaste: pasteAttachments)
   }
   private func recipientField(_ title: String, text: Binding<String>, others: [String]) -> some View {
     HStack {

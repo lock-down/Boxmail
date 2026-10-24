@@ -276,6 +276,19 @@ test('empty trash requires approval, removes only the chosen account, and retain
   assert.equal((await emptyTrash(repo, account.id, '', true)).count, 0);
 });
 
+test('old delivery receipts do not retain attachments after the Sent mail is permanently cleared', async t => {
+  const repo = await fixture(t);
+  repo.put('account', { ...account, isDemo: true });
+  const file = await saveAttachment(repo, 'sent-old', 'sent.txt', Buffer.from('sent attachment'));
+  repo.put('message', { ...base, id: 'sent-old', folder: 'trash', attachmentIds: [file.id] });
+  repo.put('draft', { id: 'old', accountId: account.id, status: 'sent', body: '历史已发送草稿', attachmentIds: [file.id] });
+  await emptyTrash(repo, account.id, '', true);
+  assert.equal(repo.get('attachment', file.id), null);
+  await assert.rejects(access(file.path));
+  assert.equal(repo.get('draft', 'old').status, 'sent');
+  assert.deepEqual(repo.get('draft', 'old').attachmentIds, []);
+});
+
 test('empty trash clears uncached server mail and applies pending restores before clearing', async t => {
   const repo = await fixture(t), remote = mailbox();
   remote.add('Trash', '<restore@example.com>'); remote.add('Trash', '<delete@example.com>');

@@ -2,15 +2,18 @@
 
 Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，以 SQLite 保存本机数据，支持通过 BYOK 接入兼容 OpenAI Responses、Chat Completions 或 Anthropic Messages 的 AI 服务。
 
-当前发布版本为 **0.0.25（build 26）**，源码标签为 `v0.0.25`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.0.25)。本版修复草稿箱及关联回复草稿仍显示签名的遗漏，缩略预览与搜索共用过滤规则，编辑和发送保留完整正文。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
+当前发布版本为 **0.0.26（build 27）**，源码标签为 `v0.0.26`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.0.26)。本版加入紧凑列表、多选与批量撤销、保留原排版的 HTML 转发，并修复原邮件跳转、草稿附件清理和分类撤销问题，降低后端启动开销。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
 
 ## 功能
 
 - 多账户收发、HTML 与内嵌图片阅读、可恢复的历史同步、引用链会话。
-- 本机草稿、联系人补全、回复与转发、个人签名、附件选择与粘贴，发送前确认。
+- 紧凑邮件列表、原生连续及离散多选、批量归档／删除／标记／分类，以及最近一次手动操作的即时撤销；支持键盘切换邮件、搜索和批量处理。
+- 本机草稿、联系人补全、回复与转发、个人签名、附件选择与粘贴，发送前确认；HTML 转发保留原邮件排版，转发说明独立编辑，发送包含 HTML 与纯文本版本。
 - 逐步显示的 AI 总结、原排版翻译、回复预览、写信、附件理解和分类整理；总结列表可单项或多选移除、清空及恢复，邮件内的 AI 结果保留。
 - 中文全文与组合条件搜索、本机草稿搜索、自定义分类，以及基于 pi-ai 的多服务商 BYOK、协议选择、模型能力及推理等级配置。
 - 配置与密钥迁移、完整备份恢复、自定义数据目录及搜索索引重建。
+
+阅读区直接显示 AI 总结、翻译和 AI 回复，附件理解位于正文附件区，已保存的总结统一从“摘要集合”进入。列表底部显示同步状态与时间，缓存和服务器数量可展开查看；邮件行包含已读、附件和总结状态的无障碍描述。具体操作见使用指南。
 
 ## 开发运行
 
@@ -28,7 +31,9 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 
 测试脚本先构建 PPT 原生渲染组件，再运行后端和 Swift 测试，使用临时数据及本机模拟服务。联调、签名及发布步骤见 [开发说明](docs/DEVELOPMENT.md)。
 
-0.0.25 完整回归通过 250 项后端测试和 75 项 Swift 测试，无失败或跳过。`node script/benchmark.mjs` 测量查询与同步耗时，`node script/benchmark-runtime.mjs` 测量同步、连续 AI、20 MB 图片和 20 页 PDF 的资源开销，均使用隔离数据与本机模拟服务。0.0.24 与 0.0.23 的三轮合成对照中，同步、连续 AI 和 PDF 的后端峰值 RSS 分别下降约 79%、15%、45%；测量条件、完整结果及限制见开发说明。
+`node script/benchmark-startup.mjs` 测量隔离后端启动、首屏数据就绪及 RSS。2400 封合成邮件的三轮交替测量中，后端及首屏数据就绪时间由 980 ms 降至 209 ms，就绪 RSS 由 353 MiB 降至 164 MiB；这是热缓存下的后端测量，不包含 SwiftUI、WebKit 和真实网络耗时，完整条件见开发说明。
+
+0.0.26 完整回归通过 270 项后端测试和 87 项 Swift 测试，无失败或跳过。`node script/benchmark.mjs` 测量查询与同步耗时，`node script/benchmark-runtime.mjs` 测量同步、连续 AI、20 MB 图片和 20 页 PDF 的资源开销，均使用隔离数据与本机模拟服务。0.0.24 与 0.0.23 的三轮合成对照中，同步、连续 AI 和 PDF 的后端峰值 RSS 分别下降约 79%、15%、45%；测量条件、完整结果及限制见开发说明。
 
 ## 安装包
 
@@ -49,7 +54,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 | [使用指南](docs/USER_GUIDE.md) | 安装、邮箱与 AI 配置、邮件操作、搜索、附件、数据迁移和常见问题；同时随安装包分发 |
 | [开发说明](docs/DEVELOPMENT.md) | 源码入口、测试、界面约定、钥匙串签名、打包及版本维护 |
 | [后端接口](Backend/README.md) | 独立启动、环境变量、HTTP API、任务和数据契约 |
-| [开发路线](docs/ROADMAP.md) | 已完成的优先功能、后续 20 项候选及参考项目 |
+| [开发路线](docs/ROADMAP.md) | 已完成的优先功能、后续候选及参考项目 |
 | [变更记录](CHANGELOG.md) | 版本变化、历史验收范围和标签归档 |
 
 当前行为写入对应指南，历史变化只记录在变更记录中；不再为每个版本建立独立说明文件。
@@ -63,6 +68,7 @@ Sources/BoxmailPresentationRenderer/  PPT 本机逐页渲染
 Backend/src/                         HTTP、SQLite、邮件协议、AI 和附件处理
 Backend/test/                        后端回归测试及合成附件样例
 Tests/BoxmailCoreTests/               Swift 数据契约和行为测试
+Tests/BoxmailTests/                   客户端导航、选择与分页状态回归
 docs/                                使用指南、开发说明及路线
 Design/Exports/                      19 个 HTML/CSS 设计参考
 script/                              构建、启动、测试、打包和图标生成

@@ -264,6 +264,41 @@ function sentMailbox(raw) {
   };
 }
 
+test('HTML forwarding delivers formatted MIME with an editable introduction and inline images', async t => {
+  const { repo, received, port } = await smtpFixture(t);
+  repo.put('account', accountFor(port));
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+  repo.put('message', { ...originalMessage('unused'), attachmentIds: [],
+    html: `<table width="600"><tr><td style="padding:24px;background-color:#edf3ff"><h1>原文标题</h1>`
+      + `<p>原文合同说明</p><img src="data:image/png;base64,${png}"></td></tr></table>` });
+  const draft = { ...createReplyDraft(repo, 'm1', { forward: true }), to: 'chen@example.com', body: '请审核转发内容。\n发件人签名' };
+  repo.put('draft', draft);
+  await sendDraft(repo, draft.id, 'mail-app-password', true, { storeSent: async () => {} });
+  const parsed = await simpleParser(received[0], { skipImageLinks: true });
+  assert.match(parsed.html, /<table width="600">/);
+  assert.match(parsed.html, /padding:24px;background-color:#edf3ff/);
+  assert.match(parsed.html, /请审核转发内容/);
+  assert.match(parsed.html, /src="cid:/);
+  assert.match(parsed.text, /请审核转发内容/);
+  assert.match(parsed.text, /请查看附件/);
+  assert.equal(parsed.attachments.length, 1);
+  assert.equal(parsed.attachments[0].contentDisposition, 'inline');
+  assert.deepEqual(parsed.attachments[0].content, Buffer.from(png, 'base64'));
+  const sent = repo.get('message', 'sent-' + draft.id);
+  assert.match(sent.html, /data:image\/png;base64/);
+  assert.match(sent.body, /请审核转发内容/);
+  assert.match(sent.body, /请查看附件/);
+  assert.equal(repo.get('message', 'm1').body, '请查看附件');
+  const receipt = repo.get('draft', draft.id);
+  assert.equal(receipt.status, 'sent');
+  assert.equal(receipt.body, '');
+  assert.deepEqual(receipt.attachmentIds, []);
+  assert.equal(receipt.forwardedHTML, undefined);
+  assert.equal(receipt.forwardedText, undefined);
+  assert.equal((await sendDraft(repo, draft.id, 'mail-app-password', true)).alreadySent, true);
+  assert.equal(received.length, 1);
+});
+
 test('forwarded attachments remain readable and analyzable on both mails before and after Sent sync', async (t) => {
   const { repo, received, port } = await smtpFixture(t);
   repo.put('account', accountFor(port));

@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "arial",
+        "files": [
+          "Backend/src/forward-content.js"
+        ],
+        "createdAt": "2026-10-24T08:49:42.385Z",
+        "reason": "Agent: Arial is intentional in generated email HTML headers and editable introductions for mail-client compatibility; original forwarded email typography is preserved."
+      }
+    ]
+  }
+}

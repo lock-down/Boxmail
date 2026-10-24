@@ -11,7 +11,7 @@ export function conversation(repo, id, { offset = 0, limit = 100 } = {}) {
   if (!selected) throw new ServiceError('邮件不存在或已移动，请刷新列表', 404);
   if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200)
     throw new ServiceError('会话分页参数无效');
-  const messages = repo.messageHeaders(selected.accountId);
+  const messages = repo.messageHeaders(selected.accountId, { previews: false });
   const parent = new Map();
   const find = key => {
     if (!parent.has(key)) parent.set(key, key);
@@ -32,7 +32,7 @@ export function conversation(repo, id, { offset = 0, limit = 100 } = {}) {
     .sort((a, b) => Number(b.id === id) - Number(a.id === id)
       || (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0) || a.id.localeCompare(b.id));
   return { id: createHash('sha256').update(`${selected.accountId}\n${group}`).digest('hex'),
-    accountId: selected.accountId, messages: members.slice(offset, offset + limit), total: members.length,
+    accountId: selected.accountId, messages: members.slice(offset, offset + limit).map(message => repo.messageHeader(message)), total: members.length,
     nextOffset: offset + limit < members.length ? offset + limit : null,
     partial: repo.list('sync').some(progress => progress.accountId === selected.accountId && (progress.hasMore || progress.remaining > 0)) };
 }

@@ -1,4 +1,3 @@
-import ExcelJS from 'exceljs';
 import { ServiceError } from './validation.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -46,6 +45,7 @@ function cellContent(cell) {
 }
 
 export async function workbookPreview(buffer) {
+  const { default: ExcelJS } = await import('exceljs');
   const book=new ExcelJS.Workbook();
   try { await book.xlsx.load(buffer); } catch { throw new ServiceError('工作簿无法读取，请使用原应用检查文件是否损坏或加密'); }
   const sheets=[];let limited=book.worksheets.length>10;

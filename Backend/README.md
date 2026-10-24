@@ -1,6 +1,8 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.0.25 为草稿快照和保存响应补齐签名过滤预览，与搜索结果共用规则，完整正文继续用于编辑和发送；数据库结构版本继续为 2。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.0.26 加入事务化批量邮件操作、HTML 转发快照及按需启动加载，完善附件回收和分类撤销冲突检查；数据库结构版本继续为 2。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+
+HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。
 
 ## 独立启动
 
@@ -33,23 +35,26 @@ npm start
 
 ### 邮件、账户与附件
 
+`POST /messages/batch` 的请求为 `{updates:[{id,changes,expected?}]}`。changes 只允许 folder、category、unread、starred；ID 不可重复。所有记录与账户锁先统一检查，字段校验及待同步操作在同一事务中提交。返回的 undo 项含原字段 changes 与操作后 expected，可原样再次提交进行撤销；只还原本次变化的字段，不覆盖其他编辑。任一 expected 不匹配或邮件身份已改变时返回 409，整批保持原状。每批最多 1000 项，仅对已缓存的邮件生效，不包含本机草稿。纯分类请求只修改本机标签，沿用现有单封接口的同步锁语义。
+
 | 方法 | 路径 | 参数与行为 |
 | --- | --- | --- |
 | GET | `/health` | 经会话令牌认证的就绪检查，不读取全量邮件状态 |
-| GET | `/state` | 完整状态；`compact=1` 返回轻量邮件索引，不带正文及完整附件文本；summary / translate / attachment 任务省略已保存在邮件或附件中的重复 result，`/jobs/:id` 仍返回完整任务 |
+| GET | `/state` | 完整状态；`compact=1` 返回轻量邮件索引，不带正文及完整附件文本；同时传 `previews=0` 时仅复用已有预览缓存，未生成项为空，由 `/messages` 分页补齐；summary / translate / attachment 任务省略重复 result |
 | GET | `/messages` | `accountId`、`folder`、`filter`、`q`、`limit`、`offset`；默认每页 100，limit 1 至 200，返回总数与 nextOffset |
 | GET | `/messages/:id` | 完整邮件及 `bodyLoaded: true`，也支持草稿搜索结果 |
 | GET | `/messages/:id/thread` | 同账户引用链、原邮件头、总数、分页及未缓存提示 |
 | POST | `/messages/:id/reply-draft` | `all`、`forward`，按原账户生成草稿和引用头 |
 | PATCH | `/messages/:id` | 事务更新 `unread`、`starred`、`folder` 或本机 `category`；任一字段失败时整体回滚，包括待同步操作 |
 | POST | `/messages/:id/restore`、`/messages/:id/unarchive` | 返回删除或归档前的文件夹 |
+| POST | `/messages/batch` | 1 至 1000 项 updates；每项含 id、changes 及可选 expected，事务更新并返回 changedCount 和可撤销的 undo |
 | POST | `/trash/empty` | `accountId`、`password`、`approved: true`；清空整个服务器及本机 Trash |
 | POST | `/accounts/test` | `account`、`password`；分别测试 IMAP / SMTP |
 | POST / DELETE | `/accounts`、`/accounts/:id` | 保存账号配置 / 移除本机账号及缓存，保留服务器邮件；发送中禁止移除，清理包含 recovery / relocation 附件并保留其他引用 |
 | POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台模式立即返回 |
 | GET | `/sync-status` | 运行账号、文件夹进度及本次结果 |
-| POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿；保存响应附签名过滤后的 `preview` |
-| POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；同一草稿并发只投递一次，重复请求返回 409 |
+| POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿；保存响应附签名过滤后的 `preview`；删除后清理未被邮件、其他草稿及保留记录引用的附件 |
+| POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；发送中或结果不明返回 409，已发送的重复请求返回 `alreadySent: true` |
 | POST | `/attachments` | `name`、Base64 `content`，可带关联 ID 和 `contentType` |
 | GET | `/attachments/:id` | 名称及 Base64 原始字节 |
 | GET | `/attachments/:id/metadata` | 按需读取提取文本和理解结果 |
@@ -95,6 +100,10 @@ npm start
 ## 数据与同步契约
 
 `database.js` 在 WAL 模式保存 `records(kind, id, JSON)` 和活动 `events`，结构版本为 2。迁移前在数据目录 `backups/` 保存一致性数据库备份，不重置较新版本数据库。外置附件放在 `attachments/`，迁移位置由客户端在服务启动前完成，双方共同持有数据目录锁。
+
+客户端启动使用 `compact=1&previews=0`，全局元数据不触发正文读取；列表页、邮件详情及会话当前页提供签名过滤预览。原 `compact=1` 契约保留。Word、表格及 AI SDK 在首次使用时加载，未发送草稿在 SQL 查询阶段筛选；已有格式化转发与普通回复不读取来源正文，完整旧转发仍按需恢复。
+
+发送成功后，隐藏的草稿记录保留状态及防重复发送回执，正文、格式化转发快照和附件引用由已发送邮件持有。删除草稿、移除账户及明确清空已删除时共用附件引用检查；旧发送回执的附件引用不阻止清理，活跃草稿、邮件及 relocation / recovery 引用继续保留。备份要求 forwardedHTML / forwardedText 成对为字符串，字段均缺省的旧草稿继续兼容。
 
 密钥由客户端从钥匙串读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机钥匙串引用，普通设置保存和重启保留；导出移除引用，导入按邮箱合并，客户端先写新凭证，再事务切换账号、设置和引用。修订冲突及提交失败保持旧配置。
 
@@ -164,7 +173,7 @@ npm start
 
 总结兼容 overview / nextSteps 与 points / todos / keyInfo。最多 4 项 nextSteps，只允许 reply / attachments / note；无效动作降为文字提醒，生成总结本身不执行建议。
 
-整理每批最多 6 封，正文摘要最多 600 字，逐批保存 completedIds 和 progress，重试只提交未完成 ID。分类在 needsApproval / partial / paused 时可确认，running 时不可应用，应用后可撤销。
+整理每批最多 6 封，正文摘要最多 600 字，逐批保存 completedIds 和 progress，重试只提交未完成 ID。分类在 needsApproval / partial / paused 时可确认，running 时不可应用，应用后可撤销。撤销在事务中检查本次实际修改的分类；后续手动修改导致冲突时返回 409，整批保留现状，未实际改变的分类不参与撤销。
 
 附件批量任务按邮件顺序保存 attachmentItems，状态为 pending / running / completed / existing / failed / unsupported。重复点击复用运行任务，重试保留原范围，新增任务才纳入新附件；入队和执行前检查所属邮件及账户，失败继续后续文件并保留旧分析。
 

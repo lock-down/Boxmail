@@ -28,9 +28,13 @@ struct DraftSearchDetailView: View {
               Text("密送：" + draft.bcc).font(UIType.caption).foregroundStyle(Palette.muted).textSelection(.enabled)
             }
           }
-          Text(message.body.isEmpty ? "尚未填写正文" : message.body).font(UIType.body).lineSpacing(6)
-            .foregroundStyle(message.body.isEmpty ? Palette.muted : Palette.ink).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+          if message.html?.isEmpty == false {
+            MailBodyView(message: message, preferences: store.settings.preferences)
+          } else {
+            Text(message.body.isEmpty ? "尚未填写正文" : message.body).font(UIType.body).lineSpacing(6)
+              .foregroundStyle(message.body.isEmpty ? Palette.muted : Palette.ink).textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
           if !message.attachmentIds.isEmpty {
             Text("附件 · \(message.attachmentIds.count) 个").font(UIType.section)
             ForEach(message.attachmentIds, id: \.self) { id in

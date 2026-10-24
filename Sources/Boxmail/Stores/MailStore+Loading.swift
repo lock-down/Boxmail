@@ -12,12 +12,6 @@ extension MailStore {
 
   func loadMessages(reset: Bool, preserveSelection: Bool = false) async {
     let key = mailQueryKey
-    let selectionWasInQuery =
-      pageKey == key
-      && selectedMessageId.map { id in filteredMessages.contains { $0.id == id } } == true
-    let keepSelection =
-      (preserveSelection && pageKey == key)
-      || (pinnedQueryKey == key && pinnedMessageId == selectedMessageId)
     if !reset && (listLoading || nextOffset == nil || pageKey != key) { return }
     let generation = UUID()
     pageGeneration = generation
@@ -41,41 +35,55 @@ extension MailStore {
         "/messages?\(query.percentEncodedQuery ?? "")")
       try Task.checkCancellation()
       guard pageGeneration == generation, key == mailQueryKey else { return }
-      if reset {
-        pageMessages = page.messages
-      } else {
-        let ids = Set(pageMessages.map(\.id))
-        pageMessages += page.messages.filter { !ids.contains($0.id) }
-      }
-      pageKey = key
-      pageTotal = page.total
-      nextOffset = page.nextOffset
-      if reset && !keepSelection { selectedMessageId = pageMessages.first?.id }
-      if let id = selectedMessageId, !pageMessages.contains(where: { $0.id == id }),
-        keepSelection, let header = messages.first(where: { $0.id == id }),
-        header.accountId == accountId,
-        search.isEmpty || selectionWasInQuery || pinnedQueryKey == key,
-        !search.isEmpty
-          || (destination == .starred
-            ? header.starred && header.folder != "trash"
-            : destination == .summary
-              ? header.summary != nil && header.folder != "trash"
-              : header.folder == destination.rawValue),
-        filter != "未读" || header.unread,
-        filter != "有附件" || !header.attachmentIds.isEmpty,
-        filter != "AI 已总结" || header.summary != nil
-      {
-        pinnedMessageId = id
-        pinnedQueryKey = key
-      } else if reset, let id = selectedMessageId, !pageMessages.contains(where: { $0.id == id }) {
-        pinnedMessageId = nil
-        selectedMessageId = pageMessages.first?.id
-      }
+      applyMessagePage(page, reset: reset, key: key, preserveSelection: preserveSelection)
     } catch is CancellationError {
     } catch {
       guard pageGeneration == generation else { return }
       listError = error.localizedDescription
     }
+  }
+
+  func applyMessagePage(_ page: MailPage, reset: Bool, key: String, preserveSelection: Bool) {
+    guard key == mailQueryKey else { return }
+    let selectionWasInQuery =
+      pageKey == key
+      && selectedMessageId.map { id in filteredMessages.contains { $0.id == id } } == true
+    // Read the current selection when the response arrives; another entry point
+    // may have opened a different mail while this request was in flight.
+    let keepSelection =
+      (preserveSelection && pageKey == key)
+      || (pinnedQueryKey == key && pinnedMessageId == selectedMessageId)
+    if reset {
+      pageMessages = page.messages
+    } else {
+      let ids = Set(pageMessages.map(\.id))
+      pageMessages += page.messages.filter { !ids.contains($0.id) }
+    }
+    pageKey = key
+    pageTotal = page.total
+    nextOffset = page.nextOffset
+    if reset && !keepSelection { selectedMessageId = pageMessages.first?.id }
+    if let id = selectedMessageId, !pageMessages.contains(where: { $0.id == id }),
+      keepSelection, let header = messages.first(where: { $0.id == id }),
+      header.accountId == accountId,
+      search.isEmpty || selectionWasInQuery || pinnedQueryKey == key,
+      !search.isEmpty
+        || (destination == .starred
+          ? header.starred && header.folder != "trash"
+          : destination == .summary
+            ? header.summary != nil && header.folder != "trash"
+            : header.folder == destination.rawValue),
+      filter != "未读" || header.unread,
+      filter != "有附件" || !header.attachmentIds.isEmpty,
+      filter != "AI 已总结" || header.summary != nil
+    {
+      pinnedMessageId = id
+      pinnedQueryKey = key
+    } else if reset, let id = selectedMessageId, !pageMessages.contains(where: { $0.id == id }) {
+      pinnedMessageId = nil
+      selectedMessageId = pageMessages.first?.id
+    }
+    reconcileMailSelection()
   }
 
   func loadSelectedMessage() async {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { ServiceError } from './validation.js';
+import { forwardedFields, forwardText } from './forward-content.js';
 
 export function addresses(value) {
   return addressparser(String(value || '').replace(/[，；]/g, ','), { flatten: true })
@@ -31,10 +32,12 @@ export function buildReplyDraft(message, account = {}, { all = false, forward = 
   const title = subject ?? (new RegExp(forward ? '^(?:fwd?|转发):' : '^(?:re|回复):', 'i').test(message.subject)
     ? message.subject : prefix + message.subject);
   const signature = account.signature ? `\n\n${account.signature}` : '';
+  const formatted = forward ? forwardedFields(message) : {};
   return {
     id: randomUUID(), accountId: message.accountId,
     to: forward ? '' : to.join(', '), cc: forward ? '' : cc.join(', '), bcc: '', subject: title,
-    body: body ?? (forward ? `${signature}\n\n---------- 转发邮件 ----------\n发件人：${message.sender} <${message.senderEmail}>\n日期：${message.date}\n主题：${message.subject}\n\n${message.body}` : signature),
+    body: body ?? (forward && !formatted.forwardedHTML ? `${signature}\n\n${forwardText(message)}` : signature),
+    ...formatted,
     attachmentIds: forward ? [...message.attachmentIds] : [],
     inReplyTo: forward ? '' : message.messageId || '',
     references: forward ? [] : referenceChain(message),

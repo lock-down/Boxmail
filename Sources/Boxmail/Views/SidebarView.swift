@@ -35,12 +35,12 @@ struct SidebarView: View {
             showAccounts.toggle()
           } label: {
             HStack(spacing: 8) {
-              SenderAvatar(name: store.currentAccount?.name ?? "Boxmail", size: 30).fixedSize()
+              SenderAvatar(name: store.currentAccount?.sidebarName ?? "Boxmail", size: 30).fixedSize()
               VStack(alignment: .leading, spacing: 3) {
-                Text(store.currentAccount?.name ?? "添加邮箱账号").font(
+                Text(store.currentAccount?.sidebarName ?? "添加邮箱账号").font(
                   .system(size: 12, weight: .semibold)
                 ).lineLimit(1).truncationMode(.middle)
-                  .help(store.currentAccount?.name ?? "添加邮箱账号")
+                  .help(store.currentAccount?.sidebarName ?? "添加邮箱账号")
                 Text(store.currentAccount?.email ?? "连接你的邮箱").font(.system(size: 11))
                   .foregroundStyle(
                     Palette.muted
@@ -61,10 +61,10 @@ struct SidebarView: View {
                     showAccounts = false
                   } label: {
                     HStack(spacing: 10) {
-                      SenderAvatar(name: account.name, size: 30).fixedSize()
+                      SenderAvatar(name: account.sidebarName, size: 30).fixedSize()
                       VStack(alignment: .leading, spacing: 4) {
-                        Text(account.name).font(.system(size: 13, weight: .medium))
-                          .lineLimit(1).truncationMode(.middle).help(account.name)
+                        Text(account.sidebarName).font(.system(size: 13, weight: .medium))
+                          .lineLimit(1).truncationMode(.middle).help(account.sidebarName)
                         Text(account.email).font(.system(size: 11)).foregroundStyle(Palette.muted)
                           .lineLimit(1).truncationMode(.middle).help(account.email)
                       }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
@@ -92,14 +92,10 @@ struct SidebarView: View {
           {
             destination in row(destination)
           }
-          sectionTitle("AI 助手").padding(.top, 7)
+          sectionTitle("智能工具").padding(.top, 7)
           ForEach([MailDestination.summary, .organize]) { destination in
             row(destination)
           }
-          Label("打开邮件可使用更多 AI 功能", systemImage: "info.circle")
-            .font(.system(size: 11)).foregroundStyle(Palette.muted).lineSpacing(3)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(
-              .top, 8)
         }.padding(.horizontal, 12).padding(.bottom, 12)
       }.scrollIndicators(.hidden)
       if store.currentAccount?.isDemo == true {

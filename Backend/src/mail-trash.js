@@ -1,7 +1,7 @@
-import { rm } from 'node:fs/promises';
 import { ServiceError } from './validation.js';
 import { mailServiceError } from './mail-errors.js';
 import { applyMailMutations, discoverMailFolders } from './mail-folders.js';
+import { removeUnusedAttachments } from './attachments.js';
 
 export async function clearTrash(repo, accountId, password, approved, { clientFactory }) {
   if (approved !== true) throw new ServiceError('清空已删除邮件需要明确确认', 403);
@@ -46,16 +46,7 @@ export async function clearTrash(repo, accountId, password, approved, { clientFa
       repo.put('sync', { ...progress, total: 0, downloaded: 0, remaining: 0, hasMore: false,
         status: 'completed', lastError: null, updatedAt: new Date().toISOString() });
   });
-  const referenced = new Set([
-    ...repo.list('message'), ...repo.list('draft'),
-    ...repo.list('relocation').map(r => r.original), ...repo.list('recovery').map(r => r.original),
-  ].flatMap(m => m.attachmentIds || []));
-  for (const id of candidates) {
-    if (referenced.has(id)) continue;
-    const attachment = repo.get('attachment', id);
-    repo.remove('attachment', id);
-    if (attachment) await rm(attachment.path, { force: true }).catch(() => {});
-  }
+  await removeUnusedAttachments(repo, candidates);
   repo.event('trash', '已清空当前账户的已删除邮件');
   return { ok: true, count: ids.size };
 }

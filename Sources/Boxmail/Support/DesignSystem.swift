@@ -112,7 +112,7 @@ struct IconMenu<Content: View>: View {
   @ViewBuilder var content: () -> Content
   var body: some View {
     Menu(content: content) {
-      Image(systemName: icon).font(.system(size: 14, weight: .regular))
+      Label(help, systemImage: icon).labelStyle(.iconOnly).font(.system(size: 14, weight: .regular))
         .foregroundStyle(Palette.muted).frame(width: 32, height: 32)
         .contentShape(RoundedRectangle(cornerRadius: 7))
     }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()

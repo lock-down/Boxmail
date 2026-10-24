@@ -114,6 +114,7 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
 public struct MailDraft: Codable, Identifiable, Hashable {
   public var id, accountId, to, cc, bcc, subject, body, status, updatedAt: String
   public var preview: String?
+  public var forwardedHTML, forwardedText: String?
   public var attachmentIds: [String]
   public var inReplyTo, sourceMessageId: String?
   public var references: [String]?
@@ -232,7 +233,7 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     case .sent: return "已发送"
     case .attachments: return "附件中心"
     case .trash: return "已删除"
-    case .summary: return "AI 总结"
+    case .summary: return "摘要集合"
     case .replies: return "自动回复"
     case .organize: return "智能整理"
     case .analysis: return "附件解析"

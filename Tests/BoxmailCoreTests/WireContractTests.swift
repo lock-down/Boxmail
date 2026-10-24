@@ -3,6 +3,20 @@ import Testing
 
 @testable import BoxmailCore
 
+@Test func formattedForwardDraftRetainsQuotedHTMLAndEditableIntroduction() throws {
+  let raw = #"{"id":"forward1","accountId":"a1","to":"","cc":"","bcc":"","subject":"Fwd: 原邮件","body":"转发说明","status":"draft","updatedAt":"2026-10-24T00:00:00Z","attachmentIds":[],"forwardedHTML":"<table><tr><td>原邮件</td></tr></table>","forwardedText":"原邮件"}"#
+  let draft = try JSONDecoder().decode(MailDraft.self, from: Data(raw.utf8))
+  #expect(draft.body == "转发说明")
+  #expect(draft.forwardedHTML?.contains("<table>") == true)
+  let reopened = try JSONDecoder().decode(MailDraft.self, from: JSONEncoder().encode(draft))
+  #expect(reopened.forwardedHTML == draft.forwardedHTML)
+  #expect(reopened.forwardedText == "原邮件")
+  let legacy = MailDraft(accountId: "a1", body: "旧草稿")
+  let decoded = try JSONDecoder().decode(MailDraft.self, from: JSONEncoder().encode(legacy))
+  #expect(decoded.forwardedHTML == nil)
+  #expect(decoded.body == "旧草稿")
+}
+
 @Test func decodeClassificationWithUnknownFields() throws {
   let data = Data(
     #"{"id":"job1","task":"classify","status":"needsApproval","createdAt":"2026-10-13T01:00:00Z","messageId":null,"error":null,"result":{"items":[{"id":"m1","category":"工作项目","reason":"排期"}],"previous":[]}}"#

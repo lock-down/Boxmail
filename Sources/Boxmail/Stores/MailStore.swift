@@ -22,8 +22,14 @@ import SwiftUI
   var restoreRevision = 0
   var accountId = ""
   var selectedMessageId: String?
+  var selectedMessageIds: Set<String> = []
+  var selectionQueryKey = ""
+  var mailChange: MailChange?
+  var mailActionError: String?
+  @ObservationIgnored weak var mailUndoManager: UndoManager?
   var destination: MailDestination = .inbox
   var search = ""
+  var searchFocusRequest = 0
   var filter = "全部"
   var busy: Set<String> = []
   var error: String?
@@ -77,6 +83,12 @@ import SwiftUI
     guard let id = selectedMessageId else { return nil }
     return detailCache[id] ?? messages.first { $0.id == id } ?? pageMessages.first { $0.id == id }
   }
+  var selectedMailForCommands: MailMessage? {
+    guard ready, composer == nil, !showSettings, previewAttachment == nil, isMailWorkspace,
+      selectedMails.count == 1, let message = selectedMessage, message.draftId == nil,
+      selectedMails.first?.id == message.id else { return nil }
+    return message
+  }
   var accountMessages: [MailMessage] { messages.filter { $0.accountId == accountId } }
   var trashMessages: [MailMessage] { accountMessages.filter { $0.folder == "trash" } }
   var unreadInboxMessages: [MailMessage] {
@@ -90,7 +102,7 @@ import SwiftUI
     guard pageKey == mailQueryKey else { return [] }
     if pinnedQueryKey == mailQueryKey, let id = pinnedMessageId,
       !pageMessages.contains(where: { $0.id == id }),
-      let message = messages.first(where: { $0.id == id })
+      let message = detailCache[id] ?? messages.first(where: { $0.id == id })
     {
       return [message] + pageMessages
     }
@@ -125,7 +137,7 @@ import SwiftUI
   }
   func refresh(reloadContent: Bool = true) async throws {
     let state: AppSnapshot = try await BackendService.shared.request(
-      "/state?compact=1", timeout: reloadContent ? 190 : 30)
+      "/state?compact=1&previews=0", timeout: reloadContent ? 190 : 30)
     accounts = state.accounts
     messages = state.messages
     drafts = state.drafts
@@ -172,6 +184,7 @@ import SwiftUI
     }
   }
   func navigate(_ value: MailDestination) {
+    selectedMessageIds = []
     mailAITab = nil
     destination = value
     filter = "全部"
@@ -179,10 +192,14 @@ import SwiftUI
     selectedMessageId = filteredMessages.first?.id
   }
   func select(_ message: MailMessage) {
-    if selectedMessageId != message.id { mailAITab = message.summary == nil ? nil : .summary }
+    if selectedMessageId != message.id { mailAITab = nil }
     selectedMessageId = message.id
+    selectedMessageIds = [message.id]
+    selectionQueryKey = mailQueryKey
     detailError = nil
-    if message.unread && settings.preferences.markRead { update(message, ["unread": false]) }
+    if message.unread && settings.preferences.markRead {
+      update(message, ["unread": false], undoable: false)
+    }
   }
   func editDraft(_ id: String) {
     guard let draft = drafts.first(where: { $0.id == id }), draft.status != "sending" else {
@@ -207,21 +224,21 @@ import SwiftUI
     if activeAIMessageId != message.id { mailAIErrors[message.id] = nil }
     if tab == .summary && message.summary == nil { generate(task: "summary", message: message) }
   }
-  func update(_ message: MailMessage, _ changes: [String: Any]) {
+  func update(_ message: MailMessage, _ changes: [String: Any], undoable: Bool = true) {
+    if undoable {
+      updateMessages([message], changes: changes)
+      return
+    }
     action("message-\(message.id)") {
       try await BackendService.shared.perform(
         "/messages/\(message.id)", method: "PATCH", body: changes)
     }
   }
   func restore(_ message: MailMessage) {
-    action("message-\(message.id)") {
-      try await BackendService.shared.perform("/messages/\(message.id)/restore")
-    }
+    restoreMessages([message])
   }
   func unarchive(_ message: MailMessage) {
-    action("message-\(message.id)") {
-      try await BackendService.shared.perform("/messages/\(message.id)/unarchive")
-    }
+    restoreMessages([message])
   }
   func emptyTrash(account: MailAccount) {
     action("empty-trash-\(account.id)") {
@@ -324,6 +341,11 @@ import SwiftUI
         self.composer = draft
       }
     } else {
+      guard accounts.contains(where: { $0.id == accountId }) else {
+        settingsTab = "账号"
+        showSettings = true
+        return
+      }
       composer = MailDraft(
         accountId: accountId,
         body: settings.preferences.signature.isEmpty ? "" : "\n\n" + settings.preferences.signature)

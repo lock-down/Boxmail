@@ -8,77 +8,64 @@ struct MailDetailView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 8) {
-        HStack(spacing: 6) {
-          if message.folder == "trash" {
-            ActionButton(title: message.restoreTitle, icon: "arrow.uturn.backward", kind: .primary) {
-              store.restore(message)
-            }.disabled(store.busy.contains("message-\(message.id)")
-              || store.busy.contains("empty-trash-\(message.accountId)"))
-          } else {
-            if message.folder == "archive" {
-              ActionButton(title: "取消归档", icon: "arrow.uturn.backward", kind: .primary) {
-                store.unarchive(message)
-              }.help(message.unarchiveTitle)
-                .disabled(store.busy.contains("message-\(message.id)"))
-            }
-            ActionButton(title: "回复", icon: "arrowshape.turn.up.left", kind: .softAI) {
-              store.newDraft(reply: message)
-            }
-            if message.folder != "archive" {
-              ActionButton(title: "全部回复", icon: "arrowshape.turn.up.left.2") {
-                store.newDraft(reply: message, all: true)
-              }
-              ActionButton(title: "转发", icon: "arrowshape.turn.up.right") {
-                store.newDraft(reply: message, forward: true)
-              }
+      HStack(spacing: 4) {
+        if message.folder == "trash" || message.folder == "archive" {
+          ActionButton(title: message.folder == "trash" ? "恢复" : "取消归档", icon: "arrow.uturn.backward") {
+            store.restoreMessages([message])
+          }.help(message.folder == "trash" ? message.restoreTitle : message.unarchiveTitle)
+        } else {
+          ActionButton(title: "回复", icon: "arrowshape.turn.up.left", kind: .softAI) {
+            store.newDraft(reply: message)
+          }
+        }
+        IconMenu(icon: "chevron.down", help: "回复和转发") {
+          Button("回复") { store.newDraft(reply: message) }
+          Button("全部回复") { store.newDraft(reply: message, all: true) }
+          Button("转发") { store.newDraft(reply: message, forward: true) }
+        }
+        Spacer(minLength: 4)
+        if message.folder != "archive" && message.folder != "trash" {
+          IconButton(icon: "archivebox", help: "归档（Control-Command-A）", size: 28) {
+            store.update(message, ["folder": "archive"])
+          }
+        }
+        IconMenu(icon: "tag", help: "分类邮件") {
+          ForEach(store.categories) { category in
+            Button { store.update(message, ["category": category.name]) } label: {
+              if message.category == category.name { Label(category.name, systemImage: "checkmark") }
+              else { Text(category.name) }
             }
           }
         }
-        Spacer(minLength: 8)
-        HStack(spacing: 4) {
-          if message.folder != "archive" {
-            IconButton(icon: "archivebox", help: "归档") {
-              store.update(message, ["folder": "archive"])
-            }
-          }
-          IconMenu(icon: "tag", help: "分类邮件") {
-            ForEach(store.categories) { category in
-              Button { store.update(message, ["category": category.name]) } label: {
-                      if message.category == category.name { Label(category.name, systemImage: "checkmark") }
-                      else { Text(category.name) }
-                    }
-            }
-          }
-          if message.folder != "trash" {
-            IconButton(icon: "trash", help: "移到已删除") { store.update(message, ["folder": "trash"]) }
-          }
-          IconButton(
-            icon: message.starred ? "star.fill" : "star", help: message.starred ? "取消星标" : "添加星标",
-            color: message.starred ? Palette.amber : Palette.muted, active: message.starred
-          ) { store.update(message, ["starred": !message.starred]) }
-          IconMenu(icon: "ellipsis", help: "更多邮件操作") {
-            if message.folder == "archive" {
-              Button("全部回复") { store.newDraft(reply: message, all: true) }
-              Button("转发") { store.newDraft(reply: message, forward: true) }
-              Divider()
-            }
-            Button("复制邮件正文") {
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(message.body, forType: .string)
-            }
-            Button("标记为未读") { store.update(message, ["unread": true]) }
+        if message.folder != "trash" {
+          IconButton(icon: "trash", help: "移到已删除（Delete）", size: 28) {
+            store.update(message, ["folder": "trash"])
           }
         }
-      }.padding(.horizontal, 16).frame(height: 52).background(.white)
+        IconButton(icon: message.starred ? "star.fill" : "star", help: message.starred ? "取消星标" : "添加星标",
+          color: message.starred ? Palette.amber : Palette.muted, size: 28, active: message.starred) {
+          store.update(message, ["starred": !message.starred])
+        }
+        IconMenu(icon: "ellipsis", help: "更多邮件操作") {
+          Button("复制邮件正文") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(message.body, forType: .string)
+          }
+          Button(message.unread ? "标记已读" : "标记未读") {
+            store.update(message, ["unread": !message.unread])
+          }
+        }
+      }.padding(.horizontal, 12).frame(height: 44).background(.white)
+        .disabled(store.mailActionInProgress)
       Divider().overlay(Palette.softBorder)
       MailAIBar(store: store, message: message)
+        .disabled(store.mailActionInProgress)
       Divider().overlay(Palette.softBorder)
       ScrollViewReader { reader in
         OverlayScrollView {
           ConversationTimelineView(store: store, selected: message) { selectedContent }
             .frame(maxWidth: UILayout.reading, alignment: .leading)
-            .padding(.horizontal, 30).padding(.vertical, 32).frame(
+            .padding(.horizontal, 24).padding(.vertical, 20).frame(
               maxWidth: .infinity, alignment: .top)
         }.defaultScrollAnchor(.top).id(message.id).background(.white)
           .task(id: "\(message.id)-\(store.mailAITab?.rawValue ?? "")") {
@@ -92,8 +79,8 @@ struct MailDetailView: View {
     }.background(.white)
   }
   private var selectedContent: some View {
-    VStack(alignment: .leading, spacing: 22) {
-      Text(message.subject).font(.system(size: 23, weight: .semibold)).tracking(-0.35).lineSpacing(4)
+    VStack(alignment: .leading, spacing: 14) {
+      Text(message.subject).font(.system(size: 20, weight: .semibold)).tracking(-0.35).lineSpacing(4)
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
       if message.category != "未分类" || message.starred {
@@ -103,7 +90,7 @@ struct MailDetailView: View {
         }
       }
       HStack(alignment: .top, spacing: 11) {
-        SenderAvatar(name: message.sender, size: 34)
+        SenderAvatar(name: message.sender, size: 28)
         VStack(alignment: .leading, spacing: 5) {
           HStack {
             Text(message.sender).font(.system(size: 13, weight: .semibold)).lineLimit(1)

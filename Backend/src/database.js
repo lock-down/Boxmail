@@ -61,6 +61,12 @@ export class Repository {
       .get(kind, id);
     return r ? JSON.parse(r.data) : null;
   }
+  activeDrafts(accountId) {
+    return this.db.prepare(`SELECT data FROM records WHERE kind='draft'
+      AND coalesce(json_extract(data,'$.status'),'draft')!='sent'
+      ${accountId === undefined ? '' : "AND json_extract(data,'$.accountId')=?"} ORDER BY id`)
+      .all(...(accountId === undefined ? [] : [accountId])).map(row => JSON.parse(row.data));
+  }
   localSentMessage(accountId, messageId) {
     const row = this.db.prepare(`SELECT data FROM records WHERE kind='message'
       AND json_extract(data,'$.accountId')=? AND json_extract(data,'$.messageId')=?
@@ -129,23 +135,26 @@ export class Repository {
     if (fullText.clause) { clauses.push(fullText.clause); params.push(...fullText.params); }
     return { where: clauses.join(' AND '), params };
   }
-  messageHeaders(accountId) {
+  messageHeaders(accountId, { previews = true } = {}) {
     return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML') AS data
       FROM records WHERE kind='message'${accountId === undefined ? '' : " AND json_extract(data,'$.accountId')=?"}
       ORDER BY json_extract(data,'$.date') DESC, id`)
       .all(...(accountId === undefined ? [] : [accountId]))
-      .map(row => this.messageHeader(JSON.parse(row.data)));
+      .map(row => this.messageHeader(JSON.parse(row.data), { previews }));
   }
-  messageHeader(header) {
+  messageHeader(header, { previews = true } = {}) {
     // Only small derived strings are cached, never full bodies. A restored or
     // reopened database has a new handle, so it cannot reuse an old projection.
     if (this.previewDatabase !== this.db) {
       this.previewDatabase = this.db;
       this.previewCache = new Map();
     }
-    if (!this.previewCache.has(header.id))
-      this.previewCache.set(header.id, mailPreview(this.get('message', header.id) || header));
-    return { ...header, preview: this.previewCache.get(header.id), body: '', bodyLoaded: false };
+    if (previews && !this.previewCache.has(header.id)) {
+      const source = typeof header.body === 'string' && header.bodyLoaded !== false
+        ? header : this.get('message', header.id) || header;
+      this.previewCache.set(header.id, mailPreview(source));
+    }
+    return { ...header, preview: this.previewCache.get(header.id) ?? '', body: '', bodyLoaded: false };
   }
   contactHeaders(accountId) {
     return this.db.prepare(`SELECT json_extract(data,'$.senderEmail') AS senderEmail,

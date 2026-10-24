@@ -102,6 +102,8 @@ struct BackupSettingsView: View {
         store.search = ""; store.pinnedMessageId = nil; store.pinnedQueryKey = ""
         store.previewAttachment = nil
         store.summaryListChange = nil; store.summaryListError = nil; store.summaryReplyRequest = nil
+        store.mailChange = nil; store.mailActionError = nil; store.selectedMessageIds = []
+        store.mailUndoManager?.removeAllActions(withTarget: store)
         store.translatedMessageIds = []; store.aiOutputs = [:]; store.mailAIErrors = [:]
         store.mailAITab = nil; store.activeAIMessageId = nil; store.activeAIAttachmentId = nil
         store.attachmentResultsMessageId = nil; store.attachmentBatchErrors = [:]; store.organizeError = nil

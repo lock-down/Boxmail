@@ -3,6 +3,7 @@ import SwiftUI
 struct SearchField: View {
   let placeholder: String
   @Binding var text: String
+  var focusRequest = 0
   @FocusState private var focused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
@@ -24,5 +25,6 @@ struct SearchField: View {
         if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 10).allowsHitTesting(false) }
       }.animation(UIMotion.feedback(reduceMotion), value: focused)
       .animation(UIMotion.feedback(reduceMotion), value: text.isEmpty)
+      .onChange(of: focusRequest) { _, _ in focused = true }
   }
 }

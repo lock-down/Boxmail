@@ -14,6 +14,15 @@ BUILD_CONFIGURATION="debug"
 DEMO_DATA="true"
 APP_BUNDLE="$ROOT_DIR/dist/$APP_NAME.app"
 case "$MODE" in
+--review|review)
+  if [[ -z "${BOXMAIL_DATA:-}" ]]; then
+    echo "隔离验收需要通过 BOXMAIL_DATA 指定独立数据目录。" >&2
+    exit 2
+  fi
+  BUNDLE_ID="com.boxmail.desktop.review"
+  APP_BUNDLE="$ROOT_DIR/artifacts/ui-review/Boxmail Review.app"
+  pkill -f "$APP_BUNDLE/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 || true
+  ;;
 --package|package)
   BUILD_CONFIGURATION="release"
   DEMO_DATA="false"
@@ -25,7 +34,7 @@ case "$MODE" in
 run|--verify|verify|--debug|debug|--logs|logs|--telemetry|telemetry)
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
   ;;
-*) echo "usage: $0 [run|--verify|--debug|--logs|--telemetry|--package]" >&2; exit 2 ;;
+*) echo "usage: $0 [run|--verify|--debug|--logs|--telemetry|--review|--package]" >&2; exit 2 ;;
 esac
 APP_CONTENTS="$APP_BUNDLE/Contents"
 SIGNING_IDENTITY="${BOXMAIL_SIGNING_IDENTITY:-}"
@@ -81,7 +90,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleIconFile</key><string>Boxmail</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-<key>CFBundleVersion</key><string>26</string>
+<key>CFBundleVersion</key><string>27</string>
 <key>BoxmailDemoDataEnabled</key><$DEMO_DATA/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -106,6 +115,7 @@ touch "$APP_BUNDLE"
 case "$MODE" in
 --package|package) echo "已生成全新安装测试 App：$APP_BUNDLE" ;;
 run) launch_app ;;
+--review|review) launch_app ;;
 --verify|verify) launch_app; sleep 1; pgrep -x "$APP_NAME" >/dev/null ;;
 --debug|debug) lldb -- "$APP_CONTENTS/MacOS/$APP_NAME" ;;
 --logs|logs) launch_app; /usr/bin/log stream --info --style compact --predicate 'process == "Boxmail"' ;;

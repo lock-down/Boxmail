@@ -10,11 +10,19 @@ import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
 import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder } from './mail-folders.js';
 import { clearTrash } from './mail-trash.js';
 import { imapOperation, mailboxMetadata, messageSource } from './mail-sync.js';
+import { draftContent, inlineForwardImages } from './forward-content.js';
 
 // Status changes re-read the stored draft, so a slow send never writes back the snapshot it
 // started with and clobbers fields saved in the meantime.
 function updateDraft(repo, draft, changes) {
-  repo.put('draft', { ...(repo.get('draft', draft.id) || draft), ...changes });
+  const saved = { ...(repo.get('draft', draft.id) || draft), ...changes };
+  if (saved.status === 'sent') {
+    saved.body = '';
+    saved.attachmentIds = [];
+    delete saved.forwardedHTML;
+    delete saved.forwardedText;
+  }
+  repo.put('draft', saved);
 }
 
 function remapAttachmentJobs(repo, messageId, previousIds, attachmentIds) {
@@ -476,7 +484,7 @@ export async function sendDraft(
   });
   if (!claimed) return { ok: true, alreadySent: true };
   let draft = claimed;
-  let account, transport, raw, envelope, options;
+  let account, transport, raw, envelope, options, content;
   try {
     account = repo.get('account', draft.accountId);
     if (!account || account.isDemo)
@@ -501,13 +509,15 @@ export async function sendDraft(
       });
     }
     transport = transportFor(account, password);
+    content = draftContent(draft);
     options = {
       from: { name: account.name, address: account.email },
       to,
       cc,
       bcc,
       subject: draft.subject,
-      text: draft.body,
+      text: content.text,
+      html: inlineForwardImages(content.html, attachments),
       attachments,
       inReplyTo: draft.inReplyTo || undefined,
       references: draft.references?.length ? draft.references : draft.inReplyTo || undefined,
@@ -543,8 +553,9 @@ export async function sendDraft(
         to: draft.to,
         cc: draft.cc,
         subject: draft.subject,
-        body: draft.body,
-        preview: draft.body.slice(0, 140),
+        body: content.text,
+        ...(content.html ? mailBody({ html: content.html, text: content.text }) : {}),
+        preview: content.text.slice(0, 140),
         date: new Date().toISOString(),
         unread: false,
         starred: false,

@@ -5,7 +5,9 @@ export const DEFAULT_CATEGORIES = ['工作项目', '订阅资讯', '账单票据
 export function categoryCatalog(repo) {
   let catalog = repo.get('categoryCatalog', 'categories');
   if (!catalog) {
-    const names = [...new Set([...DEFAULT_CATEGORIES, ...repo.list('message').map(m => m.category).filter(Boolean)])];
+    const saved = repo.db.prepare(`SELECT json_extract(data,'$.category') AS name FROM records
+      WHERE kind='message' AND json_type(data,'$.category')='text' ORDER BY id`).all();
+    const names = [...new Set([...DEFAULT_CATEGORIES, ...saved.map(row => row.name).filter(Boolean)])];
     catalog = { id: 'categories', items: names.map(name => ({ id: name === '未分类' ? 'unclassified' : randomUUID(), name, description: '' })) };
     repo.put('categoryCatalog', catalog);
   }

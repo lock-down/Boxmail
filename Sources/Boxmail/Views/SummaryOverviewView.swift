@@ -21,7 +21,7 @@ struct SummaryOverviewView: View {
     OverlayScrollView {
       LazyVStack(alignment: .leading, spacing: 20) {
         HStack(alignment: .top, spacing: 24) {
-          PageHeading(title: "AI 摘要总览", subtitle: "集中查看邮件要点、待办与下一步建议")
+          PageHeading(title: "摘要集合", subtitle: "集中查看已保存的邮件总结、待办与下一步建议")
           Spacer(minLength: 12)
           ActionButton(title: store.busy.contains("summarize-unread") ? "正在总结…" : "总结未读邮件",
             icon: "sparkles", kind: .ai) {
@@ -71,7 +71,7 @@ struct SummaryOverviewView: View {
         if messages.isEmpty && (showingRemoved || outputs.isEmpty) {
           EmptyState(title: showingRemoved ? "没有已移除的摘要" : removed.isEmpty ? "还没有 AI 摘要" : "总结列表已清空",
             subtitle: showingRemoved ? "从列表移除的摘要会出现在这里，可随时恢复。"
-              : removed.isEmpty ? "打开邮件后点击 AI 总结，或批量总结未读邮件。" : "邮件内的总结仍然保留，可在“已移除”中恢复。",
+              : removed.isEmpty ? "打开邮件后点击“AI 总结”，或在这里总结未读邮件。" : "邮件内的总结仍然保留，可在“已移除”中恢复。",
             icon: showingRemoved ? "tray" : "sparkles")
             .frame(minHeight: 240)
         }

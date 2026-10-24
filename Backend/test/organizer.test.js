@@ -35,6 +35,22 @@ const waitForAbort = signal => new Promise((resolve, reject) => {
   else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
 });
 
+test('undo organization refuses to overwrite later manual categories and rolls back the whole undo', async t => {
+  const { repo, manager } = await fixture(t, async (cfg, key, task, context) => classify(context), 2);
+  const job = manager.start({ accountId: 'a1', config, limit: 2 });
+  await manager.workers.get(job.id).promise;
+  approveClassification(repo, job.id);
+  repo.put('message', { ...repo.get('message', 'm0'), category: '账单票据' });
+  assert.throws(() => approveClassification(repo, job.id, true), error => error.status === 409 && /已更改/.test(error.message));
+  assert.equal(repo.get('message', 'm0').category, '账单票据');
+  assert.equal(repo.get('message', 'm1').category, '工作项目');
+  assert.equal(repo.get('job', job.id).status, 'applied');
+  repo.put('message', { ...repo.get('message', 'm0'), category: '工作项目' });
+  approveClassification(repo, job.id, true);
+  assert.equal(repo.get('message', 'm0').category, '未分类');
+  assert.equal(repo.get('message', 'm1').category, '未分类');
+});
+
 test('organization returns before the model, limits scope and never persists credentials', async t => {
   const gate = Promise.withResolvers();
   let received;

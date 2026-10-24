@@ -9,6 +9,15 @@ import { mailPreview } from '../src/mail-preview.js';
 import { DatabaseSync } from 'node:sqlite';
 import { startServer } from '../src/server.js';
 
+test('list previews favor readable text while link-only mail and original bodies remain intact', () => {
+  const message = { body: 'https://click.example.test/track?token=abc 尊敬的客户，请核对账单。 [https://example.test/bill]' };
+  const original = structuredClone(message);
+  assert.equal(mailPreview(message), '尊敬的客户，请核对账单。');
+  assert.deepEqual(message, original);
+  assert.equal(mailPreview({ body: 'https://example.test/only-link' }), 'https://example.test/only-link');
+  assert.equal(mailPreview({ body: '点击查看https://example.test/track您的账单。' }), '点击查看您的账单。');
+});
+
 test('a standard signature is excluded while the following historical quotation is preserved', () => {
   const body = '已确认。\r\n-- \r\n我的签名\r\nmail@example.com\r\n\r\nOn Tuesday, someone wrote:\r\n> 历史引用内容';
   assert.equal(mailPreview({ body }), '已确认。 On Tuesday, someone wrote: > 历史引用内容');
