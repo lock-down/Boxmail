@@ -70,6 +70,10 @@ import SwiftUI
   var attachmentCache: [String: MailAttachment] = [:]
   var detailGeneration = UUID()
   var syncSnapshot: MailSyncSnapshot?
+  var syncingAccountIds: Set<String> = []
+  var syncingFolder: String?
+  var syncCancellationRequested = false
+  var syncCancelInFlight = false
   var pinnedMessageId: String?
   var pinnedQueryKey = ""
   var wakeObserver: NSObjectProtocol?
@@ -250,7 +254,15 @@ import SwiftUI
   func syncAll(silent: Bool = false, folder: String? = nil) async {
     guard !busy.contains("sync") else { return }
     busy.insert("sync")
-    defer { busy.remove("sync") }
+    syncingAccountIds = []
+    syncingFolder = folder
+    syncCancellationRequested = false
+    defer {
+      busy.remove("sync")
+      syncingAccountIds = []
+      syncingFolder = nil
+      syncCancellationRequested = false
+    }
     let real = accounts.filter { !$0.isDemo && (folder == nil || $0.id == accountId) }
     if real.isEmpty {
       if !silent {
@@ -262,6 +274,7 @@ import SwiftUI
     var failures: [String] = []
     var started = Set<String>()
     for account in real {
+      if syncCancellationRequested || Task.isCancelled { break }
       do {
         let password = try KeychainService.read("mail-\(account.id)", allowInteraction: !silent)
         credentialAuthorizationAccounts.remove(account.id)
@@ -271,6 +284,8 @@ import SwiftUI
         if let folder { input["folder"] = folder }
         try await BackendService.shared.perform("/sync", body: input)
         started.insert(account.id)
+        syncingAccountIds = started
+        if syncCancellationRequested { await cancelSync() }
       } catch {
         if KeychainService.requiresAuthorization(error) {
           credentialAuthorizationAccounts.insert(account.id)
@@ -282,7 +297,9 @@ import SwiftUI
           "/sync-status", timeout: 30), snapshot.runningAccounts.contains(account.id)
         {
           started.insert(account.id)
+          syncingAccountIds = started
           syncSnapshot = snapshot
+          if syncCancellationRequested { await cancelSync() }
           continue
         }
         failures.append("\(account.email)：\(error.localizedDescription)")
@@ -327,9 +344,6 @@ import SwiftUI
     } catch { failures.append(error.localizedDescription) }
     if !failures.isEmpty {
       if !silent { error = failures.joined(separator: "\n") }
-    } else if !silent {
-      let hasMore = syncSnapshot?.folders.contains { started.contains($0.accountId) && $0.hasMore == true } == true
-      notice = hasMore ? "本批同步完成，可在列表底部继续加载历史邮件。" : "邮箱同步完成"
     }
   }
   func newDraft(reply: MailMessage? = nil, forward: Bool = false, all: Bool = false) {

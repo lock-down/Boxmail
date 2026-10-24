@@ -165,7 +165,10 @@ struct ContentView: View {
           .accessibilityLabel(store.settings.ai.enabled ? "AI 助手已开启" : "AI 助手已关闭")
           .help("打开 AI 设置")
         if store.busy.contains("sync") {
-          ProgressView().controlSize(.small).frame(width: 26)
+          ProgressView().controlSize(.small).frame(width: 18).accessibilityLabel(store.syncProgressText)
+          IconButton(icon: "stop.fill", help: "停止本次同步，保留已下载邮件") {
+            Task { await store.cancelSync() }
+          }.disabled(store.syncCancelInFlight)
         } else {
           IconButton(icon: "arrow.triangle.2.circlepath", help: "同步所有账户") {
             Task { await store.syncAll() }

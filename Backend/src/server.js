@@ -31,6 +31,7 @@ import { setSummaryVisibility } from './summary-overview.js';
 import { updateMessageBatch } from './mail-batch.js';
 import { savedForwardFields, upgradeForwardDraft } from './forward-content.js';
 import { serviceLifecycle } from './service-lifecycle.js';
+import { syncSession } from './sync-session.js';
 
 export async function startServer({
   directory,
@@ -308,12 +309,13 @@ export async function startServer({
         syncTasks.set(a.id, task);
         const run = async () => {
           try {
-            const result = await mailSync(repo, a, body.password, {
-              folder: body.folder || undefined, signal: controller.signal });
-            task.status = 'completed'; return result;
+            const result = await syncSession(repo, a, body.password, {
+              syncBatch: mailSync, folder: body.folder || undefined, signal: controller.signal });
+            task.status = result.partial ? 'paused' : 'completed'; return result;
           } catch (error) {
             task.status = controller.signal.aborted ? 'paused' : 'failed';
-            task.error = error instanceof ServiceError ? error.message : '同步未完成，请检查网络与邮箱配置后重试';
+            task.error = controller.signal.aborted ? '同步已停止，已下载邮件已保留'
+              : error instanceof ServiceError ? error.message : '同步未完成，请检查网络与邮箱配置后重试';
             throw error;
           } finally { locks.delete(a.id); }
         };
@@ -324,6 +326,11 @@ export async function startServer({
         } else {
           result = await task.promise;
         }
+      } else if (req.method === 'POST' && route === '/sync/cancel') {
+        if (!repo.get('account', body.accountId)) throw new ServiceError('邮箱账号不存在', 404);
+        const task = syncTasks.get(body.accountId);
+        if (task?.status === 'running') task.controller.abort(new ServiceError('同步已停止，已下载邮件已保留'));
+        result = { ok: true };
       } else if (req.method === 'PATCH' && route.startsWith('/messages/')) {
         const id = route.split('/')[2],
           message = repo.get('message', id);

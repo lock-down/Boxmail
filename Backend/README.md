@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.0.27 修复 IMAP 批量元数据缺项导致文件夹同步失败的问题，使用轻量清单、缺失 UID 分批补拉及单封按需读取；数据库结构版本继续为 2。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.0.28 将同步请求扩展为自动续跑会话，轮转未完成文件夹，支持停止、断点继续及无进展保护；数据库结构版本继续为 2。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。
 
@@ -51,7 +51,8 @@ npm start
 | POST | `/trash/empty` | `accountId`、`password`、`approved: true`；清空整个服务器及本机 Trash |
 | POST | `/accounts/test` | `account`、`password`；分别测试 IMAP / SMTP |
 | POST / DELETE | `/accounts`、`/accounts/:id` | 保存账号配置 / 移除本机账号及缓存，保留服务器邮件；发送中禁止移除，清理包含 recovery / relocation 附件并保留其他引用 |
-| POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台模式立即返回 |
+| POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台立即返回并自动逐批补齐指定范围 |
+| POST | `/sync/cancel` | `accountId`；停止该账户当前同步会话，保留已下载邮件与断点，重复停止可安全返回 |
 | GET | `/sync-status` | 运行账号、文件夹进度及本次结果 |
 | POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿；保存响应附签名过滤后的 `preview`；删除后清理未被邮件、其他草稿及保留记录引用的附件 |
 | POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；发送中或结果不明返回 409，已发送的重复请求返回 `alreadySent: true` |
@@ -112,6 +113,8 @@ npm start
 每个文件夹用 STATUS 与 UID SEARCH ALL 核对邮件数量，再按每页最多 200 个 UID 只读取 UID、FLAGS、RFC822.SIZE，避免批量 ENVELOPE / INTERNALDATE 被服务器截断。缺项按每批 50、10、1 个 UID 逐步补拉，每个原始页最多 24 次补拉，每条命令使用独立期限并支持取消。校验继续拒绝重复、非请求 UID、无效标志和大小；完整清单通过后才校准缓存，补拉后仍不完整则保留缓存，包括 UIDVALIDITY 已变化的旧缓存。EXAMINE 的缺失或误报计数不会直接当作空文件夹；服务器确认删除的邮件放入 `recovery`。服务商收取范围也会改变 IMAP 可见清单，客户端无法绕过，排查方法见使用指南。
 
 `sync.inventory` 保留 selectedCount、statusCount、uidCount、metadataCount，并记录 metadataRequests（全部清单 FETCH 次数）、metadataRetryRequests（补拉次数）、metadataRecoveredCount（补拉成功的邮件数）、metadataMissingCount（当前页仍缺项的数量）及 metadataMissingUIDs（最多 20 个缺失 UID 样本）。进度、成功和失败均保存诊断；清单全部完成后缺项归零。普通邮件从单封正文读取时保留 INTERNALDATE，分段正文只在第一段请求日期；超过 25 MB 的邮件单独请求信封及日期，保留发件人、主题及时间，不下载超限正文。
+
+`sync-session.js` 为一次 `/sync` 请求自动续跑批次；首先同步所选范围，再轮转未完成文件夹，健康文件夹继续补齐，失败文件夹不自动反复重试。指定 folder 时不处理其他文件夹，账户保持互斥；无下载或修复进展时标记 paused 并保留未完成数量，避免空转。停止和服务关闭通过同一 AbortSignal 中断后续批次，已完成记录保留。
 
 每个文件夹每批最多下载 200 封正文，并在约 20 秒预算后的下一封开始前让出；超过 1 MB 的 MIME 原文以 256 KB 分段读取，单次 IMAP 读取限时 45 秒，逐封保存进度。文件夹出错后关闭连接，重连并继续下一文件夹，最终汇总安全错误。客户端进度请求支持重试，每 4 秒刷新一次列表，过程中复用已打开正文，结束时完整刷新。UIDVALIDITY 变化取消旧待提交操作，附加信息只按同账户唯一 Message-ID 恢复，歧义记录保留；标志无变化时跳过写入。同步结束以最新账户记录合并 `folders` 与 `lastSync`，保留期间保存的设置。
 

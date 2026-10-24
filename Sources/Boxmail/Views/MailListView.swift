@@ -139,7 +139,7 @@ struct MailListView: View {
       HStack(spacing: 6) {
         if store.busy.contains("sync") {
           ProgressView().controlSize(.mini)
-          Text("正在同步…")
+          Text(store.syncProgressText).lineLimit(1)
         } else if !store.search.isEmpty {
           Text("仅搜索本机已缓存邮件")
         } else if store.currentAccount?.isDemo == true {
@@ -148,8 +148,8 @@ struct MailListView: View {
           Text("上次同步 \(displayTime(time))")
         } else { Text("尚未同步") }
         Spacer(minLength: 0)
-        if store.currentSyncFolder?.hasMore == true
-          || ["failed", "paused"].contains(store.currentSyncFolder?.status ?? "") {
+        if !store.busy.contains("sync") && (store.currentSyncFolder?.hasMore == true
+          || ["failed", "paused"].contains(store.currentSyncFolder?.status ?? "")) {
           Button("继续同步") { Task { await store.syncAll(folder: store.destination.rawValue) } }
             .buttonStyle(.plain).foregroundStyle(Palette.blue).disabled(store.busy.contains("sync"))
         }
@@ -168,7 +168,7 @@ struct MailListView: View {
         if let total = store.currentSyncFolder?.total { Text("上次同步服务器共 \(total) 封") }
       } else { Text("当前列表已加载 \(store.filteredMessages.count) 封") }
       if let time = store.currentAccount?.lastSync { Text("上次同步 \(displayTime(time))") }
-      Text("搜索仅覆盖本机已缓存内容；继续同步历史邮件可扩大范围。")
+      Text("搜索仅覆盖本机已缓存内容；同步期间会自动逐批补齐历史邮件。")
         .foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
     }.font(UIType.caption).padding(16).frame(width: 280, alignment: .leading)
   }

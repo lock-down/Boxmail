@@ -309,11 +309,11 @@ struct SettingsView: View {
   private var generalSettings: some View {
     SectionCard(title: "邮箱同步", icon: "arrow.triangle.2.circlepath") {
       WorkflowStepper(title: "自动同步间隔", value: $preferences.syncMinutes, range: 1...60, unit: "分钟")
-      Text("应用打开时定期同步；每个文件夹每轮最多补齐 200 封正文，历史进度保存在本机，也可在列表底部继续同步历史邮件。").font(.system(size: 12))
+      Text("应用打开时定期同步，自动逐批补齐全部历史邮件；已下载邮件持续保存，可从主窗口顶部停止本次同步，下次同步会自动继续。").font(.system(size: 12))
         .foregroundStyle(Palette.muted)
       ActionButton(title: "立即同步", icon: "arrow.clockwise", kind: .primary) {
         Task { await store.syncAll() }
-      }
+      }.disabled(store.busy.contains("sync"))
     }
   }
   private var composeSettings: some View {
