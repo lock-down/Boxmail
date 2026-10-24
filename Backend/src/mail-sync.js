@@ -22,7 +22,7 @@ export async function imapOperation(client, operation, { signal, timeoutMs = 450
 
 // An empty iterator is not proof of an empty mailbox. Validate an independent UID
 // inventory and every metadata page before allowing cache reconciliation.
-export async function mailboxMetadata(client, remotePath, options) {
+export async function mailboxMetadata(client, remotePath, options = {}) {
   const validity = client.mailbox?.uidValidity;
   const selectedCount = client.mailbox?.exists ?? null;
   if (validity == null || !/^\d+$/.test(String(validity))
@@ -40,25 +40,54 @@ export async function mailboxMetadata(client, remotePath, options) {
     || new Set(uids).size !== uids.length || uids.length !== status.messages)
     throw new ServiceError('服务器返回的邮件 UID 清单不完整，本机缓存已保留，请重试同步。', 502);
   const fetched = [];
+  const inventory = { metadataRequests: 0, metadataRetryRequests: 0, metadataRecoveredCount: 0 };
+  const report = pending => options.onInventory?.({ ...inventory, metadataCount: fetched.length,
+    metadataMissingCount: pending.size, metadataMissingUIDs: [...pending].slice(0, 20) });
+  const fetchPage = async (page, pending, retry = false) => {
+    const requested = new Set(page);
+    inventory.metadataRequests++;
+    if (retry) inventory.metadataRetryRequests++;
+    try {
+      await imapOperation(client, async () => {
+        // ENVELOPE and INTERNALDATE can make otherwise successful bulk requests
+        // silently omit messages. Reconciliation only needs these lightweight fields.
+        for await (const remote of client.fetch(page, { uid: true, flags: true, size: true }, { uid: true })) {
+          options.signal?.throwIfAborted();
+          if (!requested.has(remote?.uid) || !(remote.flags instanceof Set)
+            || !Number.isSafeInteger(remote.size) || remote.size < 0 || !pending.delete(remote.uid))
+            throw new ServiceError('服务器返回的邮件清单不完整，本机缓存已保留，请重试同步。', 502);
+          fetched.push(remote);
+          if (retry) inventory.metadataRecoveredCount++;
+        }
+      }, options);
+    } finally { report(pending); }
+  };
   for (let offset = 0; offset < uids.length; offset += 200) {
     const page = uids.slice(offset, offset + 200);
     const pending = new Set(page);
-    await imapOperation(client, async () => {
-      for await (const remote of client.fetch(page,
-        { uid: true, flags: true, size: true, internalDate: true, envelope: true }, { uid: true })) {
-        options.signal?.throwIfAborted();
-        if (!pending.delete(remote.uid) || !(remote.flags instanceof Set)
-          || !Number.isSafeInteger(remote.size) || remote.size < 0)
-          throw new ServiceError('服务器返回的邮件清单不完整，本机缓存已保留，请重试同步。', 502);
-        fetched.push(remote);
+    await fetchPage(page, pending);
+    // Retry only missing UIDs, down to individual messages, with a separate
+    // deadline per command and a finite request budget for an unresponsive server.
+    let retries = 0;
+    for (const size of [50, 10, 1]) {
+      const missing = [...pending];
+      for (let start = 0; start < missing.length && retries < 24; start += size) {
+        retries++;
+        await fetchPage(missing.slice(start, start + size), pending, true);
       }
-    }, options);
+      if (!pending.size) break;
+    }
     if (pending.size)
       throw new ServiceError('服务器返回的邮件清单不完整，本机缓存已保留，请重试同步。', 502);
   }
   options.signal?.throwIfAborted();
-  options.onInventory?.({ metadataCount: fetched.length });
+  report(new Set());
   return { fetched, validity: String(validity) };
+}
+
+function retainInternalDate(remote, response) {
+  if (response?.internalDate instanceof Date && Number.isFinite(response.internalDate.getTime()))
+    remote.internalDate = response.internalDate;
 }
 
 export async function messageSource(client, remote, options) {
@@ -66,14 +95,17 @@ export async function messageSource(client, remote, options) {
   // commands so slow, active transfers do not hold one command past its deadline.
   if (remote.size <= 1024 * 1024) {
     const full = await imapOperation(client,
-      () => client.fetchOne(remote.uid, { source: true }, { uid: true }), options);
+      () => client.fetchOne(remote.uid, { source: true, internalDate: true }, { uid: true }), options);
+    retainInternalDate(remote, full);
     return full?.source;
   }
   const chunks = [], chunkSize = 256 * 1024;
   let downloaded = 0;
   while (downloaded < remote.size) {
     const full = await imapOperation(client, () => client.fetchOne(remote.uid,
-      { source: { start: downloaded, maxLength: Math.min(chunkSize, remote.size - downloaded) } }, { uid: true }), options);
+      { source: { start: downloaded, maxLength: Math.min(chunkSize, remote.size - downloaded) },
+        ...(downloaded === 0 ? { internalDate: true } : {}) }, { uid: true }), options);
+    if (downloaded === 0) retainInternalDate(remote, full);
     if (!full?.source && !downloaded) return undefined;
     const bytes = full?.source;
     if (!Buffer.isBuffer(bytes) || !bytes.length || downloaded + bytes.length > remote.size)

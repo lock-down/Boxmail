@@ -227,6 +227,16 @@ export async function syncAccount(
             parsed = await simpleParser(source, { skipHtmlToText: true, skipTextToHtml: true });
           } else {
             skipped++;
+            // Oversized messages are the only ones displayed without parsing
+            // their source. Request their envelope individually, outside the inventory.
+            if (!remote.envelope) {
+              const metadata = await perform(() => client.fetchOne(remote.uid,
+                { envelope: true, internalDate: true }, { uid: true }));
+              if (!metadata || metadata.uid !== remote.uid || !metadata.envelope)
+                throw new ServiceError('服务器未完整返回邮件头，已完成的邮件已保存，请继续同步。', 502);
+              remote.envelope = metadata.envelope;
+              remote.internalDate = metadata.internalDate;
+            }
             parsed = { ...remote.envelope, text: '该邮件超过 25 MB，暂未下载正文，请在邮箱服务商查看原邮件。',
               from: { value: remote.envelope?.from || [] },
               to: { text: (remote.envelope?.to || []).map(x => x.address).join(', ') },
