@@ -23,6 +23,7 @@ import SwiftUI
   var accountId = ""
   var selectedMessageId: String?
   var selectedMessageIds: Set<String> = []
+  var mailRevealRequest: MailRevealRequest?
   var selectionQueryKey = ""
   var mailChange: MailChange?
   var mailActionError: String?
@@ -188,6 +189,7 @@ import SwiftUI
     }
   }
   func navigate(_ value: MailDestination) {
+    mailRevealRequest = nil
     selectedMessageIds = []
     mailAITab = nil
     destination = value
@@ -196,6 +198,7 @@ import SwiftUI
     selectedMessageId = filteredMessages.first?.id
   }
   func select(_ message: MailMessage) {
+    if mailRevealRequest?.messageId != message.id { mailRevealRequest = nil }
     if selectedMessageId != message.id { mailAITab = nil }
     selectedMessageId = message.id
     selectedMessageIds = [message.id]
@@ -221,6 +224,7 @@ import SwiftUI
     pinnedQueryKey = mailQueryKey
     select(message)
     mailAITab = tab
+    mailRevealRequest = MailRevealRequest(messageId: message.id, queryKey: mailQueryKey)
   }
   func showMailAI(_ tab: MailAITab, message: MailMessage) {
     if tab == .translate { toggleTranslation(message); return }

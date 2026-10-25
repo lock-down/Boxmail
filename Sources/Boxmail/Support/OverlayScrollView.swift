@@ -5,30 +5,38 @@ import SwiftUI
 struct OverlayScrollView<Content: View>: View {
   private let axes: Axis.Set
   private let showsIndicators: Bool
+  private let persistentIndicators: Bool
   private let content: Content
 
   init(
-    _ axes: Axis.Set = .vertical, showsIndicators: Bool = true,
+    _ axes: Axis.Set = .vertical, showsIndicators: Bool = true, persistentIndicators: Bool = false,
     @ViewBuilder content: () -> Content
   ) {
     self.axes = axes
     self.showsIndicators = showsIndicators
+    self.persistentIndicators = persistentIndicators
     self.content = content()
   }
 
   var body: some View {
     ScrollView(axes, showsIndicators: showsIndicators) {
-      content.background(ScrollStyleAnchor().allowsHitTesting(false).accessibilityHidden(true))
+      content.background(ScrollStyleAnchor(persistentIndicators: persistentIndicators)
+        .allowsHitTesting(false).accessibilityHidden(true))
     }
   }
 }
 
 private struct ScrollStyleAnchor: NSViewRepresentable {
+  let persistentIndicators: Bool
   func makeNSView(context: Context) -> AnchorView { AnchorView() }
-  func updateNSView(_ nsView: AnchorView, context: Context) { nsView.refreshWhenAttached() }
+  func updateNSView(_ nsView: AnchorView, context: Context) {
+    nsView.persistentIndicators = persistentIndicators
+    nsView.refreshWhenAttached()
+  }
   static func dismantleNSView(_ nsView: AnchorView, coordinator: ()) { nsView.stopObserving() }
 
   final class AnchorView: NSView {
+    var persistentIndicators = false
     private weak var styledScrollView: NSScrollView?
     private var boundsObserver: NSObjectProtocol?
     private var refreshPending = false
@@ -76,7 +84,7 @@ private struct ScrollStyleAnchor: NSViewRepresentable {
           MainActor.assumeIsolated { self?.refreshWhenAttached() }
         }
       }
-      ScrollAppearance.apply(to: scrollView)
+      ScrollAppearance.apply(to: scrollView, persistentIndicators: persistentIndicators)
     }
   }
 }

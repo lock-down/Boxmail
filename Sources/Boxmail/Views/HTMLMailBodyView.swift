@@ -100,6 +100,7 @@ struct HTMLMailBodyView: NSViewRepresentable {
 
     private func load(_ next: String) {
       loading = true
+      webView?.recipientRegions = []
       renderedDocument = next
       renderedLayoutKey = layoutKey
       webView?.loadHTMLString(next, baseURL: nil)
@@ -148,54 +149,6 @@ struct HTMLMailBodyView: NSViewRepresentable {
         navigationAction.navigationType == .other
           && navigationAction.request.url?.absoluteString == "about:blank" ? .allow : .cancel)
     }
-  }
-}
-
-// HTML is sized to its content. The enclosing SwiftUI scroll view owns vertical scrolling.
-private final class MailBodyWebView: WKWebView {
-  private var scrollMonitor: Any?
-  var recipientRegions: [[String: Double]] = []
-
-  override func viewDidMoveToWindow() {
-    super.viewDidMoveToWindow()
-    stopForwardingScrollEvents()
-    guard window != nil else { return }
-    scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-      guard let self else { return event }
-      guard event.window === self.window,
-        self.visibleRect.contains(self.convert(event.locationInWindow, from: nil)),
-        let scrollView = self.parentScrollView
-      else { return event }
-      let point = self.convert(event.locationInWindow, from: nil)
-      let location = NSPoint(x: point.x, y: self.isFlipped ? point.y : self.bounds.height - point.y)
-      for region in self.recipientRegions {
-        let rect = NSRect(
-          x: region["x"] ?? 0, y: region["y"] ?? 0,
-          width: region["width"] ?? 0, height: region["height"] ?? 0)
-        guard rect.contains(location) else { continue }
-        let top = region["top"] ?? 0
-        let remaining = (region["total"] ?? 0) - (region["visible"] ?? 0) - top
-        if (event.scrollingDeltaY > 0 && top > 1) || (event.scrollingDeltaY < 0 && remaining > 1) {
-          return event
-        }
-      }
-      scrollView.scrollWheel(with: event)
-      return nil
-    }
-  }
-
-  func stopForwardingScrollEvents() {
-    if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
-    scrollMonitor = nil
-  }
-
-  private var parentScrollView: NSScrollView? {
-    var ancestor = superview
-    while let view = ancestor {
-      if let scrollView = view as? NSScrollView { return scrollView }
-      ancestor = view.superview
-    }
-    return nil
   }
 }
 

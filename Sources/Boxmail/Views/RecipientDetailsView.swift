@@ -20,7 +20,7 @@ struct RecipientDetailsView: View {
         .accessibilityValue(expanded ? "已展开" : "已收起")
         .help(expanded ? "收起收件人" : "展开完整收件人与抄送")
       if expanded {
-        OverlayScrollView {
+        OverlayScrollView(persistentIndicators: true) {
           VStack(alignment: .leading, spacing: 12) {
             addresses("收件人", to)
             if !cc.isEmpty { addresses("抄送", cc) }

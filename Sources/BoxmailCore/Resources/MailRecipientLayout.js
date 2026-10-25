@@ -6,6 +6,7 @@
     if (cells.length < 2) continue;
     const label = cells[0].textContent.replace(/[\s:：]/g, '').toLowerCase();
     if (!['收件人', '抄送', '密送', 'to', 'cc', 'bcc'].includes(label)) continue;
+    cells[0].classList.add('boxmail-recipient-label');
     for (const cell of cells.slice(1)) {
       if (cell.querySelector('.boxmail-recipient-list')) continue;
       if (cell.querySelectorAll('a[href^="mailto:"]').length <= 8 && cell.textContent.length <= 600) continue;

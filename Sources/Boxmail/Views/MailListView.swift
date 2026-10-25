@@ -81,44 +81,54 @@ struct MailListView: View {
 
   private var messageList: some View {
     let queryKey = store.mailQueryKey
-    return List(selection: Binding(get: { store.selectedMessageIds }, set: { ids in
-      store.setMailSelection(ids, for: queryKey)
-    })) {
-      ForEach(store.filteredMessages) { message in
-        MailRow(message: message, selected: store.selectedMessageIds.contains(message.id),
-          searchAccount: store.search.isEmpty ? nil : store.accounts.first { $0.id == message.accountId }?.email)
-          .tag(message.id)
-          .listRowInsets(EdgeInsets())
-          .listRowSeparator(.hidden)
-          .listRowBackground(store.selectedMessageIds.contains(message.id) ? Palette.blueSoft : Color.white)
-      }
-      if store.nextOffset != nil || store.listLoading {
-        HStack {
-          Spacer()
-          if store.listLoading { ProgressView("正在加载…").controlSize(.small) }
-          else {
-            ActionButton(title: "显示更多邮件", icon: "chevron.down") {
-              Task { await store.loadMessages(reset: false) }
+    return ScrollViewReader { reader in
+      List(selection: Binding(get: { store.selectedMessageIds }, set: { ids in
+        store.setMailSelection(ids, for: queryKey)
+      })) {
+        ForEach(store.filteredMessages) { message in
+          MailRow(message: message, selected: store.selectedMessageIds.contains(message.id),
+            searchAccount: store.search.isEmpty ? nil : store.accounts.first { $0.id == message.accountId }?.email)
+            .tag(message.id)
+            .id(message.id)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(store.selectedMessageIds.contains(message.id) ? Palette.blueSoft : Color.white)
+        }
+        if store.nextOffset != nil || store.listLoading {
+          HStack {
+            Spacer()
+            if store.listLoading { ProgressView("正在加载…").controlSize(.small) }
+            else {
+              ActionButton(title: "显示更多邮件", icon: "chevron.down") {
+                Task { await store.loadMessages(reset: false) }
+              }
             }
-          }
-          Spacer()
-        }.padding(.vertical, 8).listRowSeparator(.hidden)
-      }
-    }.listStyle(.plain).scrollContentBackground(.hidden)
-      .contentMargins(.horizontal, 0, for: .scrollContent)
-      .environment(\.defaultMinListRowHeight, 0)
-      .focusedValue(\.mailTriage, store)
-      .contextMenu(forSelectionType: String.self) { ids in
-        MailTriageMenu(store: store, messages: store.filteredMessages.filter { ids.contains($0.id) })
-      }
-      .onKeyPress(.escape) {
-        guard selected.count > 1 else { return .ignored }
-        store.clearMailSelection(); return .handled
-      }
-      .disabled(store.mailActionInProgress || emptyingTrash)
-      .accessibilityLabel("邮件列表")
-      .accessibilityHint("上下方向键切换，Shift 连续选择，Command 点击多选，Command-A 全选已加载邮件。")
-      .id(queryKey)
+            Spacer()
+          }.padding(.vertical, 8).listRowSeparator(.hidden)
+        }
+      }.listStyle(.plain).scrollContentBackground(.hidden)
+        .contentMargins(.horizontal, 0, for: .scrollContent)
+        .environment(\.defaultMinListRowHeight, 0)
+        .focusedValue(\.mailTriage, store)
+        .contextMenu(forSelectionType: String.self) { ids in
+          MailTriageMenu(store: store, messages: store.filteredMessages.filter { ids.contains($0.id) })
+        }
+        .onKeyPress(.escape) {
+          guard selected.count > 1 else { return .ignored }
+          store.clearMailSelection(); return .handled
+        }
+        .disabled(store.mailActionInProgress || emptyingTrash)
+        .accessibilityLabel("邮件列表")
+        .accessibilityHint("上下方向键切换，Shift 连续选择，Command 点击多选，Command-A 全选已加载邮件。")
+        .id(queryKey)
+        .task(id: store.readyMailReveal?.id) {
+          guard let request = store.readyMailReveal else { return }
+          await Task.yield()
+          guard !Task.isCancelled, store.readyMailReveal == request else { return }
+          reader.scrollTo(request.messageId, anchor: .center)
+          store.finishMailReveal(request)
+        }
+    }
   }
 
   private var status: some View {

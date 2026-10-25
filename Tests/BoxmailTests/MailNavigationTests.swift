@@ -92,6 +92,68 @@ private func page(_ messages: [MailMessage], total: Int? = nil, nextOffset: Int?
   #expect(store.selectedMessageId == target.id && store.selectedMessageIds == [target.id])
 }
 
+@Test @MainActor func originalMailRevealWaitsForItsOwnPageAndKeepsTheHighlightedTarget() throws {
+  let store = MailStore()
+  store.accountId = "account"
+  store.destination = .attachments
+  store.pageKey = store.mailQueryKey
+  let target = try message("ninety-fifth")
+  let others = try (0..<99).map { try message("mail-\($0)") }
+  store.messages = others + [target]
+  store.openMail(target)
+  #expect(store.readyMailReveal == nil)
+  store.applyMessagePage(try page(others + [target]), reset: true,
+    key: store.mailQueryKey, preserveSelection: false)
+  #expect(store.readyMailReveal?.messageId == target.id)
+  #expect(store.selectedMessageIds == [target.id])
+}
+
+@Test @MainActor func repeatedOriginalMailNavigationRequestsAnotherRevealAndAcknowledgesOnlyTheLatest() throws {
+  let store = MailStore()
+  store.accountId = "account"
+  let target = try message("target")
+  store.messages = [target]
+  store.applyMessagePage(try page([target]), reset: true, key: store.mailQueryKey, preserveSelection: false)
+  store.openMail(target)
+  let first = try #require(store.readyMailReveal)
+  store.openMail(target)
+  let second = try #require(store.readyMailReveal)
+  #expect(first.id != second.id)
+  store.finishMailReveal(first)
+  #expect(store.readyMailReveal == second)
+  store.finishMailReveal(second)
+  #expect(store.readyMailReveal == nil)
+  #expect(store.selectedMessageIds == [target.id])
+}
+
+@Test @MainActor func originalMailOutsideTheFirstHundredRowsCanBeRevealedBeforeMorePagesLoad() throws {
+  let store = MailStore()
+  store.accountId = "account"
+  store.destination = .organize
+  let target = try message("older-than-page")
+  let first = try message("first")
+  store.messages = [first, target]
+  store.openMail(target)
+  store.applyMessagePage(try page([first], total: 140, nextOffset: 100), reset: true,
+    key: store.mailQueryKey, preserveSelection: false)
+  #expect(store.readyMailReveal?.messageId == target.id)
+  #expect(store.filteredMessages.first?.id == target.id)
+}
+
+@Test @MainActor func aPendingOriginalMailRevealCannotOverrideLaterManualSelectionOrNavigation() throws {
+  let store = MailStore()
+  store.accountId = "account"
+  let target = try message("target"), other = try message("other")
+  store.messages = [target, other]
+  store.applyMessagePage(try page([target, other]), reset: true, key: store.mailQueryKey, preserveSelection: false)
+  store.openMail(target)
+  store.setMailSelection([other.id], for: store.mailQueryKey)
+  #expect(store.mailRevealRequest == nil)
+  store.openMail(target)
+  store.navigate(.attachments)
+  #expect(store.mailRevealRequest == nil)
+}
+
 @Test @MainActor func pageResponseKeepsMailOpenedAfterRequestStartedAndRejectsOldQueryCallbacks() throws {
   let store = MailStore()
   store.accountId = "account"

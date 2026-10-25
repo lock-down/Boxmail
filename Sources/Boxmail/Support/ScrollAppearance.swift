@@ -1,7 +1,15 @@
 import AppKit
+import ObjectiveC
 
 @MainActor enum ScrollAppearance {
-  static func apply(to scrollView: NSScrollView) {
+  private static var persistentKey: UInt8 = 0
+
+  static func apply(to scrollView: NSScrollView, persistentIndicators: Bool? = nil) {
+    if let persistentIndicators {
+      objc_setAssociatedObject(scrollView, &persistentKey, NSNumber(value: persistentIndicators),
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+    let persistent = (objc_getAssociatedObject(scrollView, &persistentKey) as? NSNumber)?.boolValue == true
     if scrollView.borderType != .noBorder { scrollView.borderType = .noBorder }
     if scrollView.drawsBackground { scrollView.drawsBackground = false }
     if scrollView.focusRingType != .none { scrollView.focusRingType = .none }
@@ -18,7 +26,8 @@ import AppKit
       scrollView.horizontalScroller = BorderlessOverlayScroller(copying: scroller)
       scrollView.hasHorizontalScroller = visible
     }
-    if scrollView.scrollerStyle != .overlay { scrollView.scrollerStyle = .overlay }
+    let style: NSScroller.Style = persistent ? .legacy : .overlay
+    if scrollView.scrollerStyle != style { scrollView.scrollerStyle = style }
   }
 
   static func applyRecursively(to view: NSView) {
@@ -29,7 +38,7 @@ import AppKit
 
 /// AppKit keeps its native tracking, accessibility, and independent knob/track fading.
 /// Only the knob is drawn, so hovering or focusing cannot reveal a bordered track.
-final class BorderlessOverlayScroller: NSScroller {
+class BorderlessOverlayScroller: NSScroller {
   override class var isCompatibleWithOverlayScrollers: Bool { true }
   override var isOpaque: Bool { false }
 

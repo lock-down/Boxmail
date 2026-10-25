@@ -38,6 +38,7 @@ extension MailStore {
   func setMailSelection(_ ids: Set<String>, for queryKey: String) {
     // Native List may still send a callback from a view that is being replaced.
     guard queryKey == mailQueryKey, pageKey == queryKey, !mailActionInProgress else { return }
+    if let request = mailRevealRequest, ids != [request.messageId] { mailRevealRequest = nil }
     let entries = filteredMessages.filter { ids.contains($0.id) }
     selectedMessageIds = Set(entries.filter { entries.count == 1 || $0.draftId == nil }.map(\.id))
     selectionQueryKey = queryKey
@@ -60,6 +61,7 @@ extension MailStore {
   }
 
   func clearMailSelection() {
+    mailRevealRequest = nil
     selectedMessageIds = []
     selectedMessageId = nil
     mailAITab = nil
