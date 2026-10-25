@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ServiceError } from './validation.js';
+import { imapOperation } from './mail-sync.js';
 
 export const mailFolderNames = {
   inbox: 'INBOX', sent: 'Boxmail Sent', drafts: 'Boxmail Drafts',
@@ -49,15 +50,17 @@ export function archiveRestoreFolder(message, account) {
   return originalFolder(message, account, 'archived', ['archive', 'trash']);
 }
 
-export async function applyMailMutations(repo, account, client, { strict = false } = {}) {
+export async function applyMailMutations(repo, account, client, { strict = false, signal, timeoutMs } = {}) {
+  const perform = operation => imapOperation(client, operation, { signal, timeoutMs });
   for (const mutation of repo.list('mutation').filter(m => m.accountId === account.id)
     .sort((a, b) => Number(!!a.target) - Number(!!b.target))) {
+    signal?.throwIfAborted();
     const path = mutation.path || account.folders[mutation.sourceFolder];
     if (!path) {
       if (mutation.rfcMessageId) { repo.remove('mutation', mutation.id); continue; }
       throw new ServiceError('找不到邮件所在的服务器文件夹，请先同步邮箱');
     }
-    const lock = await client.getMailboxLock(path);
+    const lock = await perform(() => client.getMailboxLock(path));
     try {
       if (mutation.uid && String(client.mailbox.uidValidity) !== mutation.uidValidity) {
         if (strict) throw new ServiceError('邮件文件夹已改变，请先同步邮箱后再清空', 409);
@@ -67,26 +70,26 @@ export async function applyMailMutations(repo, account, client, { strict = false
       }
       let uid = mutation.uid;
       if (!uid && mutation.rfcMessageId) {
-        const matches = await client.search({ header: { 'Message-ID': mutation.rfcMessageId } }, { uid: true });
+        const matches = await perform(() => client.search({ header: { 'Message-ID': mutation.rfcMessageId } }, { uid: true }));
         if (!matches?.length) { repo.remove('mutation', mutation.id); continue; }
         if (matches.length !== 1) throw new ServiceError('服务器中有多份相同邮件，请先同步邮箱后重试', 409);
         uid = matches[0];
       }
       if (mutation.flag) {
-        if (mutation.value) await client.messageFlagsAdd(uid, [mutation.flag], { uid: true });
-        else await client.messageFlagsRemove(uid, [mutation.flag], { uid: true });
+        if (mutation.value) await perform(() => client.messageFlagsAdd(uid, [mutation.flag], { uid: true }));
+        else await perform(() => client.messageFlagsRemove(uid, [mutation.flag], { uid: true }));
       }
       if (mutation.target) {
         let target = mutation.targetPath || account.folders[mutation.target];
         if (!target) {
           target = mailFolderNames[mutation.target];
           if (!target) throw new ServiceError('文件夹无效');
-          if (target !== 'INBOX') await client.mailboxCreate(target);
+          if (target !== 'INBOX') await perform(() => client.mailboxCreate(target));
           account.folders[mutation.target] = target;
         }
         // Restoring before a pending deletion has synced may already be a no-op remotely.
         if (target !== path) {
-          const moved = await client.messageMove(uid, target, { uid: true });
+          const moved = await perform(() => client.messageMove(uid, target, { uid: true }));
           if (!moved) throw new ServiceError('服务器未确认移动邮件');
           const original = repo.get('message', mutation.messageId);
           if (original) repo.put('relocation', {

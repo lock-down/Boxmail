@@ -99,7 +99,7 @@ extension MailStore {
     Task {
       defer { busy.remove("mail-batch") }
       do {
-        let result: MailBatchResponse = try await BackendService.shared.request(
+        let result: MailBatchResponse = try await self.backend.request(
           "/messages/batch", method: "POST", body: ["updates": updates])
         if result.changedCount == 0 && !undoing {
           if mailChange == nil { mailChange = MailChange(title: "邮件状态无需更改", undo: []) }

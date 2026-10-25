@@ -31,7 +31,7 @@ extension MailStore {
       URLQueryItem(name: "offset", value: String(reset ? 0 : nextOffset ?? 0)),
     ]
     do {
-      let page: MailPage = try await BackendService.shared.request(
+      let page: MailPage = try await self.backend.request(
         "/messages?\(query.percentEncodedQuery ?? "")")
       try Task.checkCancellation()
       guard pageGeneration == generation, key == mailQueryKey else { return }
@@ -92,13 +92,14 @@ extension MailStore {
     detailGeneration = generation
     detailError = nil
     do {
-      let full: MailMessage = try await BackendService.shared.request("/messages/\(id)")
+      let full: MailMessage = try await self.backend.request("/messages/\(id)")
       try Task.checkCancellation()
       guard id == selectedMessageId, generation == detailGeneration else { return }
       // Keep only the selected body; headers and summaries remain available for overview screens.
       detailCache = [id: full]
       trimAttachmentCache(keeping: full.attachmentIds)
       for aid in full.attachmentIds { await loadAttachment(aid) }
+      guard id == selectedMessageId, generation == detailGeneration else { return }
       if full.draftId != nil {
         conversation = nil; conversationAnchor = nil; conversationError = nil
         return
@@ -114,14 +115,19 @@ extension MailStore {
 
   func loadAttachment(_ id: String) async {
     guard !Task.isCancelled else { return }
+    let revision = restoreRevision
     do {
-      let full: MailAttachment = try await BackendService.shared.request(
+      let full: MailAttachment = try await self.backend.request(
         "/attachments/\(id)/metadata")
       try Task.checkCancellation()
-      attachmentCache[id] = full
-      if let index = attachments.firstIndex(where: { $0.id == id }) { attachments[index] = full }
+      guard revision == restoreRevision else { return }
+      cacheAttachment(full)
     } catch is CancellationError {
-    } catch { mailAIErrors[selectedMessageId ?? ""] = "附件内容加载失败，可重新打开邮件重试。" }
+    } catch {
+      if revision == restoreRevision, retainedAttachmentIds.contains(id), let selectedMessageId {
+        mailAIErrors[selectedMessageId] = "附件内容加载失败，可重新打开邮件重试。"
+      }
+    }
   }
 
   func startSyncMonitoring() {

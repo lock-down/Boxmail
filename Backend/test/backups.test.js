@@ -81,6 +81,19 @@ test('restore requires confirmation and a corrupted checksum leaves current data
   assert.equal((await readdir(repo.directory)).includes('backups'), false);
 });
 
+test('restore invalidates previews even when restored messages reuse the same ids', async t => {
+  const { repo, backup } = await fixture(t);
+  await createBackup(repo, backup);
+  repo.put('message', { ...repo.get('message', 'm'), body: '恢复前的不同正文', html: null });
+  assert.equal(repo.messagePage({ accountId: 'a' }).messages[0].preview, '恢复前的不同正文');
+  await restoreBackup(repo, backup, true);
+  assert.equal(repo.get('message', 'm').body, '正文');
+  assert.equal(repo.messageHeaders()[0].preview, '正文');
+  assert.equal(repo.messagePage({ accountId: 'a' }).messages[0].preview, '正文');
+  assert.deepEqual(repo.search('恢复前的不同正文'), []);
+  assert.equal(repo.db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+});
+
 test('valid checksums cannot hide malformed message fields or missing attachment references', async t => {
   const { repo, directory, backup } = await fixture(t);
   await createBackup(repo, backup);

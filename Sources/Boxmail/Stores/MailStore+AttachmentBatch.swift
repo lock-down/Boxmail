@@ -15,7 +15,7 @@ extension MailStore {
       defer { busy.remove(control) }
       do {
         let key = try KeychainService.read(settings.ai.credentialAccount)
-        let updated: AgentJob = try await BackendService.shared.request(
+        let updated: AgentJob = try await self.backend.request(
           job.map { "/jobs/\($0.id)/retry" } ?? "/messages/\(message.id)/attachments/analyze",
           method: "POST", body: ["accountId": message.accountId, "apiKey": key,
             "providerId": settings.ai.providerId, "force": force],
@@ -38,7 +38,7 @@ extension MailStore {
     Task {
       defer { busy.remove(control) }
       do {
-        let updated: AgentJob = try await BackendService.shared.request(
+        let updated: AgentJob = try await self.backend.request(
           "/jobs/\(job.id)/pause", method: "POST")
         replaceJob(updated)
       } catch { attachmentBatchErrors[messageId] = error.localizedDescription }
@@ -57,7 +57,7 @@ extension MailStore {
         if running.isEmpty { break }
         for job in running {
           do {
-            let updated: AgentJob = try await BackendService.shared.request(
+            let updated: AgentJob = try await self.backend.request(
               "/jobs/\(job.id)", timeout: 10)
             try Task.checkCancellation()
             replaceJob(updated)

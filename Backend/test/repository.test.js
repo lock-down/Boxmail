@@ -112,3 +112,22 @@ test('compact jobs omit duplicate results while retaining reply previews and rev
     assert.ok(repo.get('job', job.id).result);
   }
 });
+
+test('an automatic disk-full rollback clears uncommitted previews and leaves the store usable', async t => {
+  const repo = await fixture(t);
+  repo.put('message', { ...message, html: null });
+  const pages = repo.db.prepare('PRAGMA page_count').get().page_count;
+  repo.db.exec(`PRAGMA max_page_count=${pages}`);
+  assert.throws(() => repo.transaction(() => {
+    repo.put('message', { ...message, html: null, body: '未提交的正文' });
+    assert.equal(repo.messageHeaders()[0].preview, '未提交的正文');
+    repo.put('message', { ...message, id: 'too-large', body: 'x'.repeat(1024 * 1024) });
+  }), /database or disk is full/);
+  assert.equal(repo.db.isTransaction, false);
+  assert.equal(repo.get('message', 'm1').body, message.body);
+  assert.equal(repo.messageHeaders()[0].preview, message.body);
+  assert.equal(repo.get('message', 'too-large'), null);
+  repo.put('message', { ...message, html: null, starred: true });
+  assert.equal(repo.get('message', 'm1').starred, true);
+  assert.equal(repo.db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+});

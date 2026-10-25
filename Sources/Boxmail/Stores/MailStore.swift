@@ -5,6 +5,11 @@ import Observation
 import SwiftUI
 
 @Observable @MainActor final class MailStore {
+  @ObservationIgnored let backend: BackendService
+  @ObservationIgnored var conversationBodyRequests: [String: UUID] = [:]
+  @ObservationIgnored private var refreshGeneration = UUID()
+  init(backend: BackendService? = nil) { self.backend = backend ?? .shared }
+
   var accounts: [MailAccount] = []
   var messages: [MailMessage] = []
   var drafts: [MailDraft] = []
@@ -119,8 +124,8 @@ import SwiftUI
     startupError = nil
     defer { starting = false }
     do {
-      try await BackendService.shared.start()
-      if let message = BackendService.shared.startupNotice { notice = message }
+      try await self.backend.start()
+      if let message = self.backend.startupNotice { notice = message }
       try await refresh()
       ready = true
       watchAIOutput()
@@ -141,8 +146,13 @@ import SwiftUI
     } catch { startupError = error.localizedDescription }
   }
   func refresh(reloadContent: Bool = true) async throws {
-    let state: AppSnapshot = try await BackendService.shared.request(
+    let generation = UUID()
+    let revision = restoreRevision
+    refreshGeneration = generation
+    let state: AppSnapshot = try await self.backend.request(
       "/state?compact=1&previews=0", timeout: reloadContent ? 190 : 30)
+    try Task.checkCancellation()
+    guard generation == refreshGeneration, revision == restoreRevision else { return }
     accounts = state.accounts
     messages = state.messages
     drafts = state.drafts
@@ -165,6 +175,7 @@ import SwiftUI
       accountId = accounts.first(where: { !$0.isDemo })?.id ?? accounts.first?.id ?? ""
     }
     await loadMessages(reset: true, preserveSelection: true)
+    guard generation == refreshGeneration, revision == restoreRevision else { return }
     if let id = selectedMessageId, !ids.contains(id) {
       selectedMessageId = filteredMessages.first?.id
     }
@@ -238,7 +249,7 @@ import SwiftUI
       return
     }
     action("message-\(message.id)") {
-      try await BackendService.shared.perform(
+      try await self.backend.perform(
         "/messages/\(message.id)", method: "PATCH", body: changes)
     }
   }
@@ -252,7 +263,7 @@ import SwiftUI
     action("empty-trash-\(account.id)") {
       var input: [String: Any] = ["accountId": account.id, "approved": true]
       if !account.isDemo { input["password"] = try KeychainService.read("mail-\(account.id)") }
-      try await BackendService.shared.perform("/trash/empty", body: input)
+      try await self.backend.perform("/trash/empty", body: input)
     }
   }
   func syncAll(silent: Bool = false, folder: String? = nil) async {
@@ -286,7 +297,7 @@ import SwiftUI
           "accountId": account.id, "password": password, "background": true,
         ]
         if let folder { input["folder"] = folder }
-        try await BackendService.shared.perform("/sync", body: input)
+        try await self.backend.perform("/sync", body: input)
         started.insert(account.id)
         syncingAccountIds = started
         if syncCancellationRequested { await cancelSync() }
@@ -297,7 +308,7 @@ import SwiftUI
         }
         // A lost start response or a previous polling interruption can leave a
         // healthy background sync running. Rejoin it instead of reporting a conflict.
-        if let snapshot: MailSyncSnapshot = try? await BackendService.shared.request(
+        if let snapshot: MailSyncSnapshot = try? await self.backend.request(
           "/sync-status", timeout: 30), snapshot.runningAccounts.contains(account.id)
         {
           started.insert(account.id)
@@ -316,7 +327,7 @@ import SwiftUI
       while !started.isEmpty && !Task.isCancelled {
         let snapshot: MailSyncSnapshot
         do {
-          snapshot = try await BackendService.shared.request("/sync-status", timeout: 30)
+          snapshot = try await self.backend.request("/sync-status", timeout: 30)
           pollingFailures = 0
         } catch is CancellationError { return
         } catch {
@@ -353,7 +364,7 @@ import SwiftUI
   func newDraft(reply: MailMessage? = nil, forward: Bool = false, all: Bool = false) {
     if let reply {
       action("compose-reply") {
-        let draft: MailDraft = try await BackendService.shared.request(
+        let draft: MailDraft = try await self.backend.request(
           "/messages/\(reply.id)/reply-draft", method: "POST",
           body: ["all": all, "forward": forward])
         self.composer = draft
@@ -374,7 +385,7 @@ import SwiftUI
     prompt: String = "", body: String = "", tone: String = "正式", length: String = "适中",
     replyPreset: ReplyPreset? = nil, preview: Bool = false, background: Bool = false
   ) async throws -> AgentJob {
-    guard !busy.contains("agent") else { throw BackendService.shared.failure("AI 正在执行任务，请稍候") }
+    guard !busy.contains("agent") else { throw self.backend.failure("AI 正在执行任务，请稍候") }
     busy.insert("agent")
     watchAIOutput()
     defer { busy.remove("agent") }
@@ -391,7 +402,7 @@ import SwiftUI
     if preview { input["preview"] = true }
     if background { input["background"] = true }
     let preparationAllowance = attachment?.isPresentation == true ? 150 : 30
-    var job: AgentJob = try await BackendService.shared.request(
+    var job: AgentJob = try await self.backend.request(
       "/agent", method: "POST", body: input,
       timeout: background ? 15 : TimeInterval(settings.ai.timeout + preparationAllowance))
     if background {
@@ -400,7 +411,7 @@ import SwiftUI
       while job.status == "running" {
         try await Task.sleep(for: .seconds(1))
         do {
-          job = try await BackendService.shared.request("/jobs/\(job.id)", timeout: 30)
+          job = try await self.backend.request("/jobs/\(job.id)", timeout: 30)
           replaceJob(job)
           pollingFailures = 0
         } catch is CancellationError { throw CancellationError()
@@ -410,7 +421,7 @@ import SwiftUI
         }
       }
       if job.status != "completed" {
-        throw BackendService.shared.failure(job.error ?? "AI 任务未完成，可重试这封邮件。")
+        throw self.backend.failure(job.error ?? "AI 任务未完成，可重试这封邮件。")
       }
     }
     if background { try? await refresh(reloadContent: false) }
@@ -443,7 +454,7 @@ import SwiftUI
   }
   func useReply(_ job: AgentJob) {
     action("use-reply") {
-      let draft: MailDraft = try await BackendService.shared.request(
+      let draft: MailDraft = try await self.backend.request(
         "/jobs/\(job.id)/draft", method: "POST")
       self.composer = draft
     }
@@ -459,7 +470,7 @@ import SwiftUI
       defer { busy.remove("organize-control") }
       do {
         let key = try KeychainService.read(settings.ai.credentialAccount)
-        let updated: AgentJob = try await BackendService.shared.request(
+        let updated: AgentJob = try await self.backend.request(
           job.map { "/jobs/\($0.id)/retry" } ?? "/organize", method: "POST",
           body: ["accountId": accountId, "apiKey": key, "providerId": settings.ai.providerId, "scope": scope, "limit": limit])
         replaceJob(updated)
@@ -469,7 +480,7 @@ import SwiftUI
   }
   func pauseOrganization(_ job: AgentJob) {
     action("organize-control") {
-      let updated: AgentJob = try await BackendService.shared.request(
+      let updated: AgentJob = try await self.backend.request(
         "/jobs/\(job.id)/pause", method: "POST")
       self.replaceJob(updated)
     }
@@ -490,7 +501,7 @@ import SwiftUI
         if running.isEmpty { break }
         do {
           for job in running {
-            let updated: AgentJob = try await BackendService.shared.request("/jobs/\(job.id)")
+            let updated: AgentJob = try await self.backend.request("/jobs/\(job.id)")
             replaceJob(updated)
           }
           organizeError = nil
@@ -506,22 +517,22 @@ import SwiftUI
   }
   func toggleTodo(message: MailMessage, todo: MailTodo) {
     action("todo") {
-      try await BackendService.shared.perform(
+      try await self.backend.perform(
         "/todos", body: ["messageId": message.id, "todoId": todo.id, "done": !todo.done])
     }
   }
   func download(_ attachment: MailAttachment, preview: Bool = false) {
     action("download") {
-      let file: FileResponse = try await BackendService.shared.request(
+      let file: FileResponse = try await self.backend.request(
         "/attachments/\(attachment.id)")
       guard let data = Data(base64Encoded: file.content) else {
-        throw BackendService.shared.failure("附件数据无效")
+        throw self.backend.failure("附件数据无效")
       }
       if preview {
         let original = try AttachmentPreviewFile(name: file.name, data: data)
         guard NSWorkspace.shared.open(original.url) else {
           original.remove()
-          throw BackendService.shared.failure("没有可打开此格式的应用，请下载后选择合适的应用。")
+          throw self.backend.failure("没有可打开此格式的应用，请下载后选择合适的应用。")
         }
         self.externalPreviewFiles.append(original)
       } else {
@@ -540,6 +551,6 @@ import SwiftUI
     externalPreviewFiles.forEach { $0.remove() }
     if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     KeychainService.clearSession()
-    await BackendService.shared.stop()
+    await self.backend.stop()
   }
 }

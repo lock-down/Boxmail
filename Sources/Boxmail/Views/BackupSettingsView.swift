@@ -108,8 +108,9 @@ struct BackupSettingsView: View {
         store.mailAITab = nil; store.activeAIMessageId = nil; store.activeAIAttachmentId = nil
         store.attachmentResultsMessageId = nil; store.attachmentBatchErrors = [:]; store.organizeError = nil
         store.conversationError = nil; store.detailError = nil; store.detailGeneration = UUID()
-        try await store.refresh()
+        store.conversationBodyRequests = [:]
         store.restoreRevision += 1
+        try await store.refresh()
         status = "备份已恢复。恢复前的数据保存在：\n\(result.previousBackup ?? "本机数据目录的 backups 文件夹")\n请检查账户和待同步更改后再同步邮箱。"
       } catch { status = nil; failure = error.localizedDescription }
     }

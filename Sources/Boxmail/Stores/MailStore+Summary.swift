@@ -70,7 +70,7 @@ extension MailStore {
       do {
         var body: [String: Any] = ["accountId": requestedAccount, "hidden": hidden]
         if all { body["all"] = true } else { body["messageIds"] = ids }
-        let result: SummaryVisibilityResponse = try await BackendService.shared.request(
+        let result: SummaryVisibilityResponse = try await self.backend.request(
           "/summaries/visibility", method: "POST", body: body)
         if undo { summaryListChange = nil }
         else if !result.messageIds.isEmpty {

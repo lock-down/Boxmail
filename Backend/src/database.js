@@ -98,6 +98,7 @@ export class Repository {
     this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id);
     if (kind === 'message') this.previewCache?.delete(id);
   }
+  invalidateMessagePreviews() { this.previewCache?.clear(); }
   transaction(fn) {
     const savepoint = this.db.isTransaction ? `boxmail_${randomUUID().replaceAll('-', '')}` : null;
     this.db.exec(savepoint ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE');
@@ -107,7 +108,7 @@ export class Repository {
       return r;
     } catch (e) {
       this.db.exec(savepoint ? `ROLLBACK TO SAVEPOINT ${savepoint}; RELEASE SAVEPOINT ${savepoint}` : 'ROLLBACK');
-      this.previewCache?.clear();
+      this.invalidateMessagePreviews();
       throw e;
     }
   }
@@ -200,7 +201,7 @@ export class Repository {
       total, nextOffset: offset + rows.length < total ? offset + rows.length : null };
   }
   close() {
-    this.previewCache?.clear();
+    this.invalidateMessagePreviews();
     this.db.close();
   }
 }

@@ -90,7 +90,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleIconFile</key><string>Boxmail</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-<key>CFBundleVersion</key><string>31</string>
+<key>CFBundleVersion</key><string>32</string>
 <key>BoxmailDemoDataEnabled</key><$DEMO_DATA/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>

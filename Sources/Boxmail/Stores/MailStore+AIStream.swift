@@ -14,7 +14,7 @@ extension MailStore {
       defer { aiStreamTask = nil }
       while !Task.isCancelled {
         do {
-          try await BackendService.shared.aiEvents { event in
+          try await self.backend.aiEvents { event in
             if event.type == "snapshot" {
               self.aiOutputs = Dictionary((event.outputs ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
             } else if let output = event.output {

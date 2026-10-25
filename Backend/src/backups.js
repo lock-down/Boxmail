@@ -217,6 +217,7 @@ export async function restoreBackup(repo, source, approved, { beforeCommit, expe
         repo.rebuildSearch?.();
         repo.event('restore', '已恢复完整备份，恢复前的数据已另存为备份；钥匙串凭证保持原状');
       });
+      repo.invalidateMessagePreviews();
       committed = true;
       return { ok: true, previousBackup, ...summary(manifest) };
     } finally { if (!committed) await rm(attachments, { recursive: true, force: true }); }

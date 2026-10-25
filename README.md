@@ -2,7 +2,7 @@
 
 Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，以 SQLite 保存本机数据，支持通过 BYOK 接入兼容 OpenAI Responses、Chat Completions 或 Anthropic Messages 的 AI 服务。
 
-当前发布版本为 **0.0.30（build 31）**，源码标签为 `v0.0.30`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.0.30)。本版恢复长收件人名单的可见滚动条，引用邮件的收件人标题保持横排；从附件中心、附件预览及智能整理打开原邮件时，列表自动滚动并高亮目标行。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
+当前发布版本为 **0.0.31（build 32）**，源码标签为 `v0.0.31`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.0.31)。本版修复邮件与附件写入失败时的数据一致性问题，以及恢复备份后预览过期、旧响应覆盖新数据的问题；大响应的 JSON 处理移出界面主线程，待同步操作补齐超时与取消保护。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
 
 ## 功能
 
@@ -33,7 +33,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 
 `node script/benchmark-startup.mjs` 测量隔离后端启动、首屏数据就绪及 RSS。0.0.26 的 2400 封合成邮件三轮交替测量中，后端及首屏数据就绪时间由 980 ms 降至 209 ms，就绪 RSS 由 353 MiB 降至 164 MiB；这是热缓存下的后端测量，不包含 SwiftUI、WebKit 和真实网络耗时，完整条件见开发说明。
 
-0.0.30 完整回归通过 310 项后端测试和 96 项 Swift 测试，无失败或跳过。`node script/benchmark.mjs` 测量查询与同步耗时，`node script/benchmark-runtime.mjs` 测量同步、连续 AI、20 MB 图片和 20 页 PDF 的资源开销，均使用隔离数据与本机模拟服务。0.0.24 与 0.0.23 的三轮合成对照中，同步、连续 AI 和 PDF 的后端峰值 RSS 分别下降约 79%、15%、45%；测量条件、完整结果及限制见开发说明。
+0.0.31 完整回归通过 324 项后端测试和 103 项 Swift 测试，无失败或跳过。`node script/benchmark.mjs` 测量查询与同步耗时，`node script/benchmark-runtime.mjs` 测量同步、连续 AI、20 MB 图片和 20 页 PDF 的资源开销，均使用隔离数据与本机模拟服务。本轮另完成 120 个连续 AI 任务、12000 封邮件的原生验收及备份恢复检查；测量条件、结果及限制见开发说明。
 
 ## 安装包
 

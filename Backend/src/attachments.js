@@ -6,19 +6,20 @@ import { ServiceError } from './validation.js';
 import { isPresentation, presentationText, presentationPDF } from './presentations.js';
 import { processPDF } from './pdf-processing.js';
 
-export async function extractText(buffer, name, contentType = '') {
+export async function extractText(buffer, name, contentType = '', { signal } = {}) {
+  signal?.throwIfAborted();
   const ext = path.extname(name).toLowerCase();
   if (['.txt', '.csv', '.md', '.json', '.log'].includes(ext))
     return buffer.toString('utf8').slice(0, 200000);
   if (ext === '.pdf') {
-    return (await processPDF(buffer, { task: 'text', name })).text;
+    return (await processPDF(buffer, { task: 'text', name, signal })).text;
   }
   if (ext === '.docx') {
     const { default: mammoth } = await import('mammoth');
     return (await mammoth.extractRawText({ buffer })).value.slice(0, 200000);
   }
   if (isPresentation({ name, contentType }))
-    return presentationText(buffer, { name, contentType });
+    return presentationText(buffer, { name, contentType, signal });
   if (ext === '.xlsx') {
     const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
@@ -48,6 +49,19 @@ export async function saveAttachment(
   buffer,
   contentType = 'application/octet-stream',
 ) {
+  const attachment = await prepareAttachment(repo, messageId, name, buffer, contentType);
+  try { return repo.put('attachment', attachment); }
+  catch (error) {
+    await rm(attachment.path, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+// Prepare the file before a synchronous transaction publishes it with its owner.
+export async function prepareAttachment(
+  repo, messageId, name, buffer, contentType = 'application/octet-stream', { signal } = {},
+) {
+  signal?.throwIfAborted();
   if (buffer.length > 25 * 1024 * 1024)
     throw new ServiceError('单个附件超过 25 MB');
   const id = randomUUID();
@@ -61,26 +75,20 @@ export async function saveAttachment(
         .replace(/[^.a-zA-Z0-9]/g, '')
         .slice(0, 12),
   );
-  await writeFile(file, buffer, { mode: 0o600 });
-  let text = '',
-    parseError = '';
   try {
-    text = await extractText(buffer, name, contentType);
-  } catch {
-    parseError = '文件无法解析，可下载原文件查看';
+    await writeFile(file, buffer, { mode: 0o600, flag: 'wx' });
+    let text = '', parseError = '';
+    try { text = await extractText(buffer, name, contentType, { signal }); }
+    catch { parseError = '文件无法解析，可下载原文件查看'; }
+    signal?.throwIfAborted();
+    return {
+      id, messageId, name: path.basename(name), size: buffer.length, contentType,
+      path: file, text, analysis: null, parseError, date: new Date().toISOString(),
+    };
+  } catch (error) {
+    if (error.code !== 'EEXIST') await rm(file, { force: true }).catch(() => {});
+    throw error;
   }
-  return repo.put('attachment', {
-    id,
-    messageId,
-    name: path.basename(name),
-    size: buffer.length,
-    contentType,
-    path: file,
-    text,
-    analysis: null,
-    parseError,
-    date: new Date().toISOString(),
-  });
 }
 export async function attachmentBytes(repo, id) {
   const a = repo.get('attachment', id);

@@ -108,7 +108,7 @@ private struct ConversationMessageView: View {
           } else { ProgressView("正在加载这封邮件…").controlSize(.small) }
         }.padding(.leading, 54).padding(.trailing, 10)
       }
-    }.task(id: "\(expanded)-\(store.conversationBodies[header.id] != nil)") {
+    }.task(id: "\(expanded)-\(store.restoreRevision)") {
       if expanded && store.conversationBodies[header.id] == nil { await store.loadConversationBody(header) }
     }.onChange(of: expanded) { _, value in
       if !value { store.unloadConversationBody(header.id) }

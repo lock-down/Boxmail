@@ -3,7 +3,8 @@ import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { simpleParser } from 'mailparser';
 import { createHash, randomUUID } from 'node:crypto';
-import { saveAttachment, attachmentBytes, copyBorrowedAttachments, reassignAttachments } from './attachments.js';
+import { rm } from 'node:fs/promises';
+import { prepareAttachment, attachmentBytes, copyBorrowedAttachments, reassignAttachments } from './attachments.js';
 import { ServiceError, required, recipients } from './validation.js';
 import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
@@ -127,7 +128,7 @@ export async function syncAccount(
     catch (error) { throw mailServiceError(error, 'IMAP', account); }
     const folders = await perform(() => client.list());
     discoverMailFolders(account, folders);
-    await applyMailMutations(repo, account, client);
+    await applyMailMutations(repo, account, client, { signal, timeoutMs: operationTimeoutMs });
     if (requestedFolder && !account.folders[requestedFolder])
       throw new ServiceError(`服务器未提供${names[requestedFolder] || '该'}文件夹，请检查网页版邮箱及收取范围。`, 502);
     for (const folder of Object.keys(names).filter(f => account.folders[f] && (!requestedFolder || requestedFolder === f))) {
@@ -309,6 +310,12 @@ export async function syncAccount(
             const retained = relocation || (sameFolder.length === 1 ? sameFolder[0]
               : recoveries.length === 1 ? recoveries[0] : null)
               || (localSent ? { id: localSent.id, original: localSent } : null);
+            const commitMessage = () => {
+              if (localSent) repo.remove('message', localSent.id);
+              repo.put('message', message);
+              if (localSent && localSent.folder !== folder)
+                updateMessage(repo, id, { folder: localSent.folder });
+            };
             if (retained) {
               message.summary = retained.original.summary;
               message.summaryHidden = retained.original.summaryHidden;
@@ -316,38 +323,50 @@ export async function syncAccount(
               message.translationHTML = retained.original.translationHTML;
               message.category = retained.original.category;
               // Older forwarded copies may still share ids with their source mail.
-              message.attachmentIds = await copyBorrowedAttachments(
+              await copyBorrowedAttachments(
                 repo, retained.original.attachmentIds || [], retained.original.id, {
                   preserveMissing: true,
                   save: attachmentIds => {
+                    message.attachmentIds = attachmentIds;
                     remapAttachmentJobs(repo, retained.original.id, retained.original.attachmentIds || [], attachmentIds);
-                    return attachmentIds;
+                    if (folder === 'trash') {
+                      message.deletedFromFolder = retained.original.deletedFromFolder;
+                      message.deletedFromPath = retained.original.deletedFromPath;
+                    }
+                    if (folder === 'archive' || folder === 'trash') {
+                      message.archivedFromFolder = retained.original.archivedFromFolder;
+                      message.archivedFromPath = retained.original.archivedFromPath;
+                    }
+                    reassignAttachments(repo, attachmentIds, id, retained.original.id);
+                    for (const draft of repo.list('draft').filter(d => d.sourceMessageId === retained.original.id))
+                      repo.put('draft', { ...draft, sourceMessageId: id });
+                    for (const job of repo.list('job', { messageId: retained.original.id }))
+                      repo.put('job', { ...job, messageId: id });
+                    repo.remove(relocation ? 'relocation' : retained.id === localSent?.id ? 'message' : 'recovery', retained.id);
+                    commitMessage();
                   },
                 });
-              if (folder === 'trash') {
-                message.deletedFromFolder = retained.original.deletedFromFolder;
-                message.deletedFromPath = retained.original.deletedFromPath;
-              }
-              if (folder === 'archive' || folder === 'trash') {
-                message.archivedFromFolder = retained.original.archivedFromFolder;
-                message.archivedFromPath = retained.original.archivedFromPath;
-              }
-              reassignAttachments(repo, message.attachmentIds, id, retained.original.id);
-              for (const draft of repo.list('draft').filter(d => d.sourceMessageId === retained.original.id))
-                repo.put('draft', { ...draft, sourceMessageId: id });
-              for (const job of repo.list('job', { messageId: retained.original.id }))
-                repo.put('job', { ...job, messageId: id });
-              repo.remove(relocation ? 'relocation' : retained.id === localSent?.id ? 'message' : 'recovery', retained.id);
             } else {
-              for (const a of parsed.attachments || []) {
-                const saved = await saveAttachment(repo, id, a.filename || '附件', a.content, a.contentType);
-                message.attachmentIds.push(saved.id);
+              const prepared = [];
+              let committed = false;
+              try {
+                for (const a of parsed.attachments || []) {
+                  const attachment = await prepareAttachment(repo, id, a.filename || '附件', a.content, a.contentType, { signal });
+                  prepared.push(attachment);
+                  message.attachmentIds.push(attachment.id);
+                }
+                // A completely parsed body is a safe checkpoint even if cancellation
+                // arrived during MIME parsing. Partial attachment work is discarded.
+                if (prepared.length) signal?.throwIfAborted();
+                repo.transaction(() => {
+                  for (const attachment of prepared) repo.put('attachment', attachment);
+                  commitMessage();
+                });
+                committed = true;
+              } finally {
+                if (!committed) await Promise.allSettled(prepared.map(attachment => rm(attachment.path, { force: true })));
               }
             }
-            if (localSent) repo.remove('message', localSent.id);
-            repo.put('message', message);
-            if (localSent && localSent.folder !== folder)
-              updateMessage(repo, id, { folder: localSent.folder });
             count++;
           }
           cached.set(remote.uid, repo.get('message', id));

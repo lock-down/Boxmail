@@ -19,7 +19,9 @@ extension MailStore {
     defer { syncCancelInFlight = false }
     var failures: [String] = []
     for id in syncingAccountIds {
-      do { try await BackendService.shared.perform("/sync/cancel", body: ["accountId": id]) }
+      do {
+        try await self.backend.perform("/sync/cancel", body: ["accountId": id])
+      }
       catch is CancellationError { return }
       catch { failures.append(error.localizedDescription) }
     }

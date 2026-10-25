@@ -6,7 +6,6 @@ import {
   ServiceError,
   accountInput,
   aiConfig,
-  recipients,
 } from './validation.js';
 import { testAccount, syncAccount, updateMessage, restoreMessage, unarchiveMessage, emptyTrash, sendDraft } from './mail.js';
 import { archiveRestoreFolder, trashRestoreFolder } from './mail-folders.js';

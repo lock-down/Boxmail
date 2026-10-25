@@ -9,12 +9,14 @@ import Foundation
   var startupNotice: String?
   private var port = 0
   private let token = UUID().uuidString + UUID().uuidString
-  private let session: URLSession = {
+  private let session: URLSession
+
+  init(session: URLSession? = nil) {
     let config = URLSessionConfiguration.ephemeral
     config.timeoutIntervalForRequest = 190
     config.timeoutIntervalForResource = 900
-    return URLSession(configuration: config)
-  }()
+    self.session = session ?? URLSession(configuration: config)
+  }
   var defaultDataDirectory: URL {
     FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("Boxmail", isDirectory: true)
@@ -142,10 +144,13 @@ import Foundation
     await child.stop()
     if process === child { process = nil }
   }
-  func request<T: Decodable>(
+  nonisolated func request<T: Decodable>(
     _ path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval = 190
   ) async throws -> T {
-    guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else { throw failure("接口地址无效") }
+    let endpointPort = await port
+    guard let url = URL(string: "http://127.0.0.1:\(endpointPort)\(path)") else {
+      throw failure("接口地址无效")
+    }
     var request = URLRequest(url: url)
     request.httpMethod = method
     request.timeoutInterval = timeout
@@ -155,6 +160,7 @@ import Foundation
       request.httpBody = try JSONSerialization.data(withJSONObject: body)
     }
     let (data, response) = try await session.data(for: request)
+    try Task.checkCancellation()
     guard let response = response as? HTTPURLResponse else { throw failure("本机服务无响应") }
     guard (200..<300).contains(response.statusCode) else {
       let error =
@@ -167,8 +173,11 @@ import Foundation
   func perform(_ path: String, method: String = "POST", body: [String: Any] = [:]) async throws {
     let _: EmptyResponse = try await request(path, method: method, body: body)
   }
-  func aiEvents(receive: @MainActor (AIStreamEvent) -> Void) async throws {
-    guard let url = URL(string: "http://127.0.0.1:\(port)/ai/events") else { throw failure("接口地址无效") }
+  nonisolated func aiEvents(receive: @MainActor (AIStreamEvent) -> Void) async throws {
+    let endpointPort = await port
+    guard let url = URL(string: "http://127.0.0.1:\(endpointPort)/ai/events") else {
+      throw failure("接口地址无效")
+    }
     var request = URLRequest(url: url)
     request.setValue(token, forHTTPHeaderField: "X-Boxmail-Token")
     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -180,10 +189,11 @@ import Foundation
       try Task.checkCancellation()
       guard line.hasPrefix("data: ") else { continue }
       guard line.utf8.count <= 12_000_000 else { throw failure("AI 输出过长") }
-      receive(try JSONDecoder().decode(AIStreamEvent.self, from: Data(line.dropFirst(6).utf8)))
+      let event = try JSONDecoder().decode(AIStreamEvent.self, from: Data(line.dropFirst(6).utf8))
+      await receive(event)
     }
   }
-  func failure(_ message: String) -> NSError {
+  nonisolated func failure(_ message: String) -> NSError {
     NSError(domain: "Boxmail", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
   }
 }
