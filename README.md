@@ -33,7 +33,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 
 `node script/benchmark-startup.mjs` 测量隔离后端启动、首屏数据就绪及 RSS。0.0.26 的 2400 封合成邮件三轮交替测量中，后端及首屏数据就绪时间由 980 ms 降至 209 ms，就绪 RSS 由 353 MiB 降至 164 MiB；这是热缓存下的后端测量，不包含 SwiftUI、WebKit 和真实网络耗时，完整条件见开发说明。
 
-0.0.31 完整回归通过 324 项后端测试和 103 项 Swift 测试，无失败或跳过。`node script/benchmark.mjs` 测量查询与同步耗时，`node script/benchmark-runtime.mjs` 测量同步、连续 AI、20 MB 图片和 20 页 PDF 的资源开销，均使用隔离数据与本机模拟服务。本轮另完成 120 个连续 AI 任务、12000 封邮件的原生验收及备份恢复检查；测量条件、结果及限制见开发说明。
+0.0.31 完整回归通过 325 项后端测试和 103 项 Swift 测试，无失败或跳过。`node script/benchmark.mjs` 测量查询与同步耗时，`node script/benchmark-runtime.mjs` 测量同步、连续 AI、20 MB 图片和 20 页 PDF 的资源开销，均使用隔离数据与本机模拟服务。本轮另完成 120 个连续 AI 任务、12000 封邮件的原生验收及备份恢复检查；测量条件、结果及限制见开发说明。
 
 ## 安装包
 

@@ -19,7 +19,7 @@ export async function extractText(buffer, name, contentType = '', { signal } = {
     return (await mammoth.extractRawText({ buffer })).value.slice(0, 200000);
   }
   if (isPresentation({ name, contentType }))
-    return presentationText(buffer, { name, contentType, signal });
+    return presentationText(buffer, { name, contentType }, { signal });
   if (ext === '.xlsx') {
     const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();

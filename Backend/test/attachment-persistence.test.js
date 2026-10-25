@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Repository } from '../src/database.js';
-import { saveAttachment } from '../src/attachments.js';
+import { extractText, saveAttachment } from '../src/attachments.js';
 import { syncAccount } from '../src/mail.js';
 
 async function fixture(t) {
@@ -36,6 +36,15 @@ function mailbox() {
     async fetchOne() { return { uid: 1, source }; },
   };
 }
+
+test('presentation text extraction propagates cancellation after preparation begins', async () => {
+  const buffer = await readFile(new URL('fixtures/two-slides.pptx', import.meta.url));
+  const controller = new AbortController();
+  const reason = new Error('cancel presentation extraction');
+  const extraction = extractText(buffer, 'two-slides.pptx', '', { signal: controller.signal });
+  controller.abort(reason);
+  await assert.rejects(extraction, error => error === reason);
+});
 
 test('failed attachment record writes remove the file created by that attempt', async t => {
   const { repo, files } = await fixture(t);
