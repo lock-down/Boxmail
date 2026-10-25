@@ -1,0 +1,20 @@
+{
+  "source": "app.png",
+  "runtimeResource": "Sources/BoxmailCore/Resources/BoxmailMark.png",
+  "sha256": "6da798e9a06d410e58e292405ee4204e3da08cc78d4d3dacd0d6e07bf8f54537",
+  "preparation": "Native AppKit rendering; original PNG pixels retained",
+  "sourceCropInsetRatio": 0.05,
+  "tileCornerRadiusRatio": 0.25,
+  "desktopArtworkRatio": 0.85,
+  "sidebarSizePoints": 28,
+  "iconsetSizesPixels": [
+    16,
+    32,
+    64,
+    128,
+    256,
+    512,
+    1024
+  ],
+  "generator": "script/generate_icon.swift"
+}

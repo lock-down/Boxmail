@@ -1,8 +1,10 @@
 # Boxmail
 
+<img src="Sources/BoxmailCore/Resources/BoxmailMark.png" alt="Boxmail" width="80" height="80">
+
 Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，以 SQLite 保存本机数据，支持通过 BYOK 接入兼容 OpenAI Responses、Chat Completions 或 Anthropic Messages 的 AI 服务。
 
-当前发布版本为 **0.0.31（build 32）**，源码标签为 `v0.0.31`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.0.31)。本版修复邮件与附件写入失败时的数据一致性问题，以及恢复备份后预览过期、旧响应覆盖新数据的问题；大响应的 JSON 处理移出界面主线程，待同步操作补齐超时与取消保护。版本号以 [VERSION](VERSION) 为准，发布历史统一记录在 [变更记录](CHANGELOG.md)。
+当前发布版本为 **0.1.0（build 33）**，源码标签为 `v0.1.0`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.1.0)。桌面图标与客户端徽标统一采用仓库 `app.png` 的蓝紫色玻璃信封设计。本版整合此前的邮件、AI、附件、搜索和本机数据能力，版本号以 [VERSION](VERSION) 为准，发布摘要见 [变更记录](CHANGELOG.md)。
 
 ## 功能
 
@@ -31,9 +33,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 
 测试脚本先构建 PPT 原生渲染组件，再运行后端和 Swift 测试，使用临时数据及本机模拟服务。联调、签名及发布步骤见 [开发说明](docs/DEVELOPMENT.md)。
 
-`node script/benchmark-startup.mjs` 测量隔离后端启动、首屏数据就绪及 RSS。0.0.26 的 2400 封合成邮件三轮交替测量中，后端及首屏数据就绪时间由 980 ms 降至 209 ms，就绪 RSS 由 353 MiB 降至 164 MiB；这是热缓存下的后端测量，不包含 SwiftUI、WebKit 和真实网络耗时，完整条件见开发说明。
-
-0.0.31 完整回归通过 325 项后端测试和 103 项 Swift 测试，无失败或跳过。`node script/benchmark.mjs` 测量查询与同步耗时，`node script/benchmark-runtime.mjs` 测量同步、连续 AI、20 MB 图片和 20 页 PDF 的资源开销，均使用隔离数据与本机模拟服务。本轮另完成 120 个连续 AI 任务、12000 封邮件的原生验收及备份恢复检查；测量条件、结果及限制见开发说明。
+0.1.0 完整回归通过 325 项后端测试和 103 项 Swift 测试，无失败或跳过。发布另检查图标尺寸与透明边缘、侧栏徽标、签名、安装包完整性和隔离启动退出。性能基准、故障恢复范围及联调边界统一见开发说明。
 
 ## 安装包
 
@@ -55,13 +55,14 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 | [开发说明](docs/DEVELOPMENT.md) | 源码入口、测试、界面约定、钥匙串签名、打包及版本维护 |
 | [后端接口](Backend/README.md) | 独立启动、环境变量、HTTP API、任务和数据契约 |
 | [开发路线](docs/ROADMAP.md) | 已完成的优先功能、后续候选及参考项目 |
-| [变更记录](CHANGELOG.md) | 版本变化、历史验收范围和标签归档 |
+| [变更记录](CHANGELOG.md) | 当前发布基线、变化及验证范围 |
 
-当前行为写入对应指南，历史变化只记录在变更记录中；不再为每个版本建立独立说明文件。
+当前行为写入对应指南，变更记录合并为 0.1.0 发布基线；历史实现可从 Git 提交与标签追溯。GitHub 仅维护当前发布的安装包。
 
 ## 项目结构
 
 ```text
+app.png                              品牌原始素材
 Sources/Boxmail/                      SwiftUI 界面、状态、钥匙串及后端生命周期
 Sources/BoxmailCore/                  数据模型、共享资源及本机存储逻辑
 Sources/BoxmailPresentationRenderer/  PPT 本机逐页渲染

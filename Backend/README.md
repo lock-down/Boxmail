@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.0.31 与客户端同步版本，补齐邮件和附件的原子提交、待同步操作的逐条超时与取消，以及恢复后的预览缓存失效处理；HTTP 契约和数据库结构版本 2 保持兼容。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.1.0 与客户端同步版本，整合现有同步、AI、附件、搜索和恢复能力；HTTP 契约和数据库结构版本 2 保持兼容。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 

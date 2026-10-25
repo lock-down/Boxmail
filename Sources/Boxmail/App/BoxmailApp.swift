@@ -78,6 +78,11 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
   weak var store: MailStore?
   func applicationDidFinishLaunching(_ notification: Notification) {
+    if let url = Bundle.main.url(forResource: "Boxmail", withExtension: "icns"),
+      let icon = NSImage(contentsOf: url)
+    {
+      NSApp.applicationIconImage = icon
+    }
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
   }

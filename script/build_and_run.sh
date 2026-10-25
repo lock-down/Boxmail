@@ -7,7 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 APP_VERSION="$(cat VERSION)"
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "VERSION must contain a version such as 0.0.1" >&2
+  echo "VERSION must contain a version such as 0.1.0" >&2
   exit 2
 fi
 BUILD_CONFIGURATION="debug"
@@ -72,9 +72,10 @@ cp Sources/BoxmailCore/Resources/DefaultPrompts.json "$APP_CONTENTS/Resources/Ba
 cp Sources/BoxmailCore/Resources/ReplyPresets.json "$APP_CONTENTS/Resources/Backend/Resources/ReplyPresets.json"
 rsync -a --delete "$BUILD_DIR/Boxmail_BoxmailCore.bundle/" "$APP_CONTENTS/Resources/Boxmail_BoxmailCore.bundle/"
 chmod +x "$APP_CONTENTS/MacOS/$APP_NAME" "$APP_CONTENTS/Resources/Runtime/node" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
-if [[ ! -f "$APP_CONTENTS/Resources/Boxmail.icns" || script/generate_icon.swift -nt "$APP_CONTENTS/Resources/Boxmail.icns" ]]; then
+BRAND_MARK="Sources/BoxmailCore/Resources/BoxmailMark.png"
+if [[ ! -f "$APP_CONTENTS/Resources/Boxmail.icns" || script/generate_icon.swift -nt "$APP_CONTENTS/Resources/Boxmail.icns" || "$BRAND_MARK" -nt "$APP_CONTENTS/Resources/Boxmail.icns" ]]; then
   mkdir -p artifacts/Boxmail.iconset
-  swift script/generate_icon.swift artifacts/Boxmail.iconset
+  swift script/generate_icon.swift artifacts/Boxmail.iconset "$BRAND_MARK"
   iconutil -c icns artifacts/Boxmail.iconset -o "$APP_CONTENTS/Resources/Boxmail.icns"
 fi
 cat > "$APP_CONTENTS/Info.plist" <<PLIST
@@ -90,7 +91,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleIconFile</key><string>Boxmail</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-<key>CFBundleVersion</key><string>32</string>
+<key>CFBundleVersion</key><string>33</string>
 <key>BoxmailDemoDataEnabled</key><$DEMO_DATA/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>

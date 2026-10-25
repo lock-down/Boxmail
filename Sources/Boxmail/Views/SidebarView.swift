@@ -1,17 +1,22 @@
+import AppKit
 import BoxmailCore
 import SwiftUI
 
 struct SidebarView: View {
+  private static let brandImage = BoxmailBrand.markURL.flatMap { NSImage(contentsOf: $0) }
   @Bindable var store: MailStore
   @ViewState<Bool> private var showAccounts = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 8) {
-        Image(systemName: "envelope.fill").font(.system(size: 12)).foregroundStyle(.white)
-          .frame(width: 24, height: 24)
-          .background(Palette.blue, in: RoundedRectangle(cornerRadius: 5))
-          .accessibilityHidden(true)
+        Group {
+          if let image = Self.brandImage {
+            Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+              .scaleEffect(1 / 0.9)
+              .clipShape(RoundedRectangle(cornerRadius: 7, style: .circular))
+          }
+        }.frame(width: 28, height: 28).accessibilityHidden(true)
         Text("Boxmail").font(.system(size: 14, weight: .semibold))
         Spacer(minLength: 0)
       }.padding(.horizontal, 22).padding(.top, 38).padding(.bottom, 18)
