@@ -174,13 +174,15 @@ test('a slow folder yields after its time budget and lets the next folder synchr
   assert.equal(state.downloads.length, 5);
 });
 
-test('a stuck IMAP operation has a deadline, preserves completed mail, and continues other folders', async t => {
+test('stuck body operations have deadlines, pause after repeated failures and continue other folders', async t => {
   const repo = await fixture(t), { state, options } = remote();
   state.hangFolder = 'INBOX';
-  await assert.rejects(syncAccount(repo, { ...account }, 'pw', { ...options, operationTimeoutMs: 30 }), /超时/);
+  const result = await syncAccount(repo, { ...account }, 'pw', { ...options, operationTimeoutMs: 30 });
+  assert.equal(result.partial, true);
   assert.ok(state.closes >= 1);
   assert.equal(repo.list('message').filter(m => m.folder === 'sent').length, 2);
   assert.equal(repo.list('sync').find(s => s.folder === 'inbox').remaining, 3);
+  assert.match(repo.list('sync').find(s => s.folder === 'inbox').source.lastError, /超时/);
 });
 
 test('large MIME sources use bounded partial FETCH requests and preserve every original byte', async () => {
@@ -197,14 +199,14 @@ test('large MIME sources use bounded partial FETCH requests and preserve every o
   assert.deepEqual(downloaded, original);
   assert.equal(calls.length, 5);
   assert.ok(calls.every(call => call.maxLength <= 256 * 1024));
-  assert.deepEqual(calls.at(-1), { start: 1024 * 1024, maxLength: 37 });
+  assert.deepEqual(calls.at(-1), { start: 1024 * 1024, maxLength: 256 * 1024 });
 });
 
 test('an interrupted partial MIME response never turns a truncated body into completed mail', async () => {
   let calls = 0;
   await assert.rejects(messageSource({
     async fetchOne() { return ++calls === 1 ? { source: Buffer.alloc(256 * 1024) } : false; }, close() {},
-  }, { uid: 7, size: 2 * 1024 * 1024 }, {}), /未完整返回邮件正文/);
+  }, { uid: 7, size: 2 * 1024 * 1024 }, {}), /完整邮件正文/);
 });
 
 test('real IMAP commands synchronize both folders despite missing and zero EXAMINE counts', { timeout: 10000 }, async t => {

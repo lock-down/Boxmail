@@ -90,28 +90,74 @@ function retainInternalDate(remote, response) {
     remote.internalDate = response.internalDate;
 }
 
-export async function messageSource(client, remote, options) {
-  // Small messages need one round trip. Large messages use bounded partial FETCH
-  // commands so slow, active transfers do not hold one command past its deadline.
-  if (remote.size <= 1024 * 1024) {
-    const full = await imapOperation(client,
-      () => client.fetchOne(remote.uid, { source: true, internalDate: true }, { uid: true }), options);
-    retainInternalDate(remote, full);
-    return full?.source;
+export class MessageSourceError extends ServiceError {
+  constructor() {
+    super('服务器暂未返回完整邮件正文，已下载邮件已保留，稍后同步会重试。', 502);
   }
+}
+
+export async function messageSource(client, remote, options = {}) {
+  const maximum = 25 * 1024 * 1024;
+  // Retry missing / late answers without combining INTERNALDATE with the source.
+  // A response for another UID or another byte offset must never enter the MIME.
+  const read = async (source, start) => {
+    let foreign = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      options.signal?.throwIfAborted();
+      options.onSource?.({ requests: 1, retryRequests: attempt ? 1 : 0, lastUID: remote.uid,
+        expectedBytes: remote.size });
+      let response;
+      try {
+        response = await imapOperation(client, () => client.fetchOne(remote.uid,
+          { source, ...(attempt === 0 && (!start || source === true) ? { internalDate: true } : {}) },
+          { uid: true }), options);
+      } catch (error) {
+        if (!options.signal?.aborted && ['NO', 'BAD'].includes(error.responseStatus) && attempt < 2) continue;
+        throw error;
+      }
+      options.signal?.throwIfAborted();
+      const origin = response?.partialOrigins?.get('');
+      if ((response?.uid != null && response.uid !== remote.uid)
+        || (origin != null && origin !== (start ?? 0))) { foreign = true; continue; }
+      retainInternalDate(remote, response);
+      if (!Buffer.isBuffer(response?.source)) continue;
+      if (source === true && remote.size > 0 && !response.source.length) continue;
+      options.onSource?.({ receivedBytes: response.source.length });
+      if (response.source.length > maximum) throw new MessageSourceError();
+      return response.source;
+    }
+    if (foreign) throw new MessageSourceError();
+  };
+  if (remote.size <= 1024 * 1024) return read(true);
+
   const chunks = [], chunkSize = 256 * 1024;
   let downloaded = 0;
-  while (downloaded < remote.size) {
-    const full = await imapOperation(client, () => client.fetchOne(remote.uid,
-      { source: { start: downloaded, maxLength: Math.min(chunkSize, remote.size - downloaded) },
-        ...(downloaded === 0 ? { internalDate: true } : {}) }, { uid: true }), options);
-    if (downloaded === 0) retainInternalDate(remote, full);
-    if (!full?.source && !downloaded) return undefined;
-    const bytes = full?.source;
-    if (!Buffer.isBuffer(bytes) || !bytes.length || downloaded + bytes.length > remote.size)
-      throw new ServiceError('服务器未完整返回邮件正文，已完成的邮件已保存，请继续同步。', 502);
-    chunks.push(bytes);
-    downloaded += bytes.length;
+  try {
+    // Ask for a complete window even at the advertised end. RFC822.SIZE may be
+    // inaccurate; a short final window (or an empty EOF) confirms the real end.
+    while (downloaded <= maximum) {
+      const bytes = await read({ start: downloaded, maxLength: chunkSize }, downloaded);
+      if (!bytes || bytes.length > chunkSize) break;
+      if (downloaded + bytes.length > maximum) throw new MessageSourceError();
+      chunks.push(bytes);
+      downloaded += bytes.length;
+      if (bytes.length < chunkSize) {
+        if (downloaded === remote.size) return Buffer.concat(chunks, downloaded);
+        break;
+      }
+      if (downloaded > remote.size) break;
+    }
+  } catch (error) {
+    // Deadlines and connection errors already close the socket. Only a response
+    // compatibility problem is recoverable with another command on this session.
+    if ((!(error instanceof MessageSourceError) && !['NO', 'BAD'].includes(error.responseStatus))
+      || options.signal?.aborted) throw error;
   }
-  return Buffer.concat(chunks, downloaded);
+  // Some servers ignore ranges, repeat the first chunk or report another size.
+  // Replace all partial bytes with one complete BODY.PEEK[] response; never append it.
+  chunks.length = 0;
+  options.onSource?.({ fullFallbacks: 1 });
+  const full = await read(true);
+  if (!full?.length) throw new MessageSourceError();
+  return full;
 }

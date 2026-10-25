@@ -30,11 +30,12 @@ git diff --check
 
 `test.sh` 先构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-0.0.28 的完整回归基线为 290 项后端测试、90 项 Swift 测试，无失败或跳过。新增同步会话测试覆盖一次请求自动下载 2802 封邮件、指定文件夹范围、无进展暂停、失败隔离、停止与断点继续、多账户取消隔离；客户端状态测试覆盖进度范围与停止状态。此前的轻量清单、缺项补拉、同步、搜索、AI、备份恢复、配置迁移与后端生命周期回归继续保留。同步、SMTP 和 AI 测试使用本机合成服务，不访问真实邮箱或调用云端 AI；各版本的专项验收保留在 CHANGELOG。发布时另用空目录验证正式 Release 包的首次启动与退出后的子进程清理。
+0.0.29 的完整回归基线为 310 项后端测试、90 项 Swift 测试，无失败或跳过。新增正文同步回归覆盖忽略分段、错位或延迟回包、大小不符、组合日期请求漏正文、空正文、NO / BAD、完整原文回退、25 MB 上限、取消及超时；一次会话补齐 12073 封收件箱和 543 封已发送，并验证单封失败后继续旧历史、最后一轮自动补拉、重启后恢复及 UIDVALIDITY 变化隔离。原有会话测试继续覆盖指定范围、无进展暂停、主动停止和多账户取消隔离。此前的轻量清单、缺项补拉、同步、搜索、AI、备份恢复、配置迁移与后端生命周期回归继续保留。同步、SMTP 和 AI 测试使用本机合成服务，不访问真实邮箱或调用云端 AI；各版本的专项验收保留在 CHANGELOG。发布时另用空目录验证正式 Release 包的首次启动与退出后的子进程清理。
 
 | 需要验证的范围 | 命令 |
 | --- | --- |
 | 完整回归 | `./script/test.sh` |
+| 正文同步与大邮箱回归 | `cd Backend` 后执行 `node --test test/sync-source.test.js test/sync-reliability.test.js test/sync-inventory.test.js test/sync-session.test.js` |
 | 单个后端模块 | `cd Backend` 后执行 `node --test test/configuration.test.js`，按模块替换文件名 |
 | Swift 核心逻辑 | `swift test`；若宏插件未加载，使用测试脚本中的插件参数 |
 | 客户端导航与选择 | `swift test --filter BoxmailTests`；宏插件参数同上 |

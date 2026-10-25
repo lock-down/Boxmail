@@ -9,7 +9,7 @@ import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
 import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder } from './mail-folders.js';
 import { clearTrash } from './mail-trash.js';
-import { imapOperation, mailboxMetadata, messageSource } from './mail-sync.js';
+import { imapOperation, mailboxMetadata, messageSource, MessageSourceError } from './mail-sync.js';
 import { draftContent, inlineForwardImages } from './forward-content.js';
 
 // Status changes re-read the stored draft, so a slow send never writes back the snapshot it
@@ -107,7 +107,8 @@ export async function syncAccount(
   account,
   password,
   { clientFactory = clientFor, batchSize = 200, folder: requestedFolder, signal,
-    downloadBudgetMs = 20000, operationTimeoutMs = 45000 } = {},
+    downloadBudgetMs = 20000, operationTimeoutMs = 45000, deferredSources = new Set(),
+    sourceFailureStreaks = new Map() } = {},
 ) {
   let client = clientFactory(account, password);
   const operationOptions = { signal, timeoutMs: operationTimeoutMs };
@@ -209,20 +210,52 @@ export async function syncAccount(
           beforeUID: Number.isFinite(beforeUID) ? beforeUID : undefined,
           highestUID: Number.isFinite(highestUID) ? highestUID : undefined };
         repo.put('sync', currentSync);
+        const messageIdFor = uid => createHash('sha256').update(`${account.id}:${remotePath}:${validity}:${uid}`).digest('hex');
+        const eligible = missing.filter(remote => !deferredSources.has(messageIdFor(remote.uid)));
+        const failureScope = `${account.id}:${remotePath}:${validity}`;
         const downloadStarted = performance.now();
-        let processed = 0;
-        for (const remote of missing.slice(0, Math.min(200, Math.max(1, batchSize)))) {
+        let processed = 0, consecutiveFailures = sourceFailureStreaks.get(failureScope) || 0;
+        for (const remote of eligible.slice(0, Math.min(200, Math.max(1, batchSize)))) {
           signal?.throwIfAborted();
           if (processed && performance.now() - downloadStarted >= downloadBudgetMs) break;
           processed++;
-          const id = createHash('sha256').update(`${account.id}:${remotePath}:${validity}:${remote.uid}`).digest('hex');
+          if (!client) {
+            client = clientFactory(account, password);
+            await perform(() => client.connect());
+            lock = await perform(() => client.getMailboxLock(remotePath, { readOnly: true }));
+            if (String(client.mailbox?.uidValidity) !== validity)
+              throw new ServiceError('服务器文件夹身份已变化，已下载邮件已保留，请重新同步。', 502);
+          }
+          const id = messageIdFor(remote.uid);
           const old = repo.get('message', id);
           let parsed;
           if (remote.size <= 25 * 1024 * 1024) {
-            const source = await messageSource(client, remote, operationOptions);
-            if (!source) {
-              // A message can disappear between listing and downloading. Retry on the next pass.
-              skipped++; continue;
+            let source;
+            try {
+              source = await messageSource(client, remote, { ...operationOptions,
+                onSource: ({ requests = 0, retryRequests = 0, fullFallbacks = 0, ...snapshot }) => {
+                  const previous = currentSync.source || {};
+                  currentSync = { ...currentSync, source: { ...previous, ...snapshot,
+                    requests: (previous.requests || 0) + requests,
+                    retryRequests: (previous.retryRequests || 0) + retryRequests,
+                    fullFallbacks: (previous.fullFallbacks || 0) + fullFallbacks } };
+                  repo.put('sync', currentSync);
+                } });
+              if (!source) throw new MessageSourceError();
+            } catch (error) {
+              if (signal?.aborted) throw error;
+              skipped++;
+              deferredSources.add(id);
+              consecutiveFailures++;
+              sourceFailureStreaks.set(failureScope, consecutiveFailures);
+              currentSync = { ...currentSync, source: { ...currentSync.source,
+                lastError: mailServiceError(error, 'IMAP', account).message } };
+              // Keep the failed UID out of subsequent batches in this session.
+              // A fresh connection also avoids inheriting an interrupted FETCH.
+              client?.close?.(); client = null;
+              lock?.release(); lock = null;
+              if (consecutiveFailures >= 3) break;
+              continue;
             }
             parsed = await simpleParser(source, { skipHtmlToText: true, skipTextToHtml: true });
           } else {
@@ -242,6 +275,8 @@ export async function syncAccount(
               to: { text: (remote.envelope?.to || []).map(x => x.address).join(', ') },
               cc: { text: (remote.envelope?.cc || []).map(x => x.address).join(', ') }, attachments: [] };
           }
+          consecutiveFailures = 0;
+          sourceFailureStreaks.set(failureScope, 0);
           const from = parsed.from?.value[0];
           const content = mailBody(parsed);
           const headers = { headersVersion: 1, replyTo: parsed.replyTo?.text || '',
@@ -325,7 +360,16 @@ export async function syncAccount(
           currentSync.hasMore = currentSync.remaining > 0;
           repo.put('sync', currentSync);
         }
-        currentSync = { ...currentSync, status: currentSync.hasMore ? 'partial' : 'completed',
+        const blocked = missing.filter(remote => deferredSources.has(messageIdFor(remote.uid)));
+        const deferredOnly = currentSync.remaining > 0 && currentSync.remaining === blocked.length;
+        const status = !currentSync.hasMore ? 'completed'
+          : deferredOnly || consecutiveFailures >= 3 ? 'paused' : 'partial';
+        currentSync = { ...currentSync, status,
+          source: { ...currentSync.source, failedCount: blocked.length,
+            failedUIDs: blocked.slice(0, 20).map(remote => remote.uid), deferredOnly, consecutiveFailures },
+          lastError: blocked.length ? (status === 'partial'
+            ? `${blocked.length} 封邮件正文暂未返回，正在继续同步其余邮件。`
+            : `${blocked.length} 封邮件正文暂未下载，同步已暂停；已下载邮件已保存，稍后同步会重试。`) : null,
           updatedAt: new Date().toISOString() };
         repo.put('sync', currentSync);
       } catch (error) {
@@ -352,7 +396,9 @@ export async function syncAccount(
       `${account.email}：新增 ${count} 封，补齐 ${repaired} 封正文，跳过 ${skipped} 个邮件${failures.length ? `，${failures.length} 个文件夹未完成` : ''}`,
     );
     if (failures.length) throw new ServiceError(failures.join('\n'), 502);
-    return { count, repaired, skipped, ok: true };
+    const partial = repo.list('sync', { accountId: account.id })
+      .some(progress => (!requestedFolder || progress.folder === requestedFolder) && progress.hasMore && progress.status === 'paused');
+    return { count, repaired, skipped, ok: true, partial };
   } catch (error) {
     if (currentSync?.status === 'running') repo.put('sync', { ...currentSync,
       status: signal?.aborted ? 'paused' : 'failed',

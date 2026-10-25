@@ -66,15 +66,18 @@ test('replying to own sent mail addresses recipients; forwarding has no reply he
   assert.equal(draft.inReplyTo,'');assert.deepEqual(draft.references,[]);
   assert.deepEqual(draft.attachmentIds,['file1']);assert.match(draft.body,/原文/);
 });
-test('history backfill resumes after interruption and restart without redownloading completed mail',async t=>{
+test('history backfill passes an unavailable body and resumes after restart without redownloading completed mail',async t=>{
   const repo=await fixture(t), {state,client}=mailbox();
   await syncAccount(repo,{...account},'not-persisted',{clientFactory:()=>client});
   assert.equal(repo.list('message').length,200);
   assert.equal(repo.list('sync')[0].remaining,805);
   state.failUID=755;
-  await assert.rejects(syncAccount(repo,{...account},'not-persisted',{clientFactory:()=>client}),/收件箱.*IMAP/);
-  assert.equal(repo.list('message').length,250);
-  assert.equal(repo.list('sync')[0].status,'failed');
+  const continued = await syncAccount(repo,{...account},'not-persisted',{clientFactory:()=>client});
+  assert.equal(continued.count,199);
+  assert.equal(continued.skipped,1);
+  assert.equal(repo.list('message').length,399);
+  assert.equal(repo.list('sync')[0].status,'partial');
+  assert.deepEqual(repo.list('sync')[0].source.failedUIDs,[755]);
   repo.close();
   repo.db=new DatabaseSync(path.join(repo.directory,'boxmail.sqlite'));
   state.failUID=null;
