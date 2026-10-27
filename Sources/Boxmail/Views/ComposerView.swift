@@ -255,7 +255,7 @@ struct ComposerView: View {
       defer { sending = false }
       do {
         try await persist()
-        let password = try KeychainService.read("mail-\(draft.accountId)")
+        let password = try CredentialService.mailPassword(for: draft.accountId)
         let result: SendResponse = try await BackendService.shared.request(
           "/send", method: "POST",
           body: ["draftId": draft.id, "password": password, "approved": true])

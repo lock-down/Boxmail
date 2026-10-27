@@ -32,13 +32,13 @@ struct BackupSettingsView: View {
         WorkflowNotice(text: status, icon: "checkmark.circle", color: Palette.success)
       }
       if let failure { WorkflowNotice(text: failure, icon: "exclamationmark.circle", color: Palette.amber) }
-      Text("授权码与 API Key 仍由系统钥匙串管理，不随备份保存。ZIP 未加密，支持压缩后 512 MB、解压后 2 GB 以内。")
+      Text("授权码与 API Key 保存在本机 .env 文件，不随 ZIP 备份保存；迁移凭证请使用配置导出。ZIP 未加密，支持压缩后 512 MB、解压后 2 GB 以内。")
         .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
     }.alert("恢复完整备份？", isPresented: $confirming, presenting: inspected) { summary in
       Button("取消", role: .cancel) { inspected = nil }
       Button("恢复备份", role: .destructive) { restore(summary) }
     } message: { summary in
-      Text("备份时间：\(backupTime(summary.createdAt))\n\(summary.counts["account"] ?? 0) 个账户、\(summary.counts["message"] ?? 0) 封邮件、\(summary.counts["draft"] ?? 0) 份草稿、\(summary.counts["attachment"] ?? 0) 个附件。\n\n将替换当前本机数据。恢复前会自动保存完整备份，服务器邮件与钥匙串保持原状。恢复的待同步操作会在下次同步时执行，请先核对。")
+      Text("备份时间：\(backupTime(summary.createdAt))\n\(summary.counts["account"] ?? 0) 个账户、\(summary.counts["message"] ?? 0) 封邮件、\(summary.counts["draft"] ?? 0) 份草稿、\(summary.counts["attachment"] ?? 0) 个附件。\n\n将替换当前本机数据。恢复前会自动保存完整备份，服务器邮件与 .env 凭证保持原状。恢复的待同步操作会在下次同步时执行，请先核对。")
     }
   }
   private func backupRow<Action: View>(title: String, detail: String, icon: String, @ViewBuilder action: () -> Action) -> some View {

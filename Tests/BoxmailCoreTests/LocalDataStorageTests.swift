@@ -127,10 +127,16 @@ private func storedJSON(_ directory: URL, kind: String) throws -> [String: Any] 
 
 @Test func dataMigrationIncludesWALRebasesAttachmentsAndRetainsAllRecordsAndSource() throws {
   let fixture = try StorageFixture()
+  let sourceEnv = EnvCredentialStore(fileURL: fixture.source.appendingPathComponent(".env"))
+  try sourceEnv.save("synthetic-mail-password", account: "mail-account")
   // Keep the source SQLite handle open: committed records are still in its WAL.
   #expect(FileManager.default.fileExists(atPath: fixture.source.appendingPathComponent("boxmail.sqlite-wal").path))
   let source = try DataDirectoryLease(directory: fixture.source)
   let target = try LocalDataStorage.migrate(from: source, to: fixture.target)
+  let targetEnv = EnvCredentialStore(fileURL: target.directory.appendingPathComponent(".env"))
+  #expect(try targetEnv.read("mail-account") == "synthetic-mail-password")
+  #expect(try sourceEnv.read("mail-account") == "synthetic-mail-password")
+  #expect(try FileManager.default.attributesOfItem(atPath: targetEnv.fileURL.path)[.posixPermissions] as? Int == 0o600)
   for kind in ["account", "message", "draft", "job", "mutation", "settings"] {
     let old = try storedJSON(fixture.source, kind: kind) as NSDictionary
     let new = try storedJSON(fixture.target, kind: kind) as NSDictionary

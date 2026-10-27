@@ -115,13 +115,16 @@ struct SidebarView: View {
       }
       HStack(spacing: 7) {
         Image(
-          systemName: !store.credentialAuthorizationAccounts.isEmpty
-            ? "lock.circle"
+          systemName: !store.credentialIssueAccounts.isEmpty
+            ? "exclamationmark.circle"
             : store.pendingMutations > 0 ? "arrow.triangle.2.circlepath" : "checkmark.circle"
         ).foregroundStyle(
-          store.credentialAuthorizationAccounts.isEmpty ? Palette.success : Palette.amber)
-        if !store.credentialAuthorizationAccounts.isEmpty {
-          Button("点击同步以授权") { Task { await store.syncAll() } }
+          store.credentialIssueAccounts.isEmpty ? Palette.success : Palette.amber)
+        if !store.credentialIssueAccounts.isEmpty {
+          Button("检查邮箱凭证") {
+            store.settingsTab = "账号"
+            store.showSettings = true
+          }
             .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.amber)
         } else {
           Text(

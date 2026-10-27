@@ -14,7 +14,7 @@ extension MailStore {
     Task {
       defer { busy.remove(control) }
       do {
-        let key = try KeychainService.read(settings.ai.credentialAccount)
+        let key = try CredentialService.read(settings.ai.credentialAccount)
         let updated: AgentJob = try await self.backend.request(
           job.map { "/jobs/\($0.id)/retry" } ?? "/messages/\(message.id)/attachments/analyze",
           method: "POST", body: ["accountId": message.accountId, "apiKey": key,

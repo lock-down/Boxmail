@@ -68,6 +68,24 @@ test('complete backup restores records, attachment bytes, jobs, drafts and queue
   assert.equal(repo.get('draft', 'd').body, '恢复前修改');
 });
 
+test('ZIP backups exclude local dotenv secrets and restore preserves the current credential file', async t => {
+  const { repo, backup } = await fixture(t);
+  const env = path.join(repo.directory, '.env');
+  const original = 'BOXMAIL_AI_KEY="synthetic-env-secret"\n';
+  const current = 'BOXMAIL_AI_KEY="current-env-secret"\n';
+  await writeFile(env, original, { mode: 0o600 });
+  await createBackup(repo, backup);
+  const archive = await JSZip.loadAsync(await readFile(backup));
+  assert.equal(archive.file('.env'), null);
+  for (const file of Object.values(archive.files).filter(file => !file.dir))
+    assert.equal((await file.async('string')).includes('synthetic-env-secret'), false);
+  await writeFile(env, current);
+  const restored = await restoreBackup(repo, backup, true);
+  assert.equal(await readFile(env, 'utf8'), current);
+  const previous = await JSZip.loadAsync(await readFile(restored.previousBackup));
+  assert.equal(previous.file('.env'), null);
+});
+
 test('restore requires confirmation and a corrupted checksum leaves current data unchanged', async t => {
   const { repo, backup } = await fixture(t);
   await createBackup(repo, backup);

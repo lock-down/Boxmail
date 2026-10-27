@@ -65,7 +65,7 @@ struct ConfigurationSettingsView: View {
     let date = DateFormatter(); date.dateFormat = "yyyy-MM-dd"
     panel.nameFieldStringValue = "Boxmail-配置-\(date.string(from: .now)).json"
     guard panel.runModal() == .OK, let url = panel.url else { return }
-    transferring = true; failure = nil; status = "正在读取钥匙串并导出配置…"
+    transferring = true; failure = nil; status = "正在读取本机凭证并导出配置…"
     Task {
       defer { transferring = false }
       do {

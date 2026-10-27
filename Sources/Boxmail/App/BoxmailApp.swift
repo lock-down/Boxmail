@@ -86,11 +86,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
   }
-  func applicationWillTerminate(_ notification: Notification) {
-    MainActor.assumeIsolated {
-      KeychainService.clearSession()
-    }
-  }
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     Task { @MainActor in
       if let store { await store.stop() }

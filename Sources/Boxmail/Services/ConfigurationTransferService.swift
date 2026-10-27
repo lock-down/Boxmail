@@ -14,7 +14,7 @@ struct PendingConfigurationImport: Identifiable {
       "/configuration/export", method: "POST", body: [:])
     let archive = try ConfigurationTransfer.export(snapshot: snapshot,
       appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版",
-      readCredential: { try KeychainService.read($0) })
+      readCredential: { try CredentialService.read($0) })
     try await Task.detached(priority: .userInitiated) { try archive.write(to: url) }.value
     return archive
   }
@@ -30,8 +30,8 @@ struct PendingConfigurationImport: Identifiable {
   /// The database commits account/settings changes and their references together.
   static func apply(_ candidate: PendingConfigurationImport, store: MailStore) async throws -> Bool {
     let applied = try await ConfigurationTransfer.apply(archive: candidate.archive, plan: candidate.plan,
-      saveCredential: { reference, value in try KeychainService.save(value, account: reference) },
-      removeCredential: { try? KeychainService.save("", account: $0) },
+      saveCredential: { reference, value in try CredentialService.save(value, account: reference) },
+      removeCredential: { try? CredentialService.save("", account: $0) },
       commit: { references in
         try await BackendService.shared.request("/configuration/import", method: "POST", body: [
           "configuration": try jsonObject(candidate.archive.configuration),
@@ -46,8 +46,8 @@ struct PendingConfigurationImport: Identifiable {
     // must not leave editable settings pointing at the pre-import values.
     store.accounts = applied.accounts
     store.settings = applied.settings
-    KeychainService.useReferences(applied.settings.credentialReferences ?? [:])
-    store.credentialAuthorizationAccounts.subtract(candidate.plan.accounts.map(\.accountId))
+    CredentialService.useReferences(applied.settings.credentialReferences ?? [:])
+    store.credentialIssueAccounts.subtract(candidate.plan.accounts.map(\.accountId))
     do {
       try await store.refresh()
       store.restoreRevision += 1

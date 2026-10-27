@@ -215,7 +215,7 @@ export async function restoreBackup(repo, source, approved, { beforeCommit, expe
         const event = repo.db.prepare('INSERT INTO events(id,time,type,detail) VALUES(?,?,?,?)');
         for (const row of events) event.run(row.id, row.time, row.type, row.detail);
         repo.rebuildSearch?.();
-        repo.event('restore', '已恢复完整备份，恢复前的数据已另存为备份；钥匙串凭证保持原状');
+        repo.event('restore', '已恢复完整备份，恢复前的数据已另存为备份；本机 .env 凭证保持原状');
       });
       repo.invalidateMessagePreviews();
       committed = true;

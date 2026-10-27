@@ -57,7 +57,7 @@ struct AIProviderSettingsView: View {
       HStack(spacing: SettingsFormLayout.columnGap) {
         SettingsFormLabel(title: "API Key")
         SecureField("", text: key).settingsTextInput()
-          .inputPlaceholder("密钥单独保存在系统钥匙串", visible: key.wrappedValue.isEmpty)
+          .inputPlaceholder("密钥保存在本机 .env 文件", visible: key.wrappedValue.isEmpty)
           .accessibilityLabel("当前服务商 API Key").frame(width: SettingsFormLayout.textWidth)
         SettingsInlineAction(title: "测试连接", icon: "bolt") { testConnection() }
           .disabled(config.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || config.validationIssue != nil)
@@ -122,7 +122,7 @@ struct AIProviderSettingsView: View {
     let account = config.credentialAccount
     guard keys[account] == nil else { return }
     do {
-      let value = try KeychainService.read(account)
+      let value = try CredentialService.read(account)
       keys[account] = value; originalKeys[account] = value
     } catch { status = error.localizedDescription }
   }

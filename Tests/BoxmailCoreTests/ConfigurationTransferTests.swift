@@ -70,6 +70,35 @@ private enum TransferFailure: Error { case write, response, offline }
   #expect(vault == ["existing-reference": "existing-secret"])
 }
 
+@MainActor @Test func configurationImportExportUsesEnvCredentialsAndRollsBackARejectedCommit() async throws {
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent("boxmail-env-transfer-\(UUID())")
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let storage = EnvCredentialStore(fileURL: directory.appendingPathComponent(".env"))
+  try storage.save("original-secret", account: "ai-provider-alpha")
+  let archive = transferArchive()
+  let applied = try await ConfigurationTransfer.apply(archive: archive, plan: .init(revision: "r", accounts: []),
+    saveCredential: { try storage.save($1, account: $0) },
+    removeCredential: { try? storage.save("", account: $0) }, commit: { references in
+      var snapshot = archive.configuration
+      snapshot.settings.credentialReferences = references
+      return snapshot
+    }, current: { archive.configuration })
+  let reopened = EnvCredentialStore(fileURL: storage.fileURL, references: applied.settings.credentialReferences ?? [:])
+  let exported = try ConfigurationTransfer.export(snapshot: applied, appVersion: "test", readCredential: reopened.read)
+  #expect(exported.credentials.aiProviderKeys == archive.credentials.aiProviderKeys)
+  #expect(try storage.read("ai-provider-alpha") == "original-secret")
+  let before = try Data(contentsOf: storage.fileURL)
+  do {
+    _ = try await ConfigurationTransfer.apply(archive: archive, plan: .init(revision: "r2", accounts: []),
+      saveCredential: { try reopened.save($1, account: $0) },
+      removeCredential: { try? reopened.save("", account: $0) },
+      commit: { _ in throw TransferFailure.response }, current: { applied })
+    Issue.record("Rejected import unexpectedly succeeded")
+  } catch { #expect(error is TransferFailure) }
+  #expect(try Data(contentsOf: storage.fileURL) == before)
+  #expect(try reopened.read("ai-provider-alpha") == "alpha-secret")
+}
+
 @MainActor @Test func committedImportWithLostResponseKeepsItsLiveCredentials() async throws {
   var vault: [String: String] = [:]
   var committed = transferArchive().configuration

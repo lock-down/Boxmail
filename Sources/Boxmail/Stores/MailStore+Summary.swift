@@ -34,7 +34,7 @@ extension MailStore {
         } catch is CancellationError { break
         } catch {
           failures.append("\(message.subject)：\(error.localizedDescription)")
-          if KeychainService.requiresAuthorization(error) { break }
+          if CredentialService.isCredentialError(error) { break }
           try? await refresh(reloadContent: false)
           // A failed progress request does not cancel the server's model call.
           // Wait for that job to finish before accepting another batch.

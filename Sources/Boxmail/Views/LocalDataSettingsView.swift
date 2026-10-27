@@ -18,14 +18,27 @@ struct LocalDataSettingsView: View {
           backend.dataDirectory.standardizedFileURL == backend.defaultDataDirectory.standardizedFileURL
             ? "默认位置" : "自定义位置")
       }
-      Text("邮件正文、附件、草稿、AI 结果与活动记录保存在此目录。授权码与 API Key 保存在系统钥匙串。")
+      Text("邮件正文、附件、草稿、AI 结果与活动记录保存在此目录。授权码与 API Key 保存在本机 .env 文件。")
         .font(UIType.caption).foregroundStyle(Palette.muted)
         .fixedSize(horizontal: false, vertical: true)
+      VStack(alignment: .leading, spacing: 8) {
+        Text("凭证文件").font(UIType.small).foregroundStyle(Palette.muted)
+        Text((try? CredentialService.fileURL.path) ?? "请检查 BOXMAIL_ENV_FILE 路径")
+          .font(UIType.caption).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        Text("文件以明文保存，仅当前用户可读写。直接修改后，下次同步或 AI 请求会读取新值。")
+          .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+      }
       WrappingFlowLayout(spacing: 8) {
         ActionButton(title: "打开数据目录", icon: "folder") {
           if !NSWorkspace.shared.open(backend.dataDirectory) {
             selectionError = "目录暂时无法打开，请接入原磁盘并检查文件夹权限。"
           }
+        }
+        ActionButton(title: "显示凭证文件", icon: "doc.text") {
+          do {
+            try CredentialService.createFileIfNeeded()
+            NSWorkspace.shared.activateFileViewerSelecting([try CredentialService.fileURL])
+          } catch { selectionError = error.localizedDescription }
         }
         ActionButton(title: "更改位置…", icon: "folder.badge.gearshape", kind: .primary) {
           chooseDirectory()

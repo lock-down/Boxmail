@@ -4,7 +4,7 @@
 
 Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，以 SQLite 保存本机数据，支持通过 BYOK 接入兼容 OpenAI Responses、Chat Completions 或 Anthropic Messages 的 AI 服务。
 
-当前发布版本为 **0.1.0（build 33）**，源码标签为 `v0.1.0`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.1.0)。桌面图标与客户端徽标统一采用仓库 `app.png` 的蓝紫色玻璃信封设计。本版整合此前的邮件、AI、附件、搜索和本机数据能力，版本号以 [VERSION](VERSION) 为准，发布摘要见 [变更记录](CHANGELOG.md)。
+当前发布版本为 **0.1.1（build 34）**，源码标签为 `v0.1.1`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.1.1)。邮箱授权码与 API Key 改存本机 `.env`，同步、发信和设置保存无需钥匙串授权。桌面图标与客户端徽标沿用 `app.png` 的蓝紫色玻璃信封设计，邮件、AI、附件、搜索和本机数据能力继续保留；版本号以 [VERSION](VERSION) 为准，发布摘要见 [变更记录](CHANGELOG.md)。
 
 ## 功能
 
@@ -33,7 +33,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 
 测试脚本先构建 PPT 原生渲染组件，再运行后端和 Swift 测试，使用临时数据及本机模拟服务。联调、签名及发布步骤见 [开发说明](docs/DEVELOPMENT.md)。
 
-0.1.0 完整回归通过 325 项后端测试和 103 项 Swift 测试，无失败或跳过。发布另检查图标尺寸与透明边缘、侧栏徽标、签名、安装包完整性和隔离启动退出。性能基准、故障恢复范围及联调边界统一见开发说明。
+0.1.1 完整回归通过 326 项后端测试和 110 项 Swift 测试，无失败或跳过。新增覆盖凭证文件读写、权限、手工编辑、导入回滚、迁移和 ZIP 排除密钥；发布另检查资源、签名、安装包完整性和隔离启动退出。性能基准、故障恢复范围及联调边界统一见开发说明。
 
 ## 安装包
 
@@ -52,18 +52,18 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 | 文档 | 内容 |
 | --- | --- |
 | [使用指南](docs/USER_GUIDE.md) | 安装、邮箱与 AI 配置、邮件操作、搜索、附件、数据迁移和常见问题；同时随安装包分发 |
-| [开发说明](docs/DEVELOPMENT.md) | 源码入口、测试、界面约定、钥匙串签名、打包及版本维护 |
+| [开发说明](docs/DEVELOPMENT.md) | 源码入口、测试、界面约定、本机凭证、签名、打包及版本维护 |
 | [后端接口](Backend/README.md) | 独立启动、环境变量、HTTP API、任务和数据契约 |
 | [开发路线](docs/ROADMAP.md) | 已完成的优先功能、后续候选及参考项目 |
 | [变更记录](CHANGELOG.md) | 当前发布基线、变化及验证范围 |
 
-当前行为写入对应指南，变更记录合并为 0.1.0 发布基线；历史实现可从 Git 提交与标签追溯。GitHub 仅维护当前发布的安装包。
+当前行为写入对应指南，变更记录按版本记录用户可见变化；历史实现可从 Git 提交与标签追溯，安装包见各版本 GitHub Release。
 
 ## 项目结构
 
 ```text
 app.png                              品牌原始素材
-Sources/Boxmail/                      SwiftUI 界面、状态、钥匙串及后端生命周期
+Sources/Boxmail/                      SwiftUI 界面、状态、本机凭证及后端生命周期
 Sources/BoxmailCore/                  数据模型、共享资源及本机存储逻辑
 Sources/BoxmailPresentationRenderer/  PPT 本机逐页渲染
 Backend/src/                         HTTP、SQLite、邮件协议、AI 和附件处理
@@ -75,4 +75,13 @@ Design/Exports/                      19 个 HTML/CSS 设计参考
 script/                              构建、启动、测试、打包和图标生成
 ```
 
-默认数据目录为 `~/Library/Application Support/Boxmail/`，邮箱凭证和 API Key 保存在 macOS 钥匙串。调用云端 AI 会将任务所需邮件或附件内容提交给所配置的服务商。本机邮件缓存、完整备份和配置导出均未加密，具体范围见使用指南。
+默认数据目录为 `~/Library/Application Support/Boxmail/`。邮箱授权码和 API Key 保存在该目录的 `.env` 文件，设置界面自动读写，同步、发信和 AI 调用无需钥匙串授权。文件以明文保存，App 写入时权限为 `0600`，可从“设置 > 高级 > 本机数据 > 显示凭证文件”定位。服务器地址、模型及偏好继续由设置界面保存。
+
+如需使用仓库内的配置文件，可参考 [.env.example](.env.example)：
+
+```bash
+cp .env.example .env
+BOXMAIL_ENV_FILE="$PWD/.env" ./script/build_and_run.sh
+```
+
+`BOXMAIL_ENV_FILE` 必须是绝对路径，省略时使用当前数据目录下的 `.env`。旧钥匙串凭证不会自动读取；升级后重新填写并保存授权码、API Key，或导入此前导出的配置 JSON。完整 ZIP 备份不包含 `.env`；默认位置的文件随数据目录迁移，外部指定文件保留在原位置。调用云端 AI 会将任务所需邮件或附件内容提交给所配置的服务商。本机邮件缓存、凭证文件、完整备份和配置导出均未加密，具体范围见使用指南。

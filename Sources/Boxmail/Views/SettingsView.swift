@@ -132,7 +132,7 @@ struct SettingsView: View {
           removingAccount = nil
         }
       } message: {
-        Text("将移除账户的本机邮件、草稿和钥匙串凭证，服务器邮件会保留。")
+        Text("将移除账户的本机邮件、草稿和 .env 中的凭证，服务器邮件会保留。")
       }
       .alert(
         "操作未完成",
@@ -155,7 +155,7 @@ struct SettingsView: View {
   private var subtitle: String {
     switch store.settingsTab {
     case "AI 助手": return "配置模型接口与默认提示词，为邮件总结、回复、整理和附件解析提供能力"
-    case "账号": return "使用邮箱授权码连接 IMAP 和 SMTP，凭证保存在 macOS 钥匙串"
+    case "账号": return "使用邮箱授权码连接 IMAP 和 SMTP，凭证保存在本机 .env 文件"
     case "常用": return "设置邮箱同步与桌面使用偏好"
     case "写邮件": return "配置默认签名和草稿行为"
     case "阅读邮件": return "调整阅读字号与已读行为"
@@ -233,7 +233,8 @@ struct SettingsView: View {
               account = a
               selectedAccountId = a.id
               editingAccount = true
-              do { password = try KeychainService.read("mail-\(a.id)") } catch {
+              password = ""
+              do { password = try CredentialService.read("mail-\(a.id)") } catch {
                 status = error.localizedDescription
               }
             }
@@ -409,7 +410,7 @@ struct SettingsView: View {
             if key.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) {
               throw BackendService.shared.failure("API Key 不能包含控制字符。")
             }
-            try KeychainService.save(key.trimmingCharacters(in: .whitespacesAndNewlines), account: account)
+            try CredentialService.save(key.trimmingCharacters(in: .whitespacesAndNewlines), account: account)
             originalAIKeys[account] = key
           }
         }
@@ -418,7 +419,7 @@ struct SettingsView: View {
           "/settings",
           body: ["ai": try jsonObject(config), "preferences": try jsonObject(preferences)])
         try await store.refresh()
-        for provider in removedProviders { try KeychainService.save("", account: provider.credentialAccount) }
+        for provider in removedProviders { try CredentialService.save("", account: provider.credentialAccount) }
         try BackendService.shared.scheduleDataDirectory(pendingDataDirectory)
         status = pendingDataDirectory == nil ? "设置已保存" : "设置已保存，重新打开 Boxmail 后迁移本机数据。"
         if close { dismiss() }
@@ -446,10 +447,11 @@ struct SettingsView: View {
       do {
         var value = account
         if value.username.isEmpty { value.username = value.email }
-        try KeychainService.save(password, account: "mail-\(value.id)")
+        try CredentialService.save(password, account: "mail-\(value.id)")
         let _: IDResponse = try await BackendService.shared.request(
           "/accounts", method: "POST", body: ["account": try jsonObject(value)])
         try await store.refresh()
+        store.credentialIssueAccounts.remove(value.id)
         store.accountId = value.id
         editingAccount = false
         status = "账户已保存，可以开始同步"
@@ -459,7 +461,7 @@ struct SettingsView: View {
   private func removeAccount(_ account: MailAccount) {
     store.action("remove-account") {
       try await BackendService.shared.perform("/accounts/\(account.id)", method: "DELETE")
-      try KeychainService.save("", account: "mail-\(account.id)")
+      try CredentialService.save("", account: "mail-\(account.id)")
     }
   }
 }

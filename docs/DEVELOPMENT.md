@@ -10,7 +10,7 @@
 | `Sources/Boxmail/Views/` | 邮件、写信、搜索、附件和设置界面 |
 | `Sources/Boxmail/Support/` | 设计系统、动效、滚动及原生预览桥接 |
 | `Sources/Boxmail/Stores/MailStore.swift` 及扩展 | 状态、后端调用、分页、缓存、AI 输出流和任务轮询 |
-| `Sources/Boxmail/Services/` | 后端生命周期、钥匙串和配置迁移 |
+| `Sources/Boxmail/Services/` | 后端生命周期、本机凭证和配置迁移 |
 | `Sources/BoxmailCore/` | 数据模型、配置归档、存储迁移、后端进程与目录锁、文本与日期逻辑 |
 | `Sources/BoxmailCore/Resources/` | 共享提示词、回复态度、收件人布局及客户端品牌图片 |
 | `Tests/BoxmailTests/` | 直接验证客户端 MailStore 的导航、列表选择与分页响应状态 |
@@ -30,7 +30,7 @@ git diff --check
 
 `test.sh` 先构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-0.1.0 完整回归通过 325 项后端测试、103 项 Swift 测试，无失败或跳过。覆盖邮件与附件提交故障、同 ID 备份恢复预览、磁盘容量不足、WAL 强制退出恢复、IMAP 期限与取消、PPT 解析取消、JSON 主线程隔离及客户端旧响应竞态；大邮箱用例一次补齐 12073 封收件箱与 543 封已发送。原生 AppKit / WebKit 测试检查列表定位、选择与分页、长收件人滚动条、转发预览和标题横排。发布时另验证正式包的图标、徽标、资源、签名、首次启动及退出清理。
+0.1.1 完整回归通过 326 项后端测试、110 项 Swift 测试，无失败或跳过，新增凭证文件权限、手工修改、导入回滚、迁移与 ZIP 排除密钥的覆盖。覆盖邮件与附件提交故障、同 ID 备份恢复预览、磁盘容量不足、WAL 强制退出恢复、IMAP 期限与取消、PPT 解析取消、JSON 主线程隔离及客户端旧响应竞态；大邮箱用例一次补齐 12073 封收件箱与 543 封已发送。原生 AppKit / WebKit 测试检查列表定位、选择与分页、长收件人滚动条、转发预览和标题横排。发布时另验证正式包的图标、徽标、资源、签名、首次启动及退出清理。
 
 | 需要验证的范围 | 命令 |
 | --- | --- |
@@ -74,7 +74,7 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 | `node script/benchmark-runtime.mjs` | 缓存追加同步、12 个流式 AI 任务、三次 20 MB 图片上传和三次 20 页 PDF 分析 |
 | `BOXMAIL_BENCHMARK_ROUNDS=40 node --expose-gc script/benchmark-runtime.mjs ai` | 120 个连续 AI 任务，检查任务完成、保存结果、流式输出及 GC 前后资源 |
 
-基准在临时目录生成数据，只使用本机模拟服务，不读取日常 App 数据或钥匙串。查询取多次中位数，启动使用独立进程，运行时模式分别建立新进程。比较版本时使用相同 Node.js、数据规模和脚本，串行运行，避免与构建或测试争用 CPU。
+基准在临时目录生成数据，只使用本机模拟服务，不读取日常 App 数据或凭证文件。查询取多次中位数，启动使用独立进程，运行时模式分别建立新进程。比较版本时使用相同 Node.js、数据规模和脚本，串行运行，避免与构建或测试争用 CPU。
 
 后端 RSS 和 HTTP 就绪时间不包含客户端、WebKit、系统冷启动与真实网络；GC 后的 JS 堆也不等于操作系统已回收内存，短期测试不能证明长期无泄漏。原生验收需单独记录客户端、后端及 WebKit 的测量范围。原始 JSON、截图和日志保存在本机 `artifacts/`。
 
@@ -94,7 +94,7 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 
 ## 联调与界面检查
 
-使用独立测试账号、收件人、数据目录和合成附件。原生验收副本使用独立 Bundle ID，钥匙串服务名自动取 `<Bundle ID>.credentials`；正式 App 仍为 `com.boxmail.desktop.credentials`。App 可通过绝对路径 `BOXMAIL_DATA` 使用临时目录，不改变日常数据位置；不要与正在运行的 App 共用后端目录。
+使用独立测试账号、收件人、数据目录和合成附件。原生验收副本使用独立 Bundle ID。App 可通过绝对路径 `BOXMAIL_DATA` 使用临时目录，凭证默认使用该目录的 `.env`，不改变日常数据位置。隔离验收时不要指定日常使用的 `BOXMAIL_ENV_FILE`，也不要与正在运行的 App 共用后端目录。
 
 | 流程 | 检查重点 |
 | --- | --- |
@@ -109,7 +109,7 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 
 结果不确定的发送先核对实际投递，不能自动重试；永久清空只在明确可丢弃的测试邮箱中执行。新增操作保留现有发送确认、分类审阅和撤销机制。
 
-隔离原生验收可执行 `BOXMAIL_DATA="$(mktemp -d /tmp/boxmail-review.XXXXXX)" ./script/build_and_run.sh --review`。此模式使用 `com.boxmail.desktop.review` 和 `artifacts/ui-review/Boxmail Review.app`，不关闭日常 App；数据目录必填，钥匙串服务与正式 App 分离。只在合成数据中验证批量删除和撤销。
+隔离原生验收可执行 `BOXMAIL_DATA="$(mktemp -d /tmp/boxmail-review.XXXXXX)" ./script/build_and_run.sh --review`。此模式使用 `com.boxmail.desktop.review` 和 `artifacts/ui-review/Boxmail Review.app`，不关闭日常 App；数据目录必填，默认凭证文件也与日常 App 分离。只在合成数据中验证批量删除和撤销。
 
 原生验收覆盖账户切换、列表选择、原邮件跳转、会话、未读筛选、归档和撤销、草稿恢复、HTML 转发、译文切换及原文件预览。无障碍名称通过 AX 树检查；VoiceOver 全流程、真实外部投递及其他服务商不属于本机合成回归的验证结论。
 
@@ -139,11 +139,13 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 - 设置导航、参数展开和摘要列表增减使用短状态过渡，不为逐个流式字符添加布局动画；系统减少动态效果时关闭位移及展开动画，保留必要状态反馈。
 - 动效跟随系统“减少动态效果”；设计参考保留 `Design/Exports/` 的 19 个 HTML/CSS，App 不直接运行它们。
 
-## 钥匙串与签名
+## 本机凭证与签名
 
-凭证在钥匙串保存，进程内缓存成功读取的结果，退出清空。后台只使用已授权缓存；普通偏好保存不得清空尚未读取的 API Key。配置导入先写新凭证项，再事务提交引用；失败保留旧配置，密钥不进入 SQLite。
+`EnvCredentialStore` 读写当前数据目录的 `.env`，客户端通过 `CredentialService` 访问；`BOXMAIL_ENV_FILE` 可覆盖为其他绝对路径，构建脚本会将其传入启动的 App。文件每次读取，不缓存凭证，也不读取进程中的同名密钥变量；后台同步无需交互。普通偏好保存不得清空尚未修改的 API Key。配置导入先写新的 `BOXMAIL_CONFIGURATION_<UUID>` 条目，再事务提交引用；失败仅删除本次条目，旧引用仍可读取。密钥不进入 SQLite、任务、日志或模型缓存。
 
-默认 `codesign --sign -` 临时签名的指定要求依赖代码哈希，重编译后可能再次请求授权；固定 Bundle ID 不足以解决。使用带私钥的固定签名证书时：
+文件使用 UTF-8 的 `KEY=VALUE` 格式，保留其他变量及独立注释；双引号值使用 JSON 转义，单引号值为原文，不执行变量展开。写入通过同目录的 `0600` 临时文件原子替换，格式错误时拒绝覆盖；符号链接和目录不能作为凭证文件。完整 ZIP 不包含 `.env`，默认文件随数据目录迁移，外部指定路径保持原状。示例及命名见根目录 `.env.example` 和使用指南。旧钥匙串不自动访问，升级需重新保存凭证或导入旧配置 JSON。
+
+App 仍需代码签名以正常启动。默认使用 `codesign --sign -` 临时签名；使用带私钥的固定签名证书时：
 
 ```bash
 security find-identity -v -p codesigning
@@ -152,7 +154,7 @@ codesign -dvvv -r- dist/Boxmail.app
 codesign --verify --deep --strict dist/Boxmail.app
 ```
 
-也可将指纹单独写入根目录 `.boxmail-signing-identity`，该文件已忽略；环境变量优先。固定证书下跨重编译保留授权尚未实测，正式签名和公证需另行验证。
+也可将指纹单独写入根目录 `.boxmail-signing-identity`，该文件已忽略；环境变量优先。凭证文件读取与签名身份无关；正式签名和公证仍需另行验证。
 
 ## 版本与打包
 
@@ -174,11 +176,11 @@ codesign --verify --deep --strict dist/Boxmail.app
 
 发布模式用 Release 构建，只复制后端源码及生产依赖，关闭演示数据，不关闭或启动日常 App。`docs/USER_GUIDE.md` 复制为包内`使用说明.md`，因此保持指南可独立阅读，不依赖仓库内链接。`版本信息.txt`记录版本、源码标识和上海时区生成时间。产物在 `dist/`，日常 App 为 `dist/Boxmail.app`。
 
-已发布标签保持不动，同版本重打包使用新的 `v<版本>-repack.N` 标签。GitHub Release 以 0.1.0 作为对外基线；清理旧发布条目不改写 Git 历史，历史实现仍可通过提交与标签追溯。
+已发布标签保持不动，同版本重打包使用新的 `v<版本>-repack.N` 标签。GitHub Release 按版本发布安装包；历史版本及源码可通过 Release、Git 提交与标签追溯。
 
 ## 文档与本地产物
 
-文档只保留项目入口、使用指南、开发说明、后端接口、开发路线和变更记录。操作与限制更新到对应指南，CHANGELOG 记录合并后的发布基线；过时的源码行号、重复发布状态和一次性验收过程不再单独成文。
+文档只保留项目入口、使用指南、开发说明、后端接口、开发路线和变更记录。操作与限制更新到对应指南，CHANGELOG 记录发布基线及后续各版本变化；过时的源码行号、重复发布状态和一次性验收过程不再单独成文。
 
 `.build/`、`dist/`、`Backend/node_modules/`、`artifacts/`、`.scratch/`、`.impeccable/critique/`、数据库、日志、环境变量及签名配置均不提交 Git；Impeccable 的项目配置保留在 `.impeccable/config.json`。临时测试 App、构建副本、探针和合成数据完成验证后可清理；正式回归及其附件样例保留。历史发布日志和截图可留在 `artifacts/release-*/` 等本机目录，不作为运行依赖。
 

@@ -41,7 +41,7 @@ import SwiftUI
   var error: String?
   var notice: String?
   var pendingMutations = 0
-  var credentialAuthorizationAccounts: Set<String> = []
+  var credentialIssueAccounts: Set<String> = []
   var ready = false
   var starting = false
   var startupError: String?
@@ -154,6 +154,7 @@ import SwiftUI
     try Task.checkCancellation()
     guard generation == refreshGeneration, revision == restoreRevision else { return }
     accounts = state.accounts
+    credentialIssueAccounts.formIntersection(accounts.map(\.id))
     messages = state.messages
     drafts = state.drafts
     let keptAttachments = Set(
@@ -163,7 +164,7 @@ import SwiftUI
     jobs = state.jobs
     events = state.events
     settings = state.settings
-    KeychainService.useReferences(settings.credentialReferences ?? [:])
+    CredentialService.useReferences(settings.credentialReferences ?? [:])
     categories = state.categories ?? MailCategory.defaults
     searchIndex = state.searchIndex
     conversationBodies = [:]
@@ -262,7 +263,7 @@ import SwiftUI
   func emptyTrash(account: MailAccount) {
     action("empty-trash-\(account.id)") {
       var input: [String: Any] = ["accountId": account.id, "approved": true]
-      if !account.isDemo { input["password"] = try KeychainService.read("mail-\(account.id)") }
+      if !account.isDemo { input["password"] = try CredentialService.mailPassword(for: account.id) }
       try await self.backend.perform("/trash/empty", body: input)
     }
   }
@@ -291,8 +292,8 @@ import SwiftUI
     for account in real {
       if syncCancellationRequested || Task.isCancelled { break }
       do {
-        let password = try KeychainService.read("mail-\(account.id)", allowInteraction: !silent)
-        credentialAuthorizationAccounts.remove(account.id)
+        let password = try CredentialService.mailPassword(for: account.id)
+        credentialIssueAccounts.remove(account.id)
         var input: [String: Any] = [
           "accountId": account.id, "password": password, "background": true,
         ]
@@ -302,8 +303,8 @@ import SwiftUI
         syncingAccountIds = started
         if syncCancellationRequested { await cancelSync() }
       } catch {
-        if KeychainService.requiresAuthorization(error) {
-          credentialAuthorizationAccounts.insert(account.id)
+        if CredentialService.isCredentialError(error) {
+          credentialIssueAccounts.insert(account.id)
           if silent { continue }
         }
         // A lost start response or a previous polling interruption can leave a
@@ -389,7 +390,7 @@ import SwiftUI
     busy.insert("agent")
     watchAIOutput()
     defer { busy.remove("agent") }
-    let key = try KeychainService.read(settings.ai.credentialAccount)
+    let key = try CredentialService.read(settings.ai.credentialAccount)
     var input: [String: Any] = [
       "task": task, "apiKey": key, "providerId": settings.ai.providerId,
       "accountId": message?.accountId ?? accountId, "prompt": prompt,
@@ -469,7 +470,7 @@ import SwiftUI
     Task {
       defer { busy.remove("organize-control") }
       do {
-        let key = try KeychainService.read(settings.ai.credentialAccount)
+        let key = try CredentialService.read(settings.ai.credentialAccount)
         let updated: AgentJob = try await self.backend.request(
           job.map { "/jobs/\($0.id)/retry" } ?? "/organize", method: "POST",
           body: ["accountId": accountId, "apiKey": key, "providerId": settings.ai.providerId, "scope": scope, "limit": limit])
@@ -550,7 +551,6 @@ import SwiftUI
     networkMonitor?.cancel()
     externalPreviewFiles.forEach { $0.remove() }
     if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
-    KeychainService.clearSession()
     await self.backend.stop()
   }
 }

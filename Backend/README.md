@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.1.0 与客户端同步版本，整合现有同步、AI、附件、搜索和恢复能力；HTTP 契约和数据库结构版本 2 保持兼容。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.1.1 与客户端同步版本，凭证改由客户端从本机 `.env` 读取，沿用现有同步、AI、附件、搜索和恢复能力；HTTP 契约和数据库结构版本 2 保持兼容。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -28,6 +28,8 @@ npm start
 | `BOXMAIL_PRESENTATION_RENDERER` | 独立联调时指定 PPT 原生组件路径；App 使用内置组件 |
 | `BOXMAIL_PARENT_PID` | App 指定的父进程；退出或消失后关闭服务 |
 | `BOXMAIL_LIFETIME_PIPE` | App 内部设为 1，通过 stdout 管道检测 App 消失，避免父 PID 被复用后留下服务；独立启动无需设置 |
+
+`.env` 由桌面客户端直接解析，不自动载入后端进程环境；独立启动后端仍需在同步、发送和 AI 请求体中传入凭证。
 
 服务仅监听 `127.0.0.1`。每个请求携带 `X-Boxmail-Token`，带 `Origin` 的请求拒绝访问。请求体为 JSON 对象，上限 40 MB；成功返回 JSON，错误返回 `{"error":"错误说明"}` 和 HTTP 状态码，附件字节以 Base64 返回。
 
@@ -108,7 +110,7 @@ npm start
 
 发送成功后，隐藏的草稿记录保留状态及防重复发送回执，正文、格式化转发快照和附件引用由已发送邮件持有。删除草稿、移除账户及明确清空已删除时共用附件引用检查；旧发送回执的附件引用不阻止清理，活跃草稿、邮件及 relocation / recovery 引用继续保留。备份要求 forwardedHTML / forwardedText 成对为字符串，字段均缺省的旧草稿继续兼容。
 
-密钥由客户端从钥匙串读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机钥匙串引用，普通设置保存和重启保留；导出移除引用，导入按邮箱合并，客户端先写新凭证，再事务切换账号、设置和引用。修订冲突及提交失败保持旧配置。
+密钥由客户端从当前数据目录的 `.env`（或 `BOXMAIL_ENV_FILE` 指定文件）读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机凭证引用，对应 `.env` 的 `BOXMAIL_CONFIGURATION_<UUID>` 条目，普通设置保存和重启保留；导出移除引用，导入按邮箱合并，客户端先写新凭证，再事务切换账号、设置和引用。修订冲突及提交失败保持旧配置。
 
 导入要求精确提供文件内邮箱与服务商的凭证引用：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；所有服务商的密钥由 Swift 客户端读写，不进入配置 HTTP 请求。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
 
@@ -140,7 +142,7 @@ npm start
 
 ## AI 请求与任务恢复
 
-`ai` 的 `providerId` 指定当前连接，`providers` 保存最多 20 个服务商，各项包括 id、name、baseURL、apiProtocol、model、models 和 catalogConfigured。Provider ID 以小写字母开头，仅含小写字母、数字和连字符；密钥单独使用 `ai-provider-<id>` 钥匙串项，默认连接继续使用 `ai-key`。旧版平面配置自动作为默认连接，baseURL / model / apiProtocol 仍返回当前连接的镜像字段。模型 ID 可不在目录中，catalogConfigured 标记用户已配置目录，保留显式空目录。
+`ai` 的 `providerId` 指定当前连接，`providers` 保存最多 20 个服务商，各项包括 id、name、baseURL、apiProtocol、model、models 和 catalogConfigured。Provider ID 以小写字母开头，仅含小写字母、数字和连字符；客户端逻辑凭证为 `ai-provider-<id>`，对应 `.env` 的 `BOXMAIL_AI_PROVIDER_<id>_KEY`；默认 `ai-key` 对应 `BOXMAIL_AI_KEY`，导入后按 `credentialReferences` 读取生成的条目。旧版平面配置自动作为默认连接，baseURL / model / apiProtocol 仍返回当前连接的镜像字段。模型 ID 可不在目录中，catalogConfigured 标记用户已配置目录，保留显式空目录。
 
 `responses.js` 统一任务提示词、Files 附件生命周期与 JSON 结果校验。`ai-protocols.js` 使用 `@earendil-works/pi-ai@1.1.0` 的三个 lazy API 工厂及 `streamSimple`，由 pi-ai 调用 `openai@7.19.0`、`@anthropic-ai/sdk@0.129.0`；模型发现和 Files 上传、删除也使用同一版本的官方 SDK。依赖精确锁定并去重，不再维护自己的推理 HTTP 请求或 SSE 解析器。
 

@@ -47,11 +47,14 @@ swift build --configuration "$BUILD_CONFIGURATION"
 BUILD_DIR="$(swift build --configuration "$BUILD_CONFIGURATION" --show-bin-path)"
 BUILD_BINARY="$BUILD_DIR/$APP_NAME"
 launch_app() {
+  local -a launch_arguments=(-n "$APP_BUNDLE")
   if [[ -n "${BOXMAIL_DATA:-}" ]]; then
-    /usr/bin/open -n "$APP_BUNDLE" --env "BOXMAIL_DATA=$BOXMAIL_DATA"
-  else
-    /usr/bin/open -n "$APP_BUNDLE"
+    launch_arguments+=(--env "BOXMAIL_DATA=$BOXMAIL_DATA")
   fi
+  if [[ -n "${BOXMAIL_ENV_FILE:-}" ]]; then
+    launch_arguments+=(--env "BOXMAIL_ENV_FILE=$BOXMAIL_ENV_FILE")
+  fi
+  /usr/bin/open "${launch_arguments[@]}"
 }
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources/Runtime" "$APP_CONTENTS/Resources/Backend"
 cp "$BUILD_BINARY" "$APP_CONTENTS/MacOS/$APP_NAME"
@@ -91,7 +94,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleIconFile</key><string>Boxmail</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-<key>CFBundleVersion</key><string>33</string>
+<key>CFBundleVersion</key><string>34</string>
 <key>BoxmailDemoDataEnabled</key><$DEMO_DATA/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -99,11 +102,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
-# A fixed bundle ID alone does not preserve Keychain authorization across ad hoc builds.
 # Set BOXMAIL_SIGNING_IDENTITY to a persistent development identity's SHA-1 fingerprint.
-if [[ "$SIGNING_IDENTITY" == "-" ]]; then
-  echo "使用临时签名：重新构建后可能需要再次授权钥匙串。固定证书可通过 BOXMAIL_SIGNING_IDENTITY 配置。" >&2
-fi
 codesign --force --sign "$SIGNING_IDENTITY" "$APP_CONTENTS/Resources/Runtime/node"
 codesign --force --sign "$SIGNING_IDENTITY" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
 while IFS= read -r -d '' native_module; do

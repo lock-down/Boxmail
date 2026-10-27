@@ -38,7 +38,7 @@ struct NewAIProviderView: View {
         Spacer()
         IconButton(icon: "xmark", help: "取消添加服务商") { dismiss() }
       }
-      Text("接入兼容 OpenAI 或 Anthropic 协议的服务。API 密钥按服务商单独保存在系统钥匙串。")
+      Text("接入兼容 OpenAI 或 Anthropic 协议的服务。API 密钥按服务商保存在本机 .env 文件。")
         .font(UIType.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
       OverlayScrollView {
         VStack(alignment: .leading, spacing: 14) {
