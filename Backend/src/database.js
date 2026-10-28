@@ -1,3 +1,4 @@
+import { unicodeJSON } from './unicode.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import path from 'node:path';
@@ -91,7 +92,7 @@ export class Repository {
       .prepare(
         'INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data WHERE records.data<>excluded.data',
       )
-      .run(kind, value.id, JSON.stringify(value));
+      .run(kind, value.id, unicodeJSON(value));
     if (kind === 'message' && result.changes) this.previewCache?.delete(value.id);
     if (kind === 'sync' && result.changes) this.onSyncProgress?.(value);
     return value;

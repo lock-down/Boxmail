@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import { parseSearch, searchWhere } from './search-query.js';
 import { mailPreview, mailPreviewText } from './mail-preview.js';
 import { draftContent, upgradeForwardDraft } from './forward-content.js';
@@ -54,7 +55,7 @@ export function draftSearchPage(repo, { query = '', accountId, folder, filter, o
         message.to, message.cc, message.bcc, ...files.flatMap(file => [file.name, file.text, file.analysis])]
         .filter(Boolean).join('\n'));
       const position = snippetText.indexOf(term);
-      if (position >= 0) message.searchSnippet = snippetText.slice(Math.max(0, position - 28), position + 132).replace(/\n/g, ' ');
+      if (position >= 0) message.searchSnippet = textSlice(snippetText, Math.max(0, position - 28), position + 132).replace(/\n/g, ' ');
     }
     return message;
   }), total, nextOffset: offset + rows.length < total ? offset + rows.length : null };

@@ -41,15 +41,53 @@ public final class RuntimeDiagnostics: @unchecked Sendable {
       NSURLErrorDomain, NSCocoaErrorDomain, NSPOSIXErrorDomain,
       "Boxmail", "Boxmail.Credentials", "Boxmail.Diagnostics",
     ]
-    return [
+    var fields = [
       "errorType": domains.contains(value.domain) ? value.domain : "Error",
       "code": String(value.code),
     ]
+    let context: DecodingError.Context
+    switch error {
+    case DecodingError.typeMismatch(_, let detail):
+      context = detail
+      fields["reason"] = "type_mismatch"
+    case DecodingError.valueNotFound(_, let detail):
+      context = detail
+      fields["reason"] = "value_missing"
+    case DecodingError.keyNotFound(_, let detail):
+      context = detail
+      fields["reason"] = "key_missing"
+    case DecodingError.dataCorrupted(let detail):
+      context = detail
+      fields["reason"] = "invalid_value"
+    default: return fields
+    }
+    // Coding paths may contain dictionary keys supplied by a mail or provider.
+    // Keep only known schema fields and replace indexes and unknown keys.
+    let known: Set<String> = [
+      "accounts", "messages", "drafts", "attachments", "jobs", "settings", "events", "sync",
+      "folders", "results",
+      "id", "accountId", "folder", "sender", "senderEmail", "to", "cc", "bcc", "subject", "body",
+      "html", "preview", "date",
+      "category", "unread", "starred", "attachmentIds", "summary", "messageId", "references",
+      "replyTo", "inReplyTo",
+      "bodyVersion", "bodyLoaded", "uid", "text", "name", "path", "contentType", "size",
+      "parseError", "analysis",
+      "ai", "preferences", "providers", "models", "model", "status", "phase", "error", "total",
+      "downloaded", "remaining",
+      "points", "todos", "keyInfo", "nextSteps", "title", "due", "done", "label", "value",
+      "progress", "inventory",
+    ]
+    let path = context.codingPath.map { key in
+      key.intValue != nil ? "[]" : known.contains(key.stringValue) ? key.stringValue : ":key"
+    }.joined(separator: ".")
+    fields["phase"] = "decode"
+    fields["field"] = path.isEmpty ? "$" : String(path.prefix(160))
+    return fields
   }
   public func record(_ event: String, _ details: [String: String] = [:]) {
     let allowed: Set<String> = [
       "account", "phase", "status", "method", "route", "code", "errorType",
-      "durationMs", "downloaded", "total", "remaining", "attempt", "count", "reason",
+      "durationMs", "downloaded", "total", "remaining", "attempt", "count", "reason", "field",
     ]
     guard event.range(of: "^[a-z][a-z0-9_.]{1,64}$", options: .regularExpression) != nil else {
       return

@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import { mailPreviewText } from './mail-preview.js';
 
 const normalize = text => String(text || '').normalize('NFKC').toLocaleLowerCase();
@@ -99,7 +100,7 @@ export class SearchIndex {
     const lineStart = text.lastIndexOf('\n', position) + 1;
     const lineEnd = text.indexOf('\n', position);
     const start = Math.max(lineStart, position - 35), end = Math.min(lineEnd < 0 ? text.length : lineEnd, position + 140);
-    return `${start > lineStart ? '…' : ''}${text.slice(start, end).replace(/\s+/gu, ' ')}${end < (lineEnd < 0 ? text.length : lineEnd) ? '…' : ''}`;
+    return `${start > lineStart ? '…' : ''}${textSlice(text, start, end).replace(/\s+/gu, ' ')}${end < (lineEnd < 0 ? text.length : lineEnd) ? '…' : ''}`;
   }
   where(terms) {
     if (!terms.length) return { clause: null, params: [] };

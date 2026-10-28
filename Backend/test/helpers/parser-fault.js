@@ -25,6 +25,11 @@ process.on('message', async ({ task, buffer, options }) => {
     globalThis.nativeBytes = Buffer.alloc(192 * 1024 * 1024, 1);
     while (true) { /* Simulate a native buffer outside the V8 heap limit. */ }
   }
+  if (marker === 'SYNTHETIC_WARM_MEMORY') {
+    globalThis.retainedBytes = Buffer.alloc(128 * 1024 * 1024, 1);
+    process.send({ type: 'result', result: { text: 'healthy but memory remains resident' }, rss: process.memoryUsage.rss() });
+    return;
+  }
   if (marker === 'SYNTHETIC_ENV') {
     const privateKeys = ['BOXMAIL_TOKEN', 'BOXMAIL_ENV_FILE', 'OPENAI_API_KEY', 'NODE_OPTIONS', 'NODE_PATH'];
     process.send({ type: 'result', result: { text: privateKeys.some(key => process.env[key]) ? 'leaked' : 'clean' } });

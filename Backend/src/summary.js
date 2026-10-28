@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import { randomUUID } from 'node:crypto';
 import { ServiceError } from './validation.js';
 
@@ -12,7 +13,7 @@ export function summaryResult(result, message) {
     if (!step || !text(step.title)) continue;
     const action = step.action === 'reply' && text(step.prompt) ? 'reply'
       : step.action === 'attachments' && message.attachmentIds?.length ? 'attachments' : 'note';
-    const item = { title: text(step.title).slice(0, 60), action, prompt: action === 'reply' ? text(step.prompt).slice(0, 2000) : '' };
+    const item = { title: textSlice(text(step.title), 0, 60), action, prompt: action === 'reply' ? textSlice(text(step.prompt), 0, 2000) : '' };
     suggestions.set(`${item.action}:${item.title}`, item);
   }
   return {

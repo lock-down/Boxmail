@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import sanitizeHtml from 'sanitize-html';
 import { convert } from 'html-to-text';
 
@@ -80,5 +81,5 @@ export function mailPreview(message) {
   const readable = text.replace(/\[https?:\/\/[^\]\s]+\]/gi, '')
     .replace(/https?:\/\/[^\s<>\[\]\p{Script=Han}，。；！？、）】“”]+/giu, '').replace(/\s+/g, ' ').trim();
   // Link-only messages still need a useful preview. Search retains all URLs.
-  return (readable || text.replace(/\s+/g, ' ').trim()).slice(0, 140);
+  return textSlice(readable || text.replace(/\s+/g, ' ').trim(), 0, 140);
 }

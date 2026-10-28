@@ -3,6 +3,21 @@ import Testing
 
 @testable import BoxmailCore
 
+@Test func decodingDiagnosticsKeepSchemaPathsWithoutValuesOrPrivateDictionaryKeys() throws {
+  struct Container: Decodable { let messages: [String: [String]] }
+  let data = Data(#"{"messages":{"private@example.test":[42]}}"#.utf8)
+  do {
+    _ = try JSONDecoder().decode(Container.self, from: data)
+    Issue.record("A mismatched synthetic value must fail decoding")
+  } catch {
+    let fields = RuntimeDiagnostics.errorFields(error)
+    #expect(fields["phase"] == "decode")
+    #expect(fields["reason"] == "type_mismatch")
+    #expect(fields["field"] == "messages.:key.[]")
+    #expect(!fields.description.contains("private@example.test"))
+  }
+}
+
 @Test func diagnosticLogsRotateAndRedactRequestData() async throws {
   let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
     "BoxmailLogs-\(UUID())")

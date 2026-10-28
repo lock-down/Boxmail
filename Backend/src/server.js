@@ -1,3 +1,4 @@
+import { textSlice, unicodeJSON } from './unicode.js';
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -173,7 +174,7 @@ export async function startServer({
       req.headers.origin
     ) {
       res.writeHead(403);
-      res.end(JSON.stringify({ error: '未授权访问' }));
+      res.end(unicodeJSON({ error: '未授权访问' }));
       return;
     }
     let countedWrite = false;
@@ -417,7 +418,7 @@ export async function startServer({
           ...p,
           syncMinutes: Math.min(60, Math.max(1, Number(p.syncMinutes) || 5)),
           fontSize: Math.min(24, Math.max(12, Number(p.fontSize) || 14)),
-          signature: String(p.signature || '').slice(0, 4000),
+          signature: textSlice(String(p.signature || ''), 0, 4000),
         };
         result = repo.put('settings', { ...old, id: 'settings', ai, preferences });
       } else if (req.method === 'POST' && route === '/ai/test') {
@@ -521,8 +522,8 @@ export async function startServer({
           to: String(body.to || ''),
           cc: String(body.cc || ''),
           bcc: String(body.bcc || ''),
-          subject: String(body.subject || '').slice(0, 2000),
-          body: String(body.body || '').slice(0, 500000),
+          subject: textSlice(String(body.subject || ''), 0, 2000),
+          body: textSlice(String(body.body || ''), 0, 500000),
           attachmentIds: (body.attachmentIds || []).filter((a) =>
             repo.get('attachment', a),
           ),
@@ -564,7 +565,7 @@ export async function startServer({
           body.contentType,
         );
       } else if (req.method === 'GET' && route === '/attachments/search') {
-        const query = (url.searchParams.get('q') || '').slice(0,4000);
+        const query = textSlice(url.searchParams.get('q') || '', 0, 4000);
         result = { ids: repo.searchAttachmentIDs(query, url.searchParams.get('accountId') || '') };
       } else if (req.method === 'GET' && /^\/attachments\/[^/]+\/preview$/.test(route)) {
         const a = await attachmentBytes(repo, route.split('/')[2]);
@@ -581,13 +582,13 @@ export async function startServer({
         };
       } else throw new ServiceError('接口不存在', 404);
       res.writeHead(200);
-      res.end(JSON.stringify(result));
+      res.end(unicodeJSON(result));
     } catch (e) {
       diagnostics.record('api.failed', { route: diagnosticRoute(req.url), method: req.method,
         status: e.status || 500, durationMs: performance.now() - requestStarted, ...errorDiagnostic(e) });
       res.writeHead(e.status || 500);
       res.end(
-        JSON.stringify({
+        unicodeJSON({
           error:
             e instanceof ServiceError
               ? e.message
@@ -645,5 +646,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     port: Number(process.env.BOXMAIL_PORT || 0),
     demo: process.env.BOXMAIL_DEMO !== '0',
   });
-  process.stdout.write(JSON.stringify({ port: app.port }) + '\n');
+  process.stdout.write(unicodeJSON({ port: app.port }) + '\n');
 }

@@ -21,11 +21,14 @@ export class ParserProcess {
     this.signal = signal; this.timeoutMs = timeoutMs; this.diagnostics = diagnostics;
     this.account = account; this.executable = executable;
     this.rssLimitBytes = Math.min(512 * 1024 * 1024, Math.max(64 * 1024 * 1024, rssLimitBytes));
-    this.child = null; this.busy = false;
+    this.child = null; this.busy = false; this.completedTasks = 0; this.lastRSS = 0;
   }
   async start() {
     this.signal?.throwIfAborted();
-    if (this.child?.connected && this.child.exitCode === null && this.child.signalCode === null) return this.child;
+    if (this.child?.connected && this.child.exitCode === null && this.child.signalCode === null
+      && this.completedTasks < 500 && this.lastRSS < this.rssLimitBytes / 2) return this.child;
+    // Native buffers and parser module caches can outlive an individual file.
+    // Give the next MIME body headroom before the hard RSS guard has to abort it.
     await this.close();
     this.signal?.throwIfAborted();
     const directory = await mkdtemp(path.join(os.tmpdir(), 'boxmail-parser-'));
@@ -40,7 +43,7 @@ export class ParserProcess {
       execArgv: ['--max-old-space-size=192'], serialization: 'advanced',
       stdio: ['ignore', 'ignore', 'pipe', 'ipc', 'pipe'] });
     this.child = child;
-    this.stderr = '';
+    this.stderr = ''; this.completedTasks = 0; this.lastRSS = 0;
     // Drain continuously but retain only a short private window for classification.
     // Raw stderr, filenames and document content are never written to diagnostics.
     child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk.toString('utf8')).slice(-16384); });
@@ -66,6 +69,7 @@ export class ParserProcess {
       const result = await new Promise((resolve, reject) => {
         receive = message => {
           if (message?.type !== 'result') return;
+          if (Number.isSafeInteger(message.rss) && message.rss > 0) this.lastRSS = message.rss;
           if (message.error) {
             const error = new ServiceError(message.error.message || '邮件或附件解析失败，已完成内容保留，可稍后重试。',
               message.error.status || 502);
@@ -96,7 +100,9 @@ export class ParserProcess {
         child.send({ type: 'parse', task, buffer, options }, error => { if (error) failed(); });
         if (this.signal?.aborted) abort();
       });
-      if (task !== 'mime') this.diagnostics?.record('parser.completed', { ...details, durationMs: performance.now() - started });
+      this.completedTasks++;
+      if (task !== 'mime') this.diagnostics?.record('parser.completed', { ...details,
+        rssMB: this.lastRSS / 1024 / 1024, durationMs: performance.now() - started });
       return result;
     } catch (error) {
       if (!this.signal?.aborted) this.diagnostics?.record('parser.failed', { ...details, code: error.code || 'PARSER_FAILED',

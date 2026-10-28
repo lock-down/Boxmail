@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { access, mkdtemp, mkdir, readFile, writeFile, readdir, rm, stat } from 'node:fs/promises';
@@ -88,8 +89,8 @@ async function prepare(buffer, file, { signal, render = false } = {}) {
     if ((await stat(htmlFile)).size > 32 * 1024 * 1024)
       throw new ServiceError('PPT 页面内容过大，请拆分文件后理解。');
     const html = await readFile(htmlFile, 'utf8');
-    const text = convert(html, { wordwrap: false, limits: { maxInputLength: 32 * 1024 * 1024 },
-      selectors: [{ selector: 'img', format: 'skip' }] }).slice(0, 200000);
+    const text = textSlice(convert(html, { wordwrap: false, limits: { maxInputLength: 32 * 1024 * 1024 },
+      selectors: [{ selector: 'img', format: 'skip' }] }), 0, 200000);
     if (!render) return { text };
     const renderer = presentationRendererPath();
     try { await access(renderer, constants.X_OK); }

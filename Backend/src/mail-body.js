@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import sanitizeHtml from 'sanitize-html';
 import { convert } from 'html-to-text';
 
@@ -47,6 +48,6 @@ export function mailBody(parsed) {
   return {
     body, html, bodyVersion: MAIL_BODY_VERSION,
     hasRemoteImages: /<img\b[^>]*\bsrc="https?:\/\//i.test(html),
-    preview: body.replace(/\s+/g, ' ').trim().slice(0, 140) || (/<img\b/i.test(html) ? '图片邮件' : ''),
+    preview: textSlice(body.replace(/\s+/g, ' ').trim(), 0, 140) || (/<img\b/i.test(html) ? '图片邮件' : ''),
   };
 }

@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { ServiceError } from './validation.js';
 
@@ -20,7 +21,7 @@ export function contactSuggestions(repo, accountId, query = '', limit = 8) {
       used.add(email);
       const previous = contacts.get(email);
       contacts.set(email, { email, name: item.name?.trim() && (!previous?.name || date >= previous.lastUsed)
-        ? item.name.trim().slice(0, 200) : previous?.name || '',
+        ? textSlice(item.name.trim(), 0, 200) : previous?.name || '',
         frequency: (previous?.frequency || 0) + 1, lastUsed: date > (previous?.lastUsed || '') ? date : previous?.lastUsed || date });
     }
   }

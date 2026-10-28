@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import { readFile, writeFile, mkdir, copyFile, chmod, rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
@@ -12,7 +13,7 @@ export async function extractText(buffer, name, contentType = '', { signal, cont
   signal?.throwIfAborted();
   const ext = path.extname(name).toLowerCase();
   if (['.txt', '.csv', '.md', '.json', '.log'].includes(ext))
-    return buffer.toString('utf8').slice(0, 200000);
+    return textSlice(buffer.toString('utf8'), 0, 200000);
   const task = ext === '.pdf' ? 'pdf' : ['.docx', '.xlsx'].includes(ext) ? ext.slice(1)
     : isPresentation({ name, contentType }) ? 'presentation-text' : null;
   if (!task) return '';

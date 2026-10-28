@@ -1,3 +1,4 @@
+import BoxmailCore
 import Foundation
 import Testing
 
@@ -11,6 +12,25 @@ private struct DecodingThread: Decodable {
     wasMainThread = Thread.isMainThread
     values = try decoder.container(keyedBy: CodingKeys.self).decode([String].self, forKey: .values)
   }
+}
+
+@Test @MainActor func committedSettingsRemainSavedWhenUnrelatedMailRefreshFails() async throws {
+  var saved = SettingsData()
+  saved.preferences.fontSize = 18
+  saved.preferences.blockRemoteImages = false
+  let settings = HTTPStub(path: "/settings", data: try JSONEncoder().encode(saved))
+  let state = HTTPStub(
+    path: "/state", data: Data(#"{"error":"Synthetic refresh failure"}"#.utf8),
+    status: 502, scope: settings)
+  defer {
+    settings.close()
+    state.close()
+  }
+  let store = MailStore(backend: BackendService(session: settings.session))
+  let refreshed = try await store.saveSettings(ai: saved.ai, preferences: saved.preferences)
+  #expect(!refreshed)
+  #expect(store.settings.preferences.fontSize == 18)
+  #expect(!store.settings.preferences.blockRemoteImages)
 }
 
 @Test @MainActor func backendDecodesLargeResponsesOutsideTheUIThread() async throws {

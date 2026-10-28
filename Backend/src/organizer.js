@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import { randomUUID } from 'node:crypto';
 import { aiConfig, ServiceError } from './validation.js';
 import { completion } from './responses.js';
@@ -90,7 +91,7 @@ export class Organizer {
         const ids = new Set(context.map(m => m.id));
         const categories = new Set(job.categories.map(item => item.name));
         const valid = new Map(result.items.filter(item => item && ids.has(item.id) && categories.has(item.category))
-          .map(item => [item.id, { id: item.id, category: item.category, reason: String(item.reason || '').slice(0, 300) }]));
+          .map(item => [item.id, { id: item.id, category: item.category, reason: textSlice(String(item.reason || ''), 0, 300) }]));
         for (const [id, item] of valid) {
           job.result.items = job.result.items.filter(old => old.id !== id);
           job.result.items.push(item);

@@ -26,7 +26,7 @@ process.on('message', async message => {
       const { presentationText } = await import('./presentations.js');
       result = { text: await presentationText(buffer, { name: options.name, contentType: options.contentType }) };
     } else throw new Error('Unknown parser task');
-    process.send({ type: 'result', result });
+    process.send({ type: 'result', result, rss: process.memoryUsage.rss() });
   } catch (error) {
     // Exception messages can contain document content; return a classification only.
     process.send({ type: 'result', error: error instanceof ServiceError

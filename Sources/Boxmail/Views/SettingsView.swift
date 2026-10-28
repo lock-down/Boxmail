@@ -418,12 +418,13 @@ struct SettingsView: View {
           }
         }
         let removedProviders = store.settings.ai.providers.filter { old in !config.providers.contains { $0.id == old.id } }
-        try await BackendService.shared.perform(
-          "/settings",
-          body: ["ai": try jsonObject(config), "preferences": try jsonObject(preferences)])
-        try await store.refresh()
+        let refreshed = try await store.saveSettings(ai: config, preferences: preferences)
         for provider in removedProviders { try CredentialService.save("", account: provider.credentialAccount) }
         try BackendService.shared.scheduleDataDirectory(pendingDataDirectory)
+        if !refreshed {
+          status = "设置已保存，邮件列表刷新未完成。请重新加载列表，或导出诊断日志。"
+          return
+        }
         status = pendingDataDirectory == nil ? "设置已保存" : "设置已保存，重新打开 Boxmail 后迁移本机数据。"
         if close { dismiss() }
       } catch { status = "保存失败：\(error.localizedDescription)" }

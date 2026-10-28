@@ -12,6 +12,15 @@ import { syncAccount } from '../src/mail.js';
 import { spawn } from 'node:child_process';
 
 const fixture = new URL('./helpers/parser-fault.js', import.meta.url);
+test('resident attachment memory is recycled before the next MIME body without raising the memory limit', async t => {
+  const parser = new ParserProcess({ executable: fixture, rssLimitBytes: 256 * 1024 * 1024 });
+  t.after(() => parser.close());
+  await parser.run('xlsx', Buffer.from('SYNTHETIC_WARM_MEMORY'));
+  const previousPID = parser.child.pid;
+  const result = await parser.run('mime', Buffer.from('From: synthetic@example.test\r\nSubject: next\r\n\r\nOriginal body'));
+  assert.notEqual(parser.child.pid, previousPID);
+  assert.equal(result.content.body, 'Original body');
+});
 async function temporary() {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'boxmail-parser-test-'));
   return directory;

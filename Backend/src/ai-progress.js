@@ -1,3 +1,4 @@
+import { unicodeJSON } from './unicode.js';
 import { EventEmitter } from 'node:events';
 import { parseStreamingJson } from '@earendil-works/pi-ai/utils/json-parse';
 
@@ -36,7 +37,7 @@ export class AIProgress {
       if (!res.destroyed && !res.writableEnded) {
         // A slow reader must reconnect for a snapshot instead of accumulating model output.
         if (res.writableLength > 4_000_000) { res.destroy(); return; }
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
+        res.write(`data: ${unicodeJSON(event)}\n\n`);
       }
     };
     send({ type: 'snapshot', outputs: [...this.active.values()] });

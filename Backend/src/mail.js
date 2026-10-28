@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import { ImapFlow } from 'imapflow';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
@@ -691,7 +692,7 @@ export async function sendDraft(
         subject: draft.subject,
         body: content.text,
         ...(content.html ? mailBody({ html: content.html, text: content.text }) : {}),
-        preview: content.text.slice(0, 140),
+        preview: textSlice(content.text, 0, 140),
         date: new Date().toISOString(),
         unread: false,
         starred: false,

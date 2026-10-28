@@ -1,3 +1,4 @@
+import { textSlice } from './unicode.js';
 import { ParserProcess } from './parser-process.js';
 
 // Keep the public sync helper, but use a process boundary for fatal native errors.
@@ -24,7 +25,7 @@ export async function parseMailContent(task, buffer) {
   }
   if (task === 'docx') {
     const { default: mammoth } = await import('mammoth');
-    return { text: (await mammoth.extractRawText({ buffer })).value.slice(0, 200000) };
+    return { text: textSlice((await mammoth.extractRawText({ buffer })).value, 0, 200000) };
   }
   if (task === 'xlsx') {
     const { default: ExcelJS } = await import('exceljs');
@@ -38,7 +39,7 @@ export async function parseMailContent(task, buffer) {
           .map(value => typeof value === 'object' ? JSON.stringify(value) : (value ?? '')).join('\t') + '\n';
       });
     }
-    return { text: text.slice(0, 200000) };
+    return { text: textSlice(text, 0, 200000) };
   }
   throw new Error('Unknown parser task');
 }
