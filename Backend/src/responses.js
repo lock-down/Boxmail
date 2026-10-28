@@ -1,5 +1,6 @@
 import { aiConfig, ServiceError } from './validation.js';
 import { partialResult } from './ai-progress.js';
+import { errorDiagnostic } from './diagnostics.js';
 
 const unsignedWritingRule = '邮件撰写规则：生成或润色邮件正文时，只撰写待审阅的正文，不添加签名或署名段，不在结尾附上发件人的姓名、职位、公司、联系方式、发送日期，也不输出“[您的姓名]”“[联系方式]”等签名占位符。不模仿或复制来信、附件、已有正文中的签名段。总结建议中起草回复的 prompt 和附件理解中的回复草稿、邮件示例遵守同一规则。可保留自然称呼、简短礼貌结束语，以及正文或分析所需的联系人、提交邮箱、数字和日期等事实；此规则不要求删改原邮件或附件的分析内容。';
 
@@ -13,6 +14,7 @@ const formats = {
 };
 
 export async function completion(configInput, apiKey, task, content, images = [], options = {}) {
+  const started = performance.now();
   const config = aiConfig(configInput, { requireModel: false });
   if (!config.model)
     throw new ServiceError('请先在设置 > AI 助手中填写模型名称并保存');
@@ -67,6 +69,9 @@ export async function completion(configInput, apiKey, task, content, images = []
       throw new ServiceError('模型未返回有效 JSON，请调整模型或提示词后重试', 502);
     }
   } catch (error) {
+    options.diagnostics?.record('ai.request.failed', { protocol: config.apiProtocol,
+      task: Object.hasOwn(formats, task) ? task : 'unknown', durationMs: performance.now() - started,
+      ...errorDiagnostic(signal.aborted ? signal.reason : error) });
     if (signal.aborted) throw signal.reason;
     if (error instanceof ServiceError) throw error;
     if (error instanceof SyntaxError)

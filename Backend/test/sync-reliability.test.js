@@ -9,6 +9,7 @@ import { ImapFlow } from 'imapflow';
 import { Repository } from '../src/database.js';
 import { syncAccount } from '../src/mail.js';
 import { messageSource } from '../src/mail-sync.js';
+import { ServiceError } from '../src/validation.js';
 
 const account = { id: 'a1', email: 'me@example.com', imapHost: 'imap.example.com' };
 async function fixture(t) {
@@ -200,6 +201,25 @@ test('large MIME sources use bounded partial FETCH requests and preserve every o
   assert.equal(calls.length, 5);
   assert.ok(calls.every(call => call.maxLength <= 256 * 1024));
   assert.deepEqual(calls.at(-1), { start: 1024 * 1024, maxLength: 256 * 1024 });
+});
+
+test('a watchdog cancellation retains its timeout reason in folder state rather than becoming a normal user stop', async t => {
+  const repo = await fixture(t), { state, options } = remote({ INBOX: [1] });
+  const controller = new AbortController();
+  const reason = new ServiceError('同步长时间没有进展，已保留断点。', 504);
+  reason.code = 'SYNC_STALLED';
+  state.hangFolder = 'INBOX';
+  const factory = options.clientFactory;
+  options.clientFactory = () => {
+    const client = factory();
+    client.fetchOne = async () => { controller.abort(reason); return new Promise(() => {}); };
+    return client;
+  };
+  await assert.rejects(syncAccount(repo, { ...account }, 'synthetic', { ...options, signal: controller.signal }), /没有进展/);
+  const progress = repo.list('sync')[0];
+  assert.equal(progress.status, 'failed');
+  assert.match(progress.lastError, /没有进展/);
+  assert.equal(progress.hasMore, true);
 });
 
 test('an interrupted partial MIME response never turns a truncated body into completed mail', async () => {

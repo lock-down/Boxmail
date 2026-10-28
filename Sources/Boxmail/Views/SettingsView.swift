@@ -21,7 +21,7 @@ struct SettingsView: View {
   @ViewState<URL?> private var pendingDataDirectory = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Namespace private var settingsSelection
-  let tabs = ["常用", "账号", "写邮件", "阅读邮件", "反垃圾", "高级", "AI 助手"]
+  let tabs = ["常用", "账号", "写邮件", "阅读邮件", "反垃圾", "高级", "AI 助手", "开发者"]
   init(store: MailStore) {
     self.store = store
     _config = ViewState(wrappedValue: store.settings.ai)
@@ -91,6 +91,7 @@ struct SettingsView: View {
             case "写邮件": composeSettings
             case "阅读邮件": readSettings
             case "反垃圾": spamSettings
+            case "开发者": DeveloperSettingsView(store: store)
             default: advancedSettings
             }
             if !status.isEmpty {
@@ -160,6 +161,7 @@ struct SettingsView: View {
     case "写邮件": return "配置默认签名和草稿行为"
     case "阅读邮件": return "调整阅读字号与已读行为"
     case "反垃圾": return "同步邮箱服务商的垃圾邮件分类"
+    case "开发者": return "导出同步与 API 运行日志，帮助定位异常和性能问题"
     default: return "管理本机数据、诊断与同步状态"
     }
   }
@@ -171,6 +173,7 @@ struct SettingsView: View {
     case "阅读邮件": return "envelope.open"
     case "反垃圾": return "shield"
     case "高级": return "slider.horizontal.3"
+    case "开发者": return "hammer"
     default: return "sparkles"
     }
   }

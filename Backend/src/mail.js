@@ -1,8 +1,8 @@
 import { ImapFlow } from 'imapflow';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
-import { simpleParser } from 'mailparser';
 import { createHash, randomUUID } from 'node:crypto';
+import { setImmediate as yieldToRequests } from 'node:timers/promises';
 import { rm } from 'node:fs/promises';
 import { prepareAttachment, attachmentBytes, copyBorrowedAttachments, reassignAttachments } from './attachments.js';
 import { ServiceError, required, recipients } from './validation.js';
@@ -10,8 +10,10 @@ import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
 import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder } from './mail-folders.js';
 import { clearTrash } from './mail-trash.js';
-import { imapOperation, mailboxMetadata, messageSource, MessageSourceError } from './mail-sync.js';
+import { imapOperation, mailboxMetadata, mailboxUIDNext, messageSource, MessageSourceError } from './mail-sync.js';
 import { draftContent, inlineForwardImages } from './forward-content.js';
+import { MailContentWorker } from './mail-content-worker.js';
+import { accountReference, errorDiagnostic } from './diagnostics.js';
 
 // Status changes re-read the stored draft, so a slow send never writes back the snapshot it
 // started with and clobbers fields saved in the meantime.
@@ -109,11 +111,16 @@ export async function syncAccount(
   password,
   { clientFactory = clientFor, batchSize = 200, folder: requestedFolder, signal,
     downloadBudgetMs = 20000, operationTimeoutMs = 45000, deferredSources = new Set(),
-    sourceFailureStreaks = new Map() } = {},
+    sourceFailureStreaks = new Map(), inventories = new Map(), parseTimeoutMs = 60000,
+    contentWorker: suppliedWorker } = {},
 ) {
   let client = clientFactory(account, password);
-  const operationOptions = { signal, timeoutMs: operationTimeoutMs };
-  const perform = operation => imapOperation(client, operation, operationOptions);
+  const reference = accountReference(account.id);
+  const operationOptions = { signal, timeoutMs: operationTimeoutMs,
+    onFailure: details => repo.diagnostics?.record('imap.operation.failed', { account: reference, ...details }) };
+  const perform = (operation, phase = 'connection') => imapOperation(client, operation, { ...operationOptions, phase });
+  const contentWorker = suppliedWorker ?? new MailContentWorker({ signal, timeoutMs: parseTimeoutMs,
+    diagnostics: repo.diagnostics, account: reference });
   let count = 0;
   let repaired = 0;
   let skipped = 0;
@@ -124,9 +131,9 @@ export async function syncAccount(
   signal?.addEventListener('abort', abort, { once: true });
   try {
     signal?.throwIfAborted();
-    try { await perform(() => client.connect()); }
+    try { await perform(() => client.connect(), 'connect'); }
     catch (error) { throw mailServiceError(error, 'IMAP', account); }
-    const folders = await perform(() => client.list());
+    const folders = await perform(() => client.list(), 'list-folders');
     discoverMailFolders(account, folders);
     await applyMailMutations(repo, account, client, { signal, timeoutMs: operationTimeoutMs });
     if (requestedFolder && !account.folders[requestedFolder])
@@ -137,7 +144,7 @@ export async function syncAccount(
       const syncId = createHash('sha256').update(`${account.id}:${remotePath}`).digest('hex');
       const previous = repo.get('sync', syncId);
       currentSync = { ...previous, id: syncId, accountId: account.id, folder, remotePath,
-        status: 'running', lastError: null, inventory: {}, updatedAt: new Date().toISOString() };
+        status: 'running', phase: 'inventory', lastError: null, inventory: {}, updatedAt: new Date().toISOString() };
       repo.put('sync', currentSync);
       let lock;
       try {
@@ -148,26 +155,53 @@ export async function syncAccount(
           await perform(() => client.connect());
         }
         lock = await perform(() => client.getMailboxLock(remotePath, { readOnly: true }));
-        const { fetched, validity } = await mailboxMetadata(client, remotePath, {
+        let inventory = inventories.get(remotePath);
+        if (inventory) {
+          const status = await perform(() => client.status(remotePath, { messages: true, uidValidity: true, uidNext: true }), 'inventory-status');
+          const uidNext = mailboxUIDNext(status?.uidNext ?? client.mailbox?.uidNext);
+          if (String(client.mailbox?.uidValidity) !== inventory.validity
+            || (status?.uidValidity != null && String(status.uidValidity) !== inventory.validity)
+            || status?.messages !== inventory.fetched.length
+            || (uidNext && inventory.uidNext && uidNext !== inventory.uidNext)
+            || ((!uidNext || !inventory.uidNext) && performance.now() - inventory.createdAt >= 60000))
+            inventory = null;
+        }
+        const reusedInventory = !!inventory;
+        if (!inventory) inventory = { ...await mailboxMetadata(client, remotePath, {
           ...operationOptions,
           onInventory: snapshot => {
-            currentSync = { ...currentSync, inventory: { ...currentSync.inventory, ...snapshot } };
+            currentSync = { ...currentSync, inventory: { ...currentSync.inventory, ...snapshot },
+              updatedAt: new Date().toISOString() };
             repo.put('sync', currentSync);
           },
-        });
+        }), createdAt: performance.now() };
+        inventories.set(remotePath, inventory);
+        const { fetched, validity } = inventory;
+        if (reusedInventory) {
+          currentSync = { ...currentSync, inventory: { metadataCount: fetched.length,
+            uidCount: fetched.length, metadataRequests: 0, reused: true }, updatedAt: new Date().toISOString() };
+          repo.put('sync', currentSync);
+        }
         const seen = new Set(fetched.map(m => m.uid));
-        const stored = repo.syncMessageHeaders(account.id, remotePath);
-        const cached = new Map(stored.filter(m => m.uidValidity === validity).map(m => [m.uid, m]));
-        repo.transaction(() => {
-          for (const old of stored) if (old.uidValidity !== validity) {
-            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: repo.get('message', old.id) });
-            repo.remove('message', old.id);
-          }
-          for (const [uid, old] of cached) if (!seen.has(uid)) {
-            repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: repo.get('message', old.id) });
-            repo.remove('message', old.id); cached.delete(uid);
-          }
-          for (const remote of fetched) {
+        const stored = reusedInventory && inventory.cached ? [] : repo.syncMessageHeaders(account.id, remotePath);
+        const cached = reusedInventory && inventory.cached ? inventory.cached
+          : new Map(stored.filter(m => m.uidValidity === validity).map(m => [m.uid, m]));
+        // Reconcile a fresh validated inventory once, in bounded transactions.
+        // Reused session snapshots must never infer new deletions or overwrite flags.
+        if (!reusedInventory) for (let offset = 0; offset < stored.length; offset += 200) {
+          signal?.throwIfAborted();
+          repo.transaction(() => { for (const old of stored.slice(offset, offset + 200)) {
+            if (old.uidValidity !== validity || !seen.has(old.uid)) {
+              repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: repo.get('message', old.id) });
+              repo.remove('message', old.id);
+              if (old.uidValidity === validity) cached.delete(old.uid);
+            }
+          } });
+          await yieldToRequests(undefined, { signal });
+        }
+        if (!reusedInventory) for (let offset = 0; offset < fetched.length; offset += 200) {
+          signal?.throwIfAborted();
+          repo.transaction(() => { for (const remote of fetched.slice(offset, offset + 200)) {
             const old = cached.get(remote.uid);
             if (!old) continue;
             const unreadPending = repo.get('mutation', `${old.id}:unread`);
@@ -177,11 +211,14 @@ export async function syncAccount(
             if (old.unread === unread && old.starred === starred) continue;
             repo.put('message', { ...repo.get('message', old.id), unread, starred });
             cached.set(remote.uid, { ...old, unread, starred });
-          }
-        });
+          } });
+          await yieldToRequests(undefined, { signal });
+        }
         // Legacy forwards may already be fully cached; repair ownership without downloading again.
-        for (const [uid, old] of cached) {
+        let examined = 0;
+        for (const [uid, old] of reusedInventory ? [] : cached) {
           signal?.throwIfAborted();
+          if (++examined % 200 === 0) await yieldToRequests(undefined, { signal });
           const shared = (old.attachmentIds || []).some(id => {
             const attachment = repo.get('attachment', id);
             return attachment && attachment.messageId !== old.id;
@@ -198,6 +235,7 @@ export async function syncAccount(
           });
           cached.set(uid, updated);
         }
+        inventory.cached = cached;
         const missing = fetched.filter(remote => !cached.has(remote.uid)
           || cached.get(remote.uid).bodyVersion !== MAIL_BODY_VERSION
           || cached.get(remote.uid).headersVersion !== 1).sort((a,b) => b.uid-a.uid);
@@ -206,7 +244,7 @@ export async function syncAccount(
           beforeUID = Math.min(beforeUID, uid);
           highestUID = Math.max(highestUID, uid);
         }
-        currentSync = { ...currentSync, uidValidity: validity, total: fetched.length,
+        currentSync = { ...currentSync, phase: 'download', uidValidity: validity, total: fetched.length,
           downloaded: cached.size, remaining: missing.length, hasMore: missing.length > 0,
           beforeUID: Number.isFinite(beforeUID) ? beforeUID : undefined,
           highestUID: Number.isFinite(highestUID) ? highestUID : undefined };
@@ -229,7 +267,7 @@ export async function syncAccount(
           }
           const id = messageIdFor(remote.uid);
           const old = repo.get('message', id);
-          let parsed;
+          let parsed, content;
           if (remote.size <= 25 * 1024 * 1024) {
             let source;
             try {
@@ -258,7 +296,21 @@ export async function syncAccount(
               if (consecutiveFailures >= 3) break;
               continue;
             }
-            parsed = await simpleParser(source, { skipHtmlToText: true, skipTextToHtml: true });
+            currentSync = { ...currentSync, phase: 'parse', updatedAt: new Date().toISOString() };
+            repo.put('sync', currentSync);
+            try { ({ parsed, content } = await contentWorker.run('mime', source, { format: 'mime' })); }
+            catch (error) {
+              if (signal?.aborted) throw error;
+              skipped++; deferredSources.add(id); consecutiveFailures++;
+              sourceFailureStreaks.set(failureScope, consecutiveFailures);
+              currentSync = { ...currentSync, source: { ...currentSync.source,
+                lastError: '本封邮件解析未完成，正在继续其余邮件，稍后同步会重试。' },
+                updatedAt: new Date().toISOString() };
+              repo.put('sync', currentSync);
+              if (consecutiveFailures >= 3) break;
+              continue;
+            }
+            signal?.throwIfAborted();
           } else {
             skipped++;
             // Oversized messages are the only ones displayed without parsing
@@ -279,7 +331,7 @@ export async function syncAccount(
           consecutiveFailures = 0;
           sourceFailureStreaks.set(failureScope, 0);
           const from = parsed.from?.value[0];
-          const content = mailBody(parsed);
+          content ??= mailBody(parsed);
           const headers = { headersVersion: 1, replyTo: parsed.replyTo?.text || '',
             inReplyTo: parsed.inReplyTo || '',
             references: typeof parsed.references === 'string' ? [parsed.references] : parsed.references || [] };
@@ -351,7 +403,9 @@ export async function syncAccount(
               let committed = false;
               try {
                 for (const a of parsed.attachments || []) {
-                  const attachment = await prepareAttachment(repo, id, a.filename || '附件', a.content, a.contentType, { signal });
+                  currentSync = { ...currentSync, phase: 'attachment', updatedAt: new Date().toISOString() };
+                  repo.put('sync', currentSync);
+                  const attachment = await prepareAttachment(repo, id, a.filename || '附件', a.content, a.contentType, { signal, contentWorker });
                   prepared.push(attachment);
                   message.attachmentIds.push(attachment.id);
                 }
@@ -369,10 +423,12 @@ export async function syncAccount(
             }
             count++;
           }
-          cached.set(remote.uid, repo.get('message', id));
+          const saved = repo.get('message', id);
+          cached.set(remote.uid, Object.fromEntries(['id', 'uid', 'uidValidity', 'bodyVersion', 'headersVersion',
+            'attachmentIds', 'unread', 'starred'].map(key => [key, saved[key]])));
           beforeUID = Math.min(beforeUID, remote.uid);
           highestUID = Math.max(highestUID, remote.uid);
-          currentSync = { ...currentSync, downloaded: cached.size,
+          currentSync = { ...currentSync, phase: 'download', downloaded: cached.size,
             remaining: Math.max(0, currentSync.remaining - 1),
             beforeUID, highestUID,
             updatedAt: new Date().toISOString() };
@@ -383,7 +439,7 @@ export async function syncAccount(
         const deferredOnly = currentSync.remaining > 0 && currentSync.remaining === blocked.length;
         const status = !currentSync.hasMore ? 'completed'
           : deferredOnly || consecutiveFailures >= 3 ? 'paused' : 'partial';
-        currentSync = { ...currentSync, status,
+        currentSync = { ...currentSync, status, phase: status,
           source: { ...currentSync.source, failedCount: blocked.length,
             failedUIDs: blocked.slice(0, 20).map(remote => remote.uid), deferredOnly, consecutiveFailures },
           lastError: blocked.length ? (status === 'partial'
@@ -393,6 +449,8 @@ export async function syncAccount(
         repo.put('sync', currentSync);
       } catch (error) {
         if (signal?.aborted) throw error;
+        repo.diagnostics?.record('sync.folder.failed', { account: reference, folder,
+          phase: currentSync.phase, ...errorDiagnostic(error) });
         const safe = mailServiceError(error, 'IMAP', account);
         currentSync = { ...currentSync, status: 'failed', lastError: safe.message,
           updatedAt: new Date().toISOString() };
@@ -419,13 +477,16 @@ export async function syncAccount(
       .some(progress => (!requestedFolder || progress.folder === requestedFolder) && progress.hasMore && progress.status === 'paused');
     return { count, repaired, skipped, ok: true, partial };
   } catch (error) {
+    const stalled = signal?.reason?.code === 'SYNC_STALLED';
     if (currentSync?.status === 'running') repo.put('sync', { ...currentSync,
-      status: signal?.aborted ? 'paused' : 'failed',
-      lastError: signal?.aborted ? '同步已中断，下次将继续未完成的邮件' : mailServiceError(error, 'IMAP', account).message,
+      status: signal?.aborted && !stalled ? 'paused' : 'failed',
+      lastError: stalled ? signal.reason.message : signal?.aborted
+        ? '同步已中断，下次将继续未完成的邮件' : mailServiceError(error, 'IMAP', account).message,
       updatedAt: new Date().toISOString() });
     throw error;
   } finally {
     signal?.removeEventListener('abort', abort);
+    if (!suppliedWorker) await contentWorker.close();
     if (client) {
       const active = client;
       await imapOperation(active, () => active.logout(), { timeoutMs: 2000 }).catch(() => active.close());

@@ -83,6 +83,7 @@ export class Organizer {
           stage: `正在分析第 ${job.progress.batch} 批…` };
         this.onProgress?.(live);
         const result = await this.complete(config, apiKey, 'classify', context, [], { signal, stream: true, categories: job.categories,
+          diagnostics: this.repo.diagnostics,
           onProgress: partial => this.onProgress?.({ ...live, text: progressText('classify', partial) }) });
         if (signal.aborted) break;
         if (!Array.isArray(result.items)) throw new ServiceError('分类格式不正确', 502);

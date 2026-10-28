@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.1.1 与客户端同步版本，凭证改由客户端从本机 `.env` 读取，沿用现有同步、AI、附件、搜索和恢复能力；HTTP 契约和数据库结构版本 2 保持兼容。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.1.2 与客户端同步版本，凭证继续由客户端从本机 `.env` 读取，沿用现有同步、AI、附件、搜索和恢复能力；HTTP 契约和数据库结构版本 2 保持兼容。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -43,7 +43,7 @@ npm start
 | --- | --- | --- |
 | GET | `/health` | 经会话令牌认证的就绪检查，不读取全量邮件状态 |
 | GET | `/state` | 完整状态；`compact=1` 返回轻量邮件索引，不带正文及完整附件文本；同时传 `previews=0` 时仅复用已有预览缓存，未生成项为空，由 `/messages` 分页补齐；summary / translate / attachment 任务省略重复 result |
-| GET | `/messages` | `accountId`、`folder`、`filter`、`q`、`limit`、`offset`；默认每页 100，limit 1 至 200，返回总数与 nextOffset |
+| GET | `/messages` | `accountId`、`folder`、`filter`、`q`、`limit`、`offset`；默认每页 100，limit 1 至 200，返回总数与 nextOffset；`groupBy=sender` 按发件人分页，`senderGroup` 分页读取组内邮件 |
 | GET | `/messages/:id` | 完整邮件及 `bodyLoaded: true`，也支持草稿搜索结果 |
 | GET | `/messages/:id/thread` | 同账户引用链、原邮件头、总数、分页及未缓存提示 |
 | POST | `/messages/:id/reply-draft` | `all`、`forward`，按原账户生成草稿和引用头 |
@@ -55,7 +55,7 @@ npm start
 | POST / DELETE | `/accounts`、`/accounts/:id` | 保存账号配置 / 移除本机账号及缓存，保留服务器邮件；发送中禁止移除，清理包含 recovery / relocation 附件并保留其他引用 |
 | POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台立即返回并自动逐批补齐指定范围 |
 | POST | `/sync/cancel` | `accountId`；停止该账户当前同步会话，保留已下载邮件与断点，重复停止可安全返回 |
-| GET | `/sync-status` | 运行账号、文件夹进度及本次结果 |
+| GET | `/sync-status` | 运行及排队账号、文件夹进度与阶段、本次结果；结果包含 queued / running / completed / paused / failed |
 | POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿；保存响应附签名过滤后的 `preview`；删除后清理未被邮件、其他草稿及保留记录引用的附件 |
 | POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；发送中或结果不明返回 409，已发送的重复请求返回 `alreadySent: true` |
 | POST | `/attachments` | `name`、Base64 `content`，可带关联 ID 和 `contentType` |
@@ -100,6 +100,10 @@ npm start
 
 字段以 [Swift 模型](../Sources/BoxmailCore/Models.swift)、[AI 配置](../Sources/BoxmailCore/AIConfig.swift)、[客户端状态与调用](../Sources/Boxmail/Stores/MailStore.swift) 和 [server.js](src/server.js) 为准。新增字段需同步两端及相关契约测试。
 
+`GET /messages?groupBy=sender` 的 `messages` 仅包含各组的最新邮件，`senderGroups` 返回不透明的组 ID、accountId、规范化 senderEmail、latestMessageId、count、unreadCount；`total` 是匹配邮件数，`groupTotal` 是发件人数，`nextOffset` 按发件人计算。归组使用完整匹配结果的轻量元数据，只为当前页生成预览；地址忽略首尾空白和大小写，账户各自独立，空地址逐封保留。组间和组内按实际日期倒序，同一时刻按 ID 确定顺序。
+
+展开时传入返回的 `senderGroup`，并保留原有 accountId、folder、filter、q，响应继续使用逐封 `messages/total/nextOffset`。`revealId` 让聚合页附带当前查询中指定邮件的组及 `revealedMessage`，不改变常规分页偏移；用于从摘要或附件定位第一页之外的邮件。草稿搜索保持逐封响应。HTTP、搜索和数据库结构版本保持兼容。
+
 ## 数据与同步契约
 
 `database.js` 在 WAL 模式保存 `records(kind, id, JSON)` 和活动 `events`，结构版本为 2。迁移前在数据目录 `backups/` 保存一致性数据库备份，不重置较新版本数据库。外置附件放在 `attachments/`，迁移位置由客户端在服务启动前完成，双方共同持有数据目录锁。
@@ -120,7 +124,7 @@ npm start
 
 `sync-session.js` 为一次 `/sync` 请求自动续跑批次；首先同步所选范围，再轮转未完成文件夹，健康文件夹继续补齐，清单或连接失败的文件夹保留错误。正文下载失败的邮件标识保存在本次会话的 deferredSources 中，后续批次跳过这些标识，避免同一封阻塞更旧历史；健康历史完成后，仅对只剩缺失正文的文件夹再执行一轮补拉，仍失败则 paused，下次新会话重新尝试。连续失败次数跨批次累计，连续三封正文失败时直接暂停该文件夹，避免大量连接重试。指定 folder 时不处理其他文件夹，账户保持互斥；无下载或修复进展时标记 paused 并保留未完成数量，避免空转。停止和服务关闭通过同一 AbortSignal 中断后续批次，已完成记录保留。
 
-每个文件夹每批最多下载 200 封正文，并在约 20 秒预算后的下一封开始前让出；超过 1 MB 的 MIME 原文以 256 KB 分段读取，每次正文请求最多三次尝试，并核对响应 UID 与分段偏移。完整末段或 EOF 用于检查原文结尾；偏移错误、分段超量、缺项、大小不符或分段 NO / BAD 响应会回退完整 BODY.PEEK[]，替换此前所有分段，避免重复拼接或截断。单次 IMAP 读取限时 45 秒；待同步操作的文件夹选择、定位、标记、创建和移动也使用逐条 45 秒期限，并响应同步取消，失败时保留待同步记录。完整原文超过 25 MB 时拒绝缓存，已完成的邮件逐封保存。文件夹出错后关闭连接，重连并继续下一文件夹，最终汇总安全错误。客户端进度请求支持重试，每 4 秒刷新一次列表，过程中复用已打开正文，结束时完整刷新。UIDVALIDITY 变化取消旧待提交操作，附加信息只按同账户唯一 Message-ID 恢复，歧义记录保留；标志无变化时跳过写入。同步结束以最新账户记录合并 `folders` 与 `lastSync`，保留期间保存的设置。
+每个文件夹每批最多下载 200 封正文，并在约 20 秒预算后的下一封开始前让出；超过 1 MB 的 MIME 原文以 256 KB 分段读取，每次正文请求最多三次尝试，并核对响应 UID 与分段偏移。完整末段或 EOF 用于检查原文结尾；偏移错误、分段超量、缺项、大小不符或分段 NO / BAD 响应会回退完整 BODY.PEEK[]，替换此前所有分段，避免重复拼接或截断。单次 IMAP 读取限时 45 秒；待同步操作的文件夹选择、定位、标记、创建和移动也使用逐条 45 秒期限，并响应同步取消，失败时保留待同步记录。完整原文超过 25 MB 时拒绝缓存，已完成的邮件逐封保存。文件夹出错后关闭连接，重连并继续下一文件夹，最终汇总安全错误。客户端独立轮询进度，不等待所有启动响应；启动、查询与停止请求分别限时 10、8、5 秒。进度查询连续失败三次后请求停止并退出忙碌状态，内容刷新独立进行，每 12 秒至多发起一次，不阻塞进度。UIDVALIDITY 变化取消旧待提交操作，附加信息只按同账户唯一 Message-ID 恢复，歧义记录保留；标志无变化时跳过写入。同步结束以最新账户记录合并 `folders` 与 `lastSync`，保留期间保存的设置。
 
 `sync.source` 保存累计 requests、retryRequests、fullFallbacks，以及最后的 lastUID、expectedBytes、receivedBytes 和安全 lastError；failedCount、failedUIDs（最多 20 个样本）、consecutiveFailures 和 deferredOnly 表示当前会话该文件夹的正文缺项。诊断不记录凭证、主题或正文，残缺原文不会标记为已下载；恢复连接后重新校验 UIDVALIDITY，身份变化时保留原缓存并停止该文件夹。
 
@@ -194,8 +198,24 @@ npm start
 
 同步清单使用不含正文、译文和总结的临时投影；删除恢复和状态写入仍读取并保留完整原件。服务器已发送邮件按账户及 Message-ID 的索引匹配本机副本。AI 流在拼接预览前以 100 ms 合并增量，结束后仍完整校验 JSON；Files 方式上传图片不额外生成未使用的 Base64 副本。
 
-PDF 文本提取和 PDF / PPT 页面栅格化通过 `pdf-processing.js` 在工作线程运行，沿用锁定的 PDF.js 5.4.296；图像通过可转移缓冲区返回。每页编码后立即销毁画布，工作完成、取消或超过 60 秒后终止线程。20 页、1800 px 最长边及页面图片合计 25 MB 的范围保持不变，PPT 原生转换继续沿用自己的 60 秒期限。
+PDF 文本提取和 PDF / PPT 页面栅格化通过 `pdf-processing.js` 在独立子进程运行，沿用锁定的 PDF.js 5.4.296；图像通过进程 IPC 返回，并在子进程中将 Buffer 显式规范为 PDF.js 所需的 Uint8Array。每页编码后立即销毁画布，工作完成、取消或超过 60 秒后回收进程。20 页、1800 px 最长边及页面图片合计 25 MB 的范围保持不变，PPT 原生转换继续沿用自己的 60 秒期限。
 
 发送前为转发等借用的附件复制独立 ID 和文件，并与草稿引用在同一事务保存；失败清理新副本，SMTP 明确拒绝后的重试复用已准备的副本。发送成功后附件归属已发送邮件，本机副本同时保留 In-Reply-To 和 References，可立即关联原会话。同步也会修复旧版共享附件，覆盖已缓存邮件和服务器关联，保留原件及其分析，重复同步不再复制。附件理解任务同步改用新 ID，失败任务可继续重试，运行中的批量任务会跟随新引用。原邮件和转发副本可以分别预览、理解和删除。
 
 启动时发送中草稿转 uncertain、单封 AI 转失败、整理与附件批量任务转 paused，并保留结果和进度。
+
+聚合列表与组内分页复用同一查询的一份轻量元数据快照，不缓存邮件正文。SQLite 写入（含直接 SQL 和恢复）、查询变化、事务回滚或数据库连接变化后失效，避免展开多个发件人时反复扫描和排序整箱邮件；首次查询仍需扫描匹配元数据。
+
+## 运行诊断与大批量同步
+
+`sync-queue.js` 在后端统一限制最多两个账户并发，排队账户也持有账户互斥锁并支持取消。`runningAccounts` 包含排队账户，避免客户端把等待误判为完成；`results` 补充 phase、startedAt、lastProgressAt。任务连续 120 秒无阶段或进度写入时触发 SYNC_STALLED，取消共享信号并保留断点。无响应的单条 IMAP 命令仍有独立 45 秒期限。
+
+`sync-session.js` 在同一次会话内复用文件夹清单和轻量缓存头，避免每下载 200 封就再次扫描全部历史；每批通过 STATUS 检查数量、UIDVALIDITY 和 UIDNEXT，任一变化时重建清单，能检测总数相同的删除后新增；服务器未提供 UIDNEXT 时最多复用 60 秒，下一次会话重新获取。复用清单不再次推断删除或覆盖远程标志。新清单的缓存校准按 200 封分块提交并让出事件循环，元数据页间也让出，允许进度和取消请求响应。
+
+`mail-content-worker.js` 保留原调用接口，通过 `parser-process.js` 和 `parser-runner.js` 复用独立子进程处理 MIME、正文清理及同步附件提取。单项默认 60 秒，V8 old-space 预算 192 MB；`parser-owner-watch.js` 每 100 毫秒检查整个解析进程的 RSS，默认超过 512 MB 时终止进程组，也覆盖原生图像缓冲区。所有者失联时，独立管道守护逻辑即使遇到解析主循环阻塞也能清理进程。子进程不继承应用令牌、API 密钥和 Node 预加载环境。
+
+附件解析失败保留原文件并继续同步，MIME 失败进入会话内有限延后重试。文件与记录沿用原有事务规则。诊断只记录解析格式、输入大小、耗时、退出信号和静态错误分类，不保存原始 stderr。客户端也分类后端致命输出，识别服务退出并清理旧运行状态，再次同步可重新连接当前数据目录；既有待迁移计划仍等到下次 App 启动。后端资源计数仅覆盖后端进程，不包含独立解析子进程。定位证据和限制见 [build 35 崩溃记录](../docs/diagnostics/2026-10-28-parser-crash.md)。
+
+`diagnostics.js` 写入 `logs/backend.jsonl` 及两份轮转文件，每份约 1 MB，异步队列有上限。记录账户匿名标识、阶段和计数、经过归一化的 API 路由、错误类型、状态码和耗时；不记录查询参数、请求体、原始错误内容、凭证或邮件内容。模型调用和模型目录失败也记录诊断。每 30 秒保存 RSS、CPU 时间和事件循环延迟，进程退出时刷新待写记录。
+
+客户端另存 `app.jsonl`，记录 API 超时、轮询错误、连接和子进程退出。`DiagnosticArchive` 直接读取允许的轮转日志并生成 ZIP，不通过后端接口；清单只保留版本、系统、匿名账户状态和计数，排除数据库、凭证、邮件、附件和文件扩展属性。设置中的开发者页负责选择位置与显示结果。

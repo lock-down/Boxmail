@@ -41,3 +41,21 @@ private struct DecodingThread: Decodable {
       malformed.path)
   }
 }
+
+@Test @MainActor func independentStubSessionsCannotOverwriteOrUnregisterTheSameRoute() async throws
+{
+  let path = "/shared-route"
+  let first = HTTPStub(path: path, data: Data(#"{"values":["first"]}"#.utf8))
+  defer { first.close() }
+  let second = HTTPStub(path: path, data: Data(#"{"values":["second"]}"#.utf8))
+  defer { second.close() }
+  let firstBackend = BackendService(session: first.session)
+  let secondBackend = BackendService(session: second.session)
+  let a: DecodingThread = try await firstBackend.request(path)
+  let b: DecodingThread = try await secondBackend.request(path)
+  #expect(a.values == ["first"])
+  #expect(b.values == ["second"])
+  second.close()
+  let retained: DecodingThread = try await firstBackend.request(path)
+  #expect(retained.values == ["first"])
+}

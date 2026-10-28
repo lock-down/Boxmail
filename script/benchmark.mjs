@@ -46,6 +46,11 @@ try {
   await measure('contactsMs', () => assert.equal(contactSuggestions(repo, 'a0', '联系人').contacts.length, contactCount));
   await measure('conversationMs', () => assert.equal(conversation(repo, target[0].id).total, target.length));
   await measure('messagePageMs', () => assert.equal(repo.messagePage({ accountId: 'a0', folder: 'inbox' }).total, target.length));
+  const senderOptions = { accountId: 'a0', folder: 'inbox', groupBy: 'sender' };
+  await measure('senderGroupPageMs', () => assert.equal(repo.messagePage(senderOptions).total, target.length));
+  const senderGroup = repo.messagePage(senderOptions).senderGroups[0];
+  await measure('senderMemberPageMs', () => assert.equal(repo.messagePage({ ...senderOptions,
+    senderGroup: senderGroup.id }).total, senderGroup.count));
   const client = { mailbox: { uidValidity: '10', exists: target.length },
     async connect() {}, async logout() {}, close() {},
     async list() { return [{ path: 'INBOX' }]; },

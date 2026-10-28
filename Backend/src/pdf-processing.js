@@ -1,52 +1,36 @@
-import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import path from 'node:path';
 import { ServiceError } from './validation.js';
+import { ParserProcess } from './parser-process.js';
 
-// A fresh worker releases PDF.js/canvas resources after each document and keeps
-// page rasterization off the HTTP event loop. CPU accounting still includes it.
-export async function processPDF(buffer, { task = 'images', name = 'document.pdf', kind = 'pdf', signal } = {}) {
-  signal?.throwIfAborted();
-  const bytes = new Uint8Array(buffer);
-  const worker = new Worker(new URL(import.meta.url), {
-    workerData: { bytes, task, name, kind }, transferList: [bytes.buffer],
-  });
-  let timer, abort;
+// A fresh subprocess releases PDF.js/canvas resources and contains native aborts.
+export async function processPDF(buffer, { task = 'images', name = 'document.pdf', kind = 'pdf', signal,
+  diagnostics, account, processFactory = options => new ParserProcess(options) } = {}) {
+  const parser = processFactory({ signal, diagnostics, account });
   try {
-    const result = await new Promise((resolve, reject) => {
-      abort = () => reject(signal.reason);
-      signal?.addEventListener('abort', abort, { once: true });
-      timer = setTimeout(() => reject(new ServiceError('PDF 页面处理超时，请拆分文件后重试', 502)), 60000);
-      worker.once('message', message => message.error
-        ? reject(new ServiceError(message.error.message, message.error.status)) : resolve(message.result));
-      worker.once('error', () => reject(new ServiceError('PDF 页面处理未完成，请检查文件后重试', 502)));
-      worker.once('exit', () => reject(new ServiceError('PDF 页面处理已中断，请重试', 502)));
-      if (signal?.aborted) abort();
-    });
-    if (result.images) for (const image of result.images)
-      image.buffer = Buffer.from(image.buffer.buffer, image.buffer.byteOffset, image.buffer.byteLength);
+    const result = await parser.run('pdf', buffer, { task, name, kind, format: 'pdf' });
+    for (const image of result.images || []) image.buffer = Buffer.from(image.buffer);
     return result;
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', abort);
-    await worker.terminate();
-  }
+  } finally { await parser.close(); }
 }
 
-if (!isMainThread) {
-  const { bytes, task, name, kind } = workerData;
+// The runner calls this function inside the isolated parser process only.
+export async function parsePDF(bytes, { task = 'images', name = 'document.pdf', kind = 'pdf' } = {}) {
+  // Advanced process IPC preserves Buffer. PDF.js explicitly requires a plain
+  // Uint8Array, as the previous thread transfer also supplied.
+  const input = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const label = kind === 'presentation' ? 'PPT' : 'PDF';
   let cleanup = async () => {};
   try {
     let result;
     if (task === 'text') {
       const { PDFParse } = await import('pdf-parse');
-      const parser = new PDFParse({ data: bytes });
+      const parser = new PDFParse({ data: input });
       cleanup = () => parser.destroy();
       result = { text: (await parser.getText()).text.slice(0, 200000) };
     }
     else {
       const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-      const loading = getDocument({ data: bytes, verbosity: 0 });
+      const loading = getDocument({ data: input, verbosity: 0 });
       cleanup = () => loading.destroy();
       const document = await loading.promise;
       if (document.numPages > 20) throw new ServiceError(`${label} 共 ${document.numPages} 页，请拆分为每份不超过 20 页后解析`);
@@ -73,12 +57,6 @@ if (!isMainThread) {
       if (!images.length) throw new ServiceError(`${label} 没有可解析的页面`);
       result = { kind, pages: document.numPages, images };
     }
-    await cleanup();
-    parentPort.postMessage({ result }, (result.images || []).map(image => image.buffer.buffer));
-  } catch (error) {
-    await cleanup().catch(() => {});
-    parentPort.postMessage({ error: { message: error instanceof ServiceError ? error.message
-      : `${label} 无法读取，请检查文件是否损坏或受密码保护`, status: error.status || 400 } });
-  }
-  parentPort.close();
+    return result;
+  } finally { await cleanup().catch(() => {}); }
 }

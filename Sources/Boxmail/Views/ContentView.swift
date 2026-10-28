@@ -5,6 +5,7 @@ struct ContentView: View {
   @Bindable var store: MailStore
   @ViewState<Bool> private var activity = false
   @ViewState<Bool> private var searchFilters = false
+  @AppStorage("BoxmailGroupMailBySender") private var groupMailBySender = true
   var body: some View {
     HStack(spacing: 0) {
       SidebarView(store: store).frame(width: UILayout.sidebar)
@@ -19,6 +20,8 @@ struct ContentView: View {
       .container, edges: .top
     )
     .borderlessScrollers()
+    .onAppear { store.changeSenderGrouping(groupMailBySender) }
+    .onChange(of: store.groupMailBySender) { _, value in groupMailBySender = value }
     .sheet(isPresented: $store.showSettings) { SettingsView(store: store).borderlessScrollers() }
     .sheet(item: $store.composer) { draft in
       ComposerView(store: store, initial: draft).borderlessScrollers()

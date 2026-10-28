@@ -129,7 +129,8 @@ private func loadingAttachment(_ id: String, messageId: String) throws -> MailAt
   }
   for restore in [false, true] {
     let older = HTTPStub(path: "/state", data: try snapshot("older"), delayed: true)
-    let page = HTTPStub(path: "/messages", data: Data(#"{"messages":[],"total":0}"#.utf8))
+    let page = HTTPStub(
+      path: "/messages", data: Data(#"{"messages":[],"total":0}"#.utf8), scope: older)
     defer {
       older.close()
       page.close()
@@ -141,7 +142,7 @@ private func loadingAttachment(_ id: String, messageId: String) throws -> MailAt
       store.restoreRevision += 1
       store.accounts = [MailAccount(id: "newer", email: "newer@example.test", isDemo: true)]
     } else {
-      let newer = HTTPStub(path: "/state", data: try snapshot("newer"))
+      let newer = HTTPStub(path: "/state", data: try snapshot("newer"), scope: older)
       defer { newer.close() }
       try await store.refresh(reloadContent: false)
     }

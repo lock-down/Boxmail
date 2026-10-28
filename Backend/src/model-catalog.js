@@ -1,4 +1,5 @@
 import { aiConfig, aiModel, ServiceError } from './validation.js';
+import { errorDiagnostic } from './diagnostics.js';
 
 function catalogKey(config) {
   return config.providerId === 'default' && config.apiProtocol === 'openai-responses'
@@ -58,6 +59,7 @@ export async function refreshModelCatalog(repo, input, apiKey) {
       if (cursor) cursors.add(cursor);
     } while (cursor);
   } catch (error) {
+    repo.diagnostics?.record('ai.models.failed', { protocol: config.apiProtocol, ...errorDiagnostic(error) });
     if (error instanceof ServiceError) throw error;
     throw new ServiceError(error.status ? `模型列表请求失败：HTTP ${error.status}` : '模型列表连接失败或超时，请重试', 502);
   }

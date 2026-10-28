@@ -4,7 +4,8 @@ import Network
 
 extension MailStore {
   var mailQueryKey: String {
-    [accountId, destination.rawValue, filter, search, String(searchAllAccounts)].joined(separator: "\u{1f}")
+    [accountId, destination.rawValue, filter, search, String(searchAllAccounts), String(groupMailBySender)]
+      .joined(separator: "\u{1f}")
   }
   var currentSyncFolder: MailSyncFolder? {
     syncSnapshot?.folders.first { $0.accountId == accountId && $0.folder == destination.rawValue }
@@ -30,12 +31,26 @@ extension MailStore {
         value: String(reset && preserveSelection ? min(200, max(100, pageMessages.count)) : 100)),
       URLQueryItem(name: "offset", value: String(reset ? 0 : nextOffset ?? 0)),
     ]
+    if groupMailBySender {
+      query.queryItems?.append(URLQueryItem(name: "groupBy", value: "sender"))
+      if reset, preserveSelection || pinnedQueryKey == key {
+        query.queryItems?.append(URLQueryItem(name: "revealId", value: selectedMessageId))
+      }
+    }
+    let encodedQuery = (query.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
     do {
       let page: MailPage = try await self.backend.request(
-        "/messages?\(query.percentEncodedQuery ?? "")")
+        "/messages?\(encodedQuery)")
       try Task.checkCancellation()
       guard pageGeneration == generation, key == mailQueryKey else { return }
       applyMessagePage(page, reset: reset, key: key, preserveSelection: preserveSelection)
+      if reset, page.senderGroups != nil {
+        await withTaskGroup(of: Void.self) { tasks in
+          for group in senderGroups where expandedSenderGroups.contains(group.id) {
+            tasks.addTask { @MainActor in await self.loadSenderGroup(group.id, reset: true) }
+          }
+        }
+      }
     } catch is CancellationError {
     } catch {
       guard pageGeneration == generation else { return }
@@ -45,6 +60,11 @@ extension MailStore {
 
   func applyMessagePage(_ page: MailPage, reset: Bool, key: String, preserveSelection: Bool) {
     guard key == mailQueryKey else { return }
+    if page.senderGroups != nil {
+      applySenderGroupPage(page, reset: reset, key: key, preserveSelection: preserveSelection)
+      return
+    }
+    if reset { clearSenderGroups() }
     let selectionWasInQuery =
       pageKey == key
       && selectedMessageId.map { id in filteredMessages.contains { $0.id == id } } == true

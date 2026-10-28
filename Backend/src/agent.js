@@ -114,6 +114,7 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
     publish({ stage: '正在等待模型输出…' });
     const result = translation && !translation.segments.length ? { segments: [] } : await completion(input.config, input.apiKey, task, context, images,
       { additionalInstructions: preset?.instruction, stream: true, signal: input.signal,
+        diagnostics: repo.diagnostics,
         onProgress: partial => {
           const rendered = translation ? translation.render(partial) : null;
           publish({ text: rendered?.text ?? progressText(task, partial),

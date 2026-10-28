@@ -115,7 +115,14 @@ for (const apiProtocol of protocols) {
     ai.state.events = null; ai.state.text = 'invalid-json';
     await assert.rejects(completion(ai.config, '', 'compose', {}), /有效 JSON/);
     ai.state.status = 401;
-    await assert.rejects(completion(ai.config, '', 'compose', {}), /HTTP 401/);
+    const diagnostics = [];
+    await assert.rejects(completion(ai.config, '', 'compose', { request: 'private-mail-body' }, [], {
+      diagnostics: { record: (event, details) => diagnostics.push({ event, ...details }) },
+    }), /HTTP 401/);
+    assert.equal(diagnostics[0].event, 'ai.request.failed');
+    assert.equal(diagnostics[0].upstreamStatus, 401);
+    assert.equal(diagnostics[0].protocol, apiProtocol);
+    assert.equal(JSON.stringify(diagnostics).includes('private-mail-body'), false);
     await assert.rejects(completion({ ...ai.config, enabled: false }, '', 'compose', {}), /启用 AI/);
   });
 }

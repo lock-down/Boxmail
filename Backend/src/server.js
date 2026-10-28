@@ -31,6 +31,8 @@ import { updateMessageBatch } from './mail-batch.js';
 import { savedForwardFields, upgradeForwardDraft } from './forward-content.js';
 import { serviceLifecycle } from './service-lifecycle.js';
 import { syncSession } from './sync-session.js';
+import { Diagnostics, accountReference, diagnosticRoute, errorDiagnostic } from './diagnostics.js';
+import { SyncQueue } from './sync-queue.js';
 
 export async function startServer({
   directory,
@@ -43,10 +45,14 @@ export async function startServer({
   agentRun = runAgent,
   organizerComplete,
   backupCreate = createBackup,
+  syncConcurrency = 2,
+  syncStallTimeoutMs = 120000,
 }) {
   if (!token || token.length < 24)
     throw new Error('A session token is required');
   const repo = new Repository(directory);
+  const diagnostics = new Diagnostics(directory);
+  repo.diagnostics = diagnostics;
   if (demo) await seedDemo(repo);
   for (const d of repo.activeDrafts().filter((d) => d.status === 'sending'))
     repo.put('draft', { ...d, status: 'uncertain' });
@@ -62,13 +68,33 @@ export async function startServer({
   const clearingTrash = new Set();
   let maintenance = false, activeWrites = 0;
   const syncTasks = new Map();
+  const syncQueue = new SyncQueue(syncConcurrency);
+  repo.onSyncProgress = progress => {
+    const task = syncTasks.get(progress.accountId);
+    if (!task || task.status !== 'running') return;
+    task.lastProgress = performance.now();
+    task.lastProgressAt = new Date().toISOString();
+    task.phase = progress.phase || progress.status;
+    if (!task.lastLogged || performance.now() - task.lastLogged >= 5000 || progress.status !== 'running') {
+      task.lastLogged = performance.now();
+      diagnostics.record('sync.progress', { account: accountReference(progress.accountId), folder: progress.folder,
+        phase: task.phase, status: progress.status, downloaded: progress.downloaded, total: progress.total,
+        remaining: progress.remaining, metadataCount: progress.inventory?.metadataCount,
+        metadataRequests: progress.inventory?.metadataRequests, statusCount: progress.inventory?.statusCount,
+        uidCount: progress.inventory?.uidCount, metadataMissingCount: progress.inventory?.metadataMissingCount,
+        sourceRequests: progress.source?.requests, sourceRetryRequests: progress.source?.retryRequests,
+        failedCount: progress.source?.failedCount });
+    }
+  };
   const agentTasks = new Map();
   for (const progress of repo.list('sync').filter(p => p.status === 'running'))
     repo.put('sync', { ...progress, status: 'paused', lastError: '应用关闭中断了同步，可继续加载未完成的邮件' });
   function syncStatus() {
-    return { runningAccounts: [...syncTasks].filter(([, task]) => task.status === 'running').map(([id]) => id),
+    return { runningAccounts: [...syncTasks].filter(([, task]) => ['queued', 'running'].includes(task.status)).map(([id]) => id),
       folders: repo.list('sync'),
-      results: [...syncTasks].map(([accountId, task]) => ({ accountId, status: task.status, error: task.error || null })) };
+      results: [...syncTasks].map(([accountId, task]) => ({ accountId, status: task.status,
+        phase: task.phase, startedAt: task.startedAt, lastProgressAt: task.lastProgressAt,
+        error: task.error || null })) };
   }
   const aiProgress = new AIProgress();
   const onProgress = output => aiProgress.publish(output);
@@ -135,6 +161,7 @@ export async function startServer({
     };
   }
   const server = http.createServer(async (req, res) => {
+    const requestStarted = performance.now();
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -217,10 +244,15 @@ export async function startServer({
         const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 100);
         if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200)
           throw new ServiceError('分页参数无效');
+        const groupBy = url.searchParams.get('groupBy'), senderGroup = url.searchParams.get('senderGroup');
+        const revealId = url.searchParams.get('revealId');
+        if ((groupBy && groupBy !== 'sender') || (senderGroup && senderGroup.length > 2048)
+          || (revealId && revealId.length > 256)) throw new ServiceError('发件人聚合参数无效');
         result = repo.messagePage({ accountId: url.searchParams.get('accountId'),
           folder: url.searchParams.get('folder'), filter: url.searchParams.get('filter'),
-          query: url.searchParams.get('q') || '', offset, limit });
+          query: url.searchParams.get('q') || '', offset, limit, groupBy, senderGroup, revealId });
         result.messages = result.messages.map(presentMessage);
+        if (result.revealedMessage) result.revealedMessage = presentMessage(result.revealedMessage);
       } else if (req.method === 'GET' && /^\/messages\/[^/]+$/.test(route)) {
         const id = route.split('/')[2];
         result = repo.get('message', id) || draftSearchMessage(repo, id);
@@ -304,21 +336,42 @@ export async function startServer({
         if (locks.has(a.id)) throw new ServiceError('该账户正在同步', 409);
         locks.add(a.id);
         const controller = new AbortController();
-        const task = { status: 'running', controller };
+        const task = { status: 'queued', phase: 'queued', controller };
         syncTasks.set(a.id, task);
+        diagnostics.record('sync.queued', { account: accountReference(a.id), queued: syncQueue.pending.length + 1,
+          active: syncQueue.active });
         const run = async () => {
+          task.status = 'running'; task.phase = 'connect'; task.startedAt = new Date().toISOString();
+          task.lastProgress = performance.now();
+          diagnostics.record('sync.started', { account: accountReference(a.id) });
+          const watchdog = setInterval(() => {
+            if (performance.now() - task.lastProgress < syncStallTimeoutMs || controller.signal.aborted) return;
+            const error = new ServiceError('同步长时间没有进展，已暂停本次任务并保留已下载邮件，请检查网络后重试。', 504);
+            error.code = 'SYNC_STALLED';
+            diagnostics.record('sync.stalled', { account: accountReference(a.id), phase: task.phase,
+              durationMs: performance.now() - task.lastProgress, code: error.code });
+            controller.abort(error);
+          }, Math.min(1000, Math.max(10, syncStallTimeoutMs / 4)));
+          watchdog.unref();
           try {
             const result = await syncSession(repo, a, body.password, {
               syncBatch: mailSync, folder: body.folder || undefined, signal: controller.signal });
             task.status = result.partial ? 'paused' : 'completed'; return result;
-          } catch (error) {
-            task.status = controller.signal.aborted ? 'paused' : 'failed';
-            task.error = controller.signal.aborted ? '同步已停止，已下载邮件已保留'
-              : error instanceof ServiceError ? error.message : '同步未完成，请检查网络与邮箱配置后重试';
-            throw error;
-          } finally { locks.delete(a.id); }
+          } finally { clearInterval(watchdog); }
         };
-        task.promise = run();
+        task.promise = syncQueue.run(run, controller.signal).catch(error => {
+          const stalled = controller.signal.reason?.code === 'SYNC_STALLED';
+          task.status = controller.signal.aborted && !stalled ? 'paused' : 'failed';
+          task.error = stalled ? controller.signal.reason.message
+            : controller.signal.aborted ? '同步已停止，已下载邮件已保留'
+              : error instanceof ServiceError ? error.message : '同步未完成，请检查网络与邮箱配置后重试';
+          diagnostics.record('sync.failed', { account: accountReference(a.id), phase: task.phase,
+            ...errorDiagnostic(error) });
+          throw error;
+        }).finally(() => {
+          locks.delete(a.id);
+          diagnostics.record(`sync.${task.status}`, { account: accountReference(a.id), phase: task.phase });
+        });
         if (body.background === true) {
           task.promise.catch(() => {});
           result = { ok: true, status: 'running' };
@@ -328,7 +381,8 @@ export async function startServer({
       } else if (req.method === 'POST' && route === '/sync/cancel') {
         if (!repo.get('account', body.accountId)) throw new ServiceError('邮箱账号不存在', 404);
         const task = syncTasks.get(body.accountId);
-        if (task?.status === 'running') task.controller.abort(new ServiceError('同步已停止，已下载邮件已保留'));
+        if (task && ['queued', 'running'].includes(task.status))
+          task.controller.abort(new ServiceError('同步已停止，已下载邮件已保留'));
         result = { ok: true };
       } else if (req.method === 'PATCH' && route.startsWith('/messages/')) {
         const id = route.split('/')[2],
@@ -369,7 +423,7 @@ export async function startServer({
       } else if (req.method === 'POST' && route === '/ai/test') {
         await completion(body.config, body.apiKey, 'compose', {
           request: '返回 subject 和 body，内容为连接成功',
-        });
+        }, [], { diagnostics });
         result = { ok: true };
       } else if (req.method === 'GET' && route === '/ai/models') {
         const ai = repo.get('settings', 'settings').ai;
@@ -529,6 +583,8 @@ export async function startServer({
       res.writeHead(200);
       res.end(JSON.stringify(result));
     } catch (e) {
+      diagnostics.record('api.failed', { route: diagnosticRoute(req.url), method: req.method,
+        status: e.status || 500, durationMs: performance.now() - requestStarted, ...errorDiagnostic(e) });
       res.writeHead(e.status || 500);
       res.end(
         JSON.stringify({
@@ -540,15 +596,32 @@ export async function startServer({
                 : '操作失败，请检查网络、邮箱配置或文件内容',
         }),
       );
-    } finally { if (countedWrite) activeWrites--; }
+    } finally {
+      if (countedWrite) activeWrites--;
+      if (performance.now() - requestStarted >= 2000) diagnostics.record('api.slow', {
+        route: diagnosticRoute(req.url), method: req.method, status: res.statusCode,
+        durationMs: performance.now() - requestStarted });
+    }
   });
   await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
+  diagnostics.record('service.started');
+  let previousTick = performance.now(), previousCPU = process.cpuUsage();
+  const runtimeTimer = setInterval(() => {
+    const now = performance.now(), cpu = process.cpuUsage();
+    diagnostics.record('service.resources', { rssMB: process.memoryUsage().rss / 1024 / 1024,
+      lagMs: Math.max(0, now - previousTick - 30000),
+      cpuMs: (cpu.user + cpu.system - previousCPU.user - previousCPU.system) / 1000,
+      active: syncQueue.active, queued: syncQueue.pending.length });
+    previousTick = now; previousCPU = cpu;
+  }, 30000);
+  runtimeTimer.unref();
   return {
     server,
     repo,
     port: server.address().port,
     close: async () => {
-      for (const task of syncTasks.values()) if (task.status === 'running') task.controller.abort();
+      clearInterval(runtimeTimer);
+      for (const task of syncTasks.values()) if (['queued', 'running'].includes(task.status)) task.controller.abort();
       for (const task of agentTasks.values()) task.controller.abort();
       await Promise.allSettled([...syncTasks.values(), ...agentTasks.values()].map(task => task.promise));
       await organizer.close();
@@ -556,6 +629,8 @@ export async function startServer({
       aiProgress.close();
       await new Promise((resolve) => server.close(resolve));
       repo.close();
+      diagnostics.record('service.stopped');
+      await diagnostics.flush();
     },
   };
 }

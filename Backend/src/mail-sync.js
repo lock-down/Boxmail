@@ -1,19 +1,33 @@
 import { ServiceError } from './validation.js';
+import { setImmediate as yieldToRequests } from 'node:timers/promises';
+import { errorDiagnostic } from './diagnostics.js';
+
+export function mailboxUIDNext(value) {
+  return value != null && /^[1-9]\d*$/.test(String(value)) ? String(value) : null;
+}
 
 // Socket inactivity alone cannot bound a command that keeps receiving partial data.
-export async function imapOperation(client, operation, { signal, timeoutMs = 45000 } = {}) {
+export async function imapOperation(client, operation, { signal, timeoutMs = 45000, onFailure, phase } = {}) {
   signal?.throwIfAborted();
+  const started = performance.now();
   let timer, onAbort;
   const deadline = new Promise((resolve, reject) => {
     const stop = error => {
       reject(error);
       try { client.close?.(); } catch { /* A failed cleanup must not hide the deadline. */ }
     };
-    timer = setTimeout(() => stop(new ServiceError('IMAP 操作超时，已保存已完成的邮件，可继续同步。', 502)), timeoutMs);
+    timer = setTimeout(() => {
+      const error = new ServiceError('IMAP 操作超时，已保存已完成的邮件，可继续同步。', 502);
+      error.code = 'IMAP_TIMEOUT'; stop(error);
+    }, timeoutMs);
     onAbort = () => stop(signal.reason);
     signal?.addEventListener('abort', onAbort, { once: true });
   });
   try { return await Promise.race([Promise.resolve().then(operation), deadline]); }
+  catch (error) {
+    onFailure?.({ ...errorDiagnostic(error), phase, durationMs: performance.now() - started });
+    throw error;
+  }
   finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
@@ -29,12 +43,12 @@ export async function mailboxMetadata(client, remotePath, options = {}) {
     || (client.mailbox.path && client.mailbox.path !== remotePath))
     throw new ServiceError('服务器未确认邮件文件夹，本机缓存已保留，请重试同步。', 502);
   const status = await imapOperation(client,
-    () => client.status(remotePath, { messages: true, uidValidity: true }), options);
+    () => client.status(remotePath, { messages: true, uidValidity: true, uidNext: true }), { ...options, phase: 'inventory-status' });
   options.onInventory?.({ selectedCount, statusCount: status?.messages ?? null });
   if (!Number.isSafeInteger(status?.messages) || status.messages < 0
     || (status.uidValidity != null && String(status.uidValidity) !== String(validity)))
     throw new ServiceError('服务器未确认文件夹邮件数量或身份，本机缓存已保留，请重试同步。', 502);
-  const uids = await imapOperation(client, () => client.search({ all: true }, { uid: true }), options);
+  const uids = await imapOperation(client, () => client.search({ all: true }, { uid: true }), { ...options, phase: 'inventory-search' });
   options.onInventory?.({ uidCount: Array.isArray(uids) ? uids.length : null });
   if (!Array.isArray(uids) || !uids.every(uid => Number.isSafeInteger(uid) && uid > 0)
     || new Set(uids).size !== uids.length || uids.length !== status.messages)
@@ -59,10 +73,11 @@ export async function mailboxMetadata(client, remotePath, options = {}) {
           fetched.push(remote);
           if (retry) inventory.metadataRecoveredCount++;
         }
-      }, options);
+      }, { ...options, phase: 'inventory-metadata' });
     } finally { report(pending); }
   };
   for (let offset = 0; offset < uids.length; offset += 200) {
+    await yieldToRequests(undefined, { signal: options.signal });
     const page = uids.slice(offset, offset + 200);
     const pending = new Set(page);
     await fetchPage(page, pending);
@@ -82,7 +97,7 @@ export async function mailboxMetadata(client, remotePath, options = {}) {
   }
   options.signal?.throwIfAborted();
   report(new Set());
-  return { fetched, validity: String(validity) };
+  return { fetched, validity: String(validity), uidNext: mailboxUIDNext(status.uidNext ?? client.mailbox?.uidNext) };
 }
 
 function retainInternalDate(remote, response) {
@@ -110,7 +125,7 @@ export async function messageSource(client, remote, options = {}) {
       try {
         response = await imapOperation(client, () => client.fetchOne(remote.uid,
           { source, ...(attempt === 0 && (!start || source === true) ? { internalDate: true } : {}) },
-          { uid: true }), options);
+          { uid: true }), { ...options, phase: 'download' });
       } catch (error) {
         if (!options.signal?.aborted && ['NO', 'BAD'].includes(error.responseStatus) && attempt < 2) continue;
         throw error;

@@ -1,5 +1,7 @@
 import { setImmediate as yieldToRequests } from 'node:timers/promises';
 import { ServiceError } from './validation.js';
+import { MailContentWorker } from './mail-content-worker.js';
+import { accountReference } from './diagnostics.js';
 
 // One user request owns the session; each underlying pass retains its download
 // budget and checkpoint. Rotate unfinished folders instead of asking for another click.
@@ -7,6 +9,8 @@ export async function syncSession(repo, account, password, { syncBatch, folder, 
   const pending = [folder], failures = new Set();
   const deferredSources = new Set();
   const sourceFailureStreaks = new Map();
+  const inventories = new Map();
+  const contentWorker = new MailContentWorker({ signal, diagnostics: repo.diagnostics, account: accountReference(account.id) });
   let recoveryAttempted = false;
   const result = { count: 0, repaired: 0, skipped: 0, ok: true, partial: false };
   const progressFor = scope => repo.list('sync', { accountId: account.id })
@@ -20,7 +24,7 @@ export async function syncSession(repo, account, password, { syncBatch, folder, 
       let batch;
       try {
         batch = await syncBatch(repo, repo.get('account', account.id) || account, password,
-          { folder: scope, signal, deferredSources, sourceFailureStreaks });
+          { folder: scope, signal, deferredSources, sourceFailureStreaks, inventories, contentWorker });
         for (const key of ['count', 'repaired', 'skipped']) result[key] += batch?.[key] || 0;
       } catch (error) {
         if (signal?.aborted) throw error;
@@ -58,10 +62,12 @@ export async function syncSession(repo, account, password, { syncBatch, folder, 
       if (pending.length) await yieldToRequests(undefined, { signal });
     }
   } finally {
+    await contentWorker.close();
     if (signal?.aborted) for (const progress of progressFor(folder)) {
       if (!['running', 'partial'].includes(progress.status)) continue;
-      repo.put('sync', { ...progress, status: 'paused',
-        lastError: '同步已停止，已下载邮件已保留，下次同步会自动继续。', updatedAt: new Date().toISOString() });
+      repo.put('sync', { ...progress, status: signal.reason?.code === 'SYNC_STALLED' ? 'failed' : 'paused',
+        lastError: signal.reason?.code === 'SYNC_STALLED' ? signal.reason.message
+          : '同步已停止，已下载邮件已保留，下次同步会自动继续。', updatedAt: new Date().toISOString() });
     }
   }
   if (failures.size) throw new ServiceError([...failures].join('\n'), 502);

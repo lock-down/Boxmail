@@ -1,23 +1,28 @@
 import Foundation
 
-// Each route owns its response, so parallel tests cannot overwrite one another.
+// Routes belong to a session scope so parallel tests can use the same URL.
 final class HTTPStub {
   let path: String
   let session: URLSession
+  let scopeID: String
   private let lock = NSLock()
   private var pending: URLProtocol?
   private var started = false
+  private var capturedRequest: URLRequest?
+  var latestRequest: URLRequest? { lock.withLock { capturedRequest } }
   private let data: Data
   private let status: Int
   private let delayed: Bool
 
-  init(path: String, data: Data, status: Int = 200, delayed: Bool = false) {
+  init(path: String, data: Data, status: Int = 200, delayed: Bool = false, scope: HTTPStub? = nil) {
     self.path = path
     self.data = data
     self.status = status
     self.delayed = delayed
+    scopeID = scope?.scopeID ?? UUID().uuidString
     let config = URLSessionConfiguration.ephemeral
     config.protocolClasses = [StubHTTPProtocol.self]
+    config.httpAdditionalHeaders = ["X-Synthetic-HTTP": scopeID]
     session = URLSession(configuration: config)
     StubHTTPProtocol.register(self)
   }
@@ -25,6 +30,7 @@ final class HTTPStub {
   fileprivate func start(_ request: URLProtocol) {
     lock.lock()
     pending = request
+    capturedRequest = request.request
     started = true
     lock.unlock()
     if !delayed { respond() }
@@ -56,7 +62,7 @@ final class HTTPStub {
 
   func close() {
     session.invalidateAndCancel()
-    StubHTTPProtocol.unregister(path)
+    StubHTTPProtocol.unregister(self)
   }
 }
 
@@ -64,12 +70,22 @@ private final class StubHTTPProtocol: URLProtocol {
   private static let lock = NSLock()
   private static var routes: [String: HTTPStub] = [:]
 
-  static func register(_ stub: HTTPStub) { lock.withLock { routes[stub.path] = stub } }
-  static func unregister(_ path: String) { lock.withLock { routes[path] = nil } }
+  static func register(_ stub: HTTPStub) {
+    lock.withLock { routes[stub.scopeID + stub.path] = stub }
+  }
+  static func unregister(_ stub: HTTPStub) {
+    lock.withLock {
+      let key = stub.scopeID + stub.path
+      if routes[key] === stub { routes[key] = nil }
+    }
+  }
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
-    guard let path = request.url?.path, let stub = Self.lock.withLock({ Self.routes[path] }) else {
+    guard let path = request.url?.path,
+      let scope = request.value(forHTTPHeaderField: "X-Synthetic-HTTP"),
+      let stub = Self.lock.withLock({ Self.routes[scope + path] })
+    else {
       client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
       return
     }

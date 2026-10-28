@@ -30,12 +30,12 @@ git diff --check
 
 `test.sh` 先构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-0.1.1 完整回归通过 326 项后端测试、110 项 Swift 测试，无失败或跳过，新增凭证文件权限、手工修改、导入回滚、迁移与 ZIP 排除密钥的覆盖。覆盖邮件与附件提交故障、同 ID 备份恢复预览、磁盘容量不足、WAL 强制退出恢复、IMAP 期限与取消、PPT 解析取消、JSON 主线程隔离及客户端旧响应竞态；大邮箱用例一次补齐 12073 封收件箱与 543 封已发送。原生 AppKit / WebKit 测试检查列表定位、选择与分页、长收件人滚动条、转发预览和标题横排。发布时另验证正式包的图标、徽标、资源、签名、首次启动及退出清理。
+0.1.2 完整回归通过 351 项后端测试、135 项 Swift 测试，无失败或跳过，新增多账户同步与解析崩溃隔离、任务取消后的停止请求、分组刷新与回滚覆盖。HTTP 测试夹具按会话隔离，同路径可在并行测试中独立使用；客户端回归另重复三轮。保留凭证文件权限、手工修改、导入回滚、迁移与 ZIP 排除密钥覆盖。覆盖邮件与附件提交故障、同 ID 备份恢复预览、磁盘容量不足、WAL 强制退出恢复、IMAP 期限与取消、PPT 解析取消、JSON 主线程隔离及客户端旧响应竞态；大邮箱用例一次补齐 12073 封收件箱与 543 封已发送。原生 AppKit / WebKit 测试检查列表定位、选择与分页、长收件人滚动条、转发预览和标题横排。发布时另验证正式包的图标、徽标、资源、签名、首次启动及退出清理。
 
 | 需要验证的范围 | 命令 |
 | --- | --- |
 | 完整回归 | `./script/test.sh` |
-| 正文同步与大邮箱回归 | `cd Backend` 后执行 `node --test test/sync-source.test.js test/sync-reliability.test.js test/sync-inventory.test.js test/sync-session.test.js` |
+| 正文同步与大邮箱回归 | `cd Backend` 后执行 `node --test test/sync-source.test.js test/sync-reliability.test.js test/sync-inventory.test.js test/sync-session.test.js test/sync-load.test.js` |
 | 单个后端模块 | `cd Backend` 后执行 `node --test test/configuration.test.js`，按模块替换文件名 |
 | Swift 核心逻辑 | `swift test`；若宏插件未加载，使用测试脚本中的插件参数 |
 | 客户端导航与选择 | `swift test --filter BoxmailTests`；宏插件参数同上 |
@@ -69,14 +69,26 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 
 | 命令 | 负载及验证范围 |
 | --- | --- |
-| `node script/benchmark.mjs` | 默认 2400 封合成邮件、四个账户；检查索引、联系人、会话、分页、无变化同步和重复下载 |
+| `node script/benchmark.mjs` | 默认 2400 封合成邮件、四个账户；检查索引、联系人、会话、普通及聚合分页、无变化同步和重复下载 |
 | `node script/benchmark-startup.mjs` | 三个独立后端进程；测量模块载入、元数据、首屏、详情及会话就绪时间与 RSS |
 | `node script/benchmark-runtime.mjs` | 缓存追加同步、12 个流式 AI 任务、三次 20 MB 图片上传和三次 20 页 PDF 分析 |
 | `BOXMAIL_BENCHMARK_ROUNDS=40 node --expose-gc script/benchmark-runtime.mjs ai` | 120 个连续 AI 任务，检查任务完成、保存结果、流式输出及 GC 前后资源 |
 
 基准在临时目录生成数据，只使用本机模拟服务，不读取日常 App 数据或凭证文件。查询取多次中位数，启动使用独立进程，运行时模式分别建立新进程。比较版本时使用相同 Node.js、数据规模和脚本，串行运行，避免与构建或测试争用 CPU。
 
+0.1.2 在 Node.js 24.22.1、Apple Silicon 上以 `node script/benchmark.mjs 12000` 串行比较：四账户、目标账户 3,000 封、每封正文 8,000 字符，同查询聚合列表重复读取中位数 48.01 → 0.69 ms，组内分页 49.72 → 1.44 ms。快照只保留一份匹配元数据，不保存正文；SQLite 写入、查询变化、事务回滚、备份恢复或数据库连接变化后失效。这些数字测量重复读取，首次扫描仍与匹配邮件数量有关，不能据此推断网络同步速度。
+
 后端 RSS 和 HTTP 就绪时间不包含客户端、WebKit、系统冷启动与真实网络；GC 后的 JS 堆也不等于操作系统已回收内存，短期测试不能证明长期无泄漏。原生验收需单独记录客户端、后端及 WebKit 的测量范围。原始 JSON、截图和日志保存在本机 `artifacts/`。
+
+### 同步与日志故障复现
+
+`Backend/test/sync-load.test.js` 使用六个合成账户，每个账户 1001 封邮件，验证并发上限、排队取消、一个账户超时后其余账户完成，以及重试不重复下载；另检查会话清单失效、无进展看门狗和解析子进程退出。客户端 `MailSyncLifecycleTests.swift` 验证丢失或延迟的启动响应不会挡住进度轮询，查询连续失败后请求停止，内容刷新不延长同步忙碌状态，客户端任务已取消时仍发出独立且有期限的服务器停止请求。
+
+2,001 封合成历史邮件的对比中，原实现执行 11 次完整 UID 查询、读取 22,011 条清单元数据；会话内复用后为 1 次查询、2,001 条。该结果证明重复扫描减少，不代表真实服务商网络耗时或另一台 Mac 的温度测量。
+
+“设置 > 开发者”导出 ZIP，可在同步中或服务无响应时收集已落盘日志。应用和后端各保留约 3 MB，默认持续记录关键事件；只用匿名账户、阶段、计数、错误分类与耗时，禁止传入原始错误描述、邮件主题、正文或凭证。不要把配置 JSON 或真实数据目录作为诊断附件。
+
+`Backend/test/parser-isolation.test.js` 注入原生 SIGABRT、外部缓冲区占用及阻塞循环，检查解析子进程隔离、RSS 保护、断点与附件保留、取消和所有者失联后的进程回收。诊断分类不保存原始标准错误或文档内容；只复用自建进程组，不终止其他 Node 进程。后端 RSS / CPU 计数不包含这些子进程。测试机日志分析见 [诊断记录](diagnostics/2026-10-28-parser-crash.md)。
 
 ### 品牌图标
 

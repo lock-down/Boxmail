@@ -3,44 +3,22 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ServiceError } from './validation.js';
-import { isPresentation, presentationText, presentationPDF } from './presentations.js';
+import { isPresentation, presentationPDF } from './presentations.js';
 import { processPDF } from './pdf-processing.js';
+import { errorDiagnostic } from './diagnostics.js';
+import { MailContentWorker } from './mail-content-worker.js';
 
-export async function extractText(buffer, name, contentType = '', { signal } = {}) {
+export async function extractText(buffer, name, contentType = '', { signal, contentWorker, diagnostics, account } = {}) {
   signal?.throwIfAborted();
   const ext = path.extname(name).toLowerCase();
   if (['.txt', '.csv', '.md', '.json', '.log'].includes(ext))
     return buffer.toString('utf8').slice(0, 200000);
-  if (ext === '.pdf') {
-    return (await processPDF(buffer, { task: 'text', name, signal })).text;
-  }
-  if (ext === '.docx') {
-    const { default: mammoth } = await import('mammoth');
-    return (await mammoth.extractRawText({ buffer })).value.slice(0, 200000);
-  }
-  if (isPresentation({ name, contentType }))
-    return presentationText(buffer, { name, contentType }, { signal });
-  if (ext === '.xlsx') {
-    const { default: ExcelJS } = await import('exceljs');
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer);
-    let text = '';
-    for (const sheet of workbook.worksheets) {
-      text += `\n[${sheet.name}]\n`;
-      sheet.eachRow((row) => {
-        if (text.length < 200000)
-          text +=
-            row.values
-              .slice(1)
-              .map((v) =>
-                typeof v === 'object' ? JSON.stringify(v) : (v ?? ''),
-              )
-              .join('\t') + '\n';
-      });
-    }
-    return text.slice(0, 200000);
-  }
-  return '';
+  const task = ext === '.pdf' ? 'pdf' : ['.docx', '.xlsx'].includes(ext) ? ext.slice(1)
+    : isPresentation({ name, contentType }) ? 'presentation-text' : null;
+  if (!task) return '';
+  const parser = contentWorker || new MailContentWorker({ signal, diagnostics, account });
+  try { return (await parser.run(task, buffer, { task: 'text', name, contentType, format: ext.slice(1) })).text; }
+  finally { if (!contentWorker) await parser.close(); }
 }
 export async function saveAttachment(
   repo,
@@ -59,7 +37,7 @@ export async function saveAttachment(
 
 // Prepare the file before a synchronous transaction publishes it with its owner.
 export async function prepareAttachment(
-  repo, messageId, name, buffer, contentType = 'application/octet-stream', { signal } = {},
+  repo, messageId, name, buffer, contentType = 'application/octet-stream', { signal, contentWorker } = {},
 ) {
   signal?.throwIfAborted();
   if (buffer.length > 25 * 1024 * 1024)
@@ -78,8 +56,11 @@ export async function prepareAttachment(
   try {
     await writeFile(file, buffer, { mode: 0o600, flag: 'wx' });
     let text = '', parseError = '';
-    try { text = await extractText(buffer, name, contentType, { signal }); }
-    catch { parseError = '文件无法解析，可下载原文件查看'; }
+    try { text = await extractText(buffer, name, contentType, { signal, contentWorker, diagnostics: repo.diagnostics }); }
+    catch (error) {
+      repo.diagnostics?.record('attachment.parse.failed', { phase: 'attachment', ...errorDiagnostic(error) });
+      parseError = '文件解析未完成，原文件已保存，可下载原文件查看';
+    }
     signal?.throwIfAborted();
     return {
       id, messageId, name: path.basename(name), size: buffer.length, contentType,
@@ -193,10 +174,11 @@ export async function modelAttachment(repo, id, { signal } = {}) {
     return { kind: 'image', images: [{ name: metadata.name, contentType: imageType, buffer }] };
   if (isPresentation(metadata)) {
     const document = await presentationPDF(buffer, metadata, { signal });
-    return { ...await processPDF(document.buffer, { name: metadata.name, kind: 'presentation', signal }), text: document.text };
+    return { ...await processPDF(document.buffer, { name: metadata.name, kind: 'presentation', signal,
+      diagnostics: repo.diagnostics }), text: document.text };
   }
   if (ext === '.pdf' || metadata.contentType === 'application/pdf')
-    return processPDF(buffer, { name: metadata.name, signal });
+    return processPDF(buffer, { name: metadata.name, signal, diagnostics: repo.diagnostics });
   if (metadata.text?.trim()) return { kind: 'text', images: [] };
   throw new ServiceError('该附件格式暂不支持模型理解，请使用 PDF、PPT、PPTX、DOCX、XLSX、文本或 JPEG、PNG、GIF、WebP 图片');
 }

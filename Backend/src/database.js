@@ -6,6 +6,7 @@ import { SearchIndex } from './search-index.js';
 import { parseSearch, searchWhere } from './search-query.js';
 import { draftSearchPage } from './draft-search.js';
 import { mailPreview } from './mail-preview.js';
+import { senderMessagePage } from './sender-groups.js';
 
 export class Repository {
   constructor(directory) {
@@ -92,13 +93,18 @@ export class Repository {
       )
       .run(kind, value.id, JSON.stringify(value));
     if (kind === 'message' && result.changes) this.previewCache?.delete(value.id);
+    if (kind === 'sync' && result.changes) this.onSyncProgress?.(value);
     return value;
   }
   remove(kind, id) {
     this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id);
     if (kind === 'message') this.previewCache?.delete(id);
   }
-  invalidateMessagePreviews() { this.previewCache?.clear(); }
+  invalidateMessagePreviews() {
+    this.previewCache?.clear();
+    // A rolled-back transaction can have cached uncommitted grouping metadata.
+    this.senderPageSnapshot = null;
+  }
   transaction(fn) {
     const savepoint = this.db.isTransaction ? `boxmail_${randomUUID().replaceAll('-', '')}` : null;
     this.db.exec(savepoint ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE');
@@ -185,9 +191,11 @@ export class Repository {
         AND m.id=json_extract(a.data,'$.messageId') AND json_extract(m.data,'$.accountId')=?)`)
       .all(query.trim(), accountId).map(row => row.id);
   }
-  messagePage({ accountId, folder, filter, query = '', offset = 0, limit = 100 }) {
+  messagePage({ accountId, folder, filter, query = '', offset = 0, limit = 100, groupBy, senderGroup, revealId }) {
     const drafts = draftSearchPage(this, { query, accountId, folder, filter, offset, limit });
     if (drafts) return drafts;
+    if (groupBy === 'sender' || senderGroup)
+      return senderMessagePage(this, { accountId, folder, filter, query, offset, limit, senderGroup, revealId });
     const { where, params } = this.messageWhere({ accountId, folder, filter, query });
     const total = this.db.prepare(`SELECT COUNT(*) AS total FROM records m WHERE ${where}`).get(...params).total;
     const rows = this.db.prepare(`SELECT json_remove(m.data,'$.body','$.html','$.translation','$.translationHTML') AS data

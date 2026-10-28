@@ -121,7 +121,10 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
     }
     if (signal.aborted) throw signal.reason;
     const result = await events.result();
-    if (httpStatus >= 400) throw new ServiceError(`AI 服务返回 HTTP ${httpStatus}，请检查地址、密钥、协议和模型`, 502);
+    if (httpStatus >= 400) {
+      const error = new ServiceError(`AI 服务返回 HTTP ${httpStatus}，请检查地址、密钥、协议和模型`, 502);
+      error.upstreamStatus = httpStatus; throw error;
+    }
     if (result.stopReason === 'error' && /(?:parse|JSON|Unexpected token)/i.test(result.errorMessage || ''))
       throw new ServiceError('模型流式响应格式不正确，请重试', 502);
     if (result.stopReason !== 'stop') throw incomplete();

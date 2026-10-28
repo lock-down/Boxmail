@@ -205,16 +205,25 @@ public struct MailPage: Codable {
   public var messages: [MailMessage]
   public var total: Int
   public var nextOffset: Int?
+  public var senderGroups: [MailSenderGroup]?
+  public var groupTotal: Int?
+  public var revealedMessage: MailMessage?
 }
 public struct MailSyncFolder: Codable, Identifiable {
   public var id, accountId, folder, status: String
   public var total, downloaded, remaining: Int?
   public var hasMore: Bool?
   public var lastError: String?
+  public var phase: String?
+  public var inventory: MailSyncInventory?
+}
+public struct MailSyncInventory: Codable {
+  public var statusCount, uidCount, metadataCount: Int?
 }
 public struct MailSyncResult: Codable {
   public var accountId, status: String
   public var error: String?
+  public var phase, startedAt, lastProgressAt: String?
 }
 public struct MailSyncSnapshot: Codable {
   public var runningAccounts: [String]

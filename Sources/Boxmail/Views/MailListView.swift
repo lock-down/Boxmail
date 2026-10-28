@@ -6,6 +6,7 @@ struct MailListView: View {
   @ViewState<MailAccount?> private var trashAccount: MailAccount?
   @ViewState<Bool> private var showingSyncDetails = false
   @Environment(\.undoManager) private var undoManager
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var emptyingTrash: Bool { store.busy.contains("empty-trash-\(store.accountId)") }
   private var selected: [MailMessage] { store.selectedMails }
   private var emptyFolderHint: String {
@@ -26,18 +27,19 @@ struct MailListView: View {
             .font(.system(size: 14, weight: .semibold))
           Text("\(store.pageTotal)").font(UIType.small).monospacedDigit().foregroundStyle(Palette.muted)
           Spacer(minLength: 0)
+          MailListDisplayMenu(store: store)
           if store.destination == .trash {
             ActionButton(title: emptyingTrash ? "清空中…" : "清空") { trashAccount = store.currentAccount }
               .disabled(emptyingTrash || store.currentAccount == nil
                 || (store.currentAccount?.isDemo == true && store.trashMessages.isEmpty)
                 || store.busy.contains("sync") || store.mailActionInProgress)
           }
-          IconButton(icon: "checklist", help: "全选已加载邮件（Command-A）", size: 28) {
+          IconButton(icon: "checklist", help: "全选当前显示的邮件（Command-A）", size: 28) {
             store.selectAllLoadedMail()
           }.disabled(store.filteredMessages.isEmpty || store.mailActionInProgress)
           IconMenu(icon: "ellipsis", help: "邮件列表操作") {
-            Button("全选已加载邮件") { store.selectAllLoadedMail() }
-            Button("将已加载邮件全部标记已读") {
+            Button("全选当前显示的邮件") { store.selectAllLoadedMail() }
+            Button("将当前显示的邮件全部标记已读") {
               store.updateMessages(store.filteredMessages.filter { $0.unread }, changes: ["unread": false])
             }
             Divider()
@@ -85,21 +87,26 @@ struct MailListView: View {
       List(selection: Binding(get: { store.selectedMessageIds }, set: { ids in
         store.setMailSelection(ids, for: queryKey)
       })) {
-        ForEach(store.filteredMessages) { message in
-          MailRow(message: message, selected: store.selectedMessageIds.contains(message.id),
-            searchAccount: store.search.isEmpty ? nil : store.accounts.first { $0.id == message.accountId }?.email)
-            .tag(message.id)
-            .id(message.id)
-            .listRowInsets(EdgeInsets())
-            .listRowSeparator(.hidden)
-            .listRowBackground(store.selectedMessageIds.contains(message.id) ? Palette.blueSoft : Color.white)
+        if store.usesSenderGroups {
+          ForEach(store.senderGroups) { group in
+            if let latest = store.pageMessages.first(where: { $0.id == group.latestMessageId }) {
+              messageRow(latest, group: group)
+              if store.expandedSenderGroups.contains(group.id) {
+                ForEach(store.senderChildren(group)) { message in messageRow(message, child: true) }
+                MailSenderGroupFooter(store: store, group: group)
+                  .listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
+              }
+            }
+          }
+        } else {
+          ForEach(store.filteredMessages) { message in messageRow(message) }
         }
         if store.nextOffset != nil || store.listLoading {
           HStack {
             Spacer()
             if store.listLoading { ProgressView("正在加载…").controlSize(.small) }
             else {
-              ActionButton(title: "显示更多邮件", icon: "chevron.down") {
+              ActionButton(title: store.usesSenderGroups ? "显示更多发件人" : "显示更多邮件", icon: "chevron.down") {
                 Task { await store.loadMessages(reset: false) }
               }
             }
@@ -117,9 +124,15 @@ struct MailListView: View {
           guard selected.count > 1 else { return .ignored }
           store.clearMailSelection(); return .handled
         }
+        .onKeyPress(.rightArrow) {
+          store.expandSelectedSenderGroup() ? .handled : .ignored
+        }
+        .onKeyPress(.leftArrow) {
+          store.collapseSelectedSenderGroup() ? .handled : .ignored
+        }
         .disabled(store.mailActionInProgress || emptyingTrash)
         .accessibilityLabel("邮件列表")
-        .accessibilityHint("上下方向键切换，Shift 连续选择，Command 点击多选，Command-A 全选已加载邮件。")
+        .accessibilityHint("上下方向键切换，左右方向键展开或折叠发件人，Shift 连续选择，Command 点击多选，Command-A 全选当前显示的邮件。")
         .id(queryKey)
         .task(id: store.readyMailReveal?.id) {
           guard let request = store.readyMailReveal else { return }
@@ -129,6 +142,18 @@ struct MailListView: View {
           store.finishMailReveal(request)
         }
     }
+  }
+
+  private func messageRow(_ message: MailMessage, group: MailSenderGroup? = nil, child: Bool = false) -> some View {
+    MailRow(message: message, selected: store.selectedMessageIds.contains(message.id),
+      searchAccount: store.search.isEmpty ? nil : store.accounts.first { $0.id == message.accountId }?.email,
+      senderGroup: group, isSenderChild: child,
+      expanded: group.map { store.expandedSenderGroups.contains($0.id) } ?? false,
+      toggleGroup: group.flatMap { value in value.count > 1 ? {
+        withAnimation(UIMotion.disclosure(reduceMotion)) { store.toggleSenderGroup(value.id) }
+      } : nil })
+      .tag(message.id).id(message.id).listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
+      .listRowBackground(store.selectedMessageIds.contains(message.id) ? Palette.blueSoft : Color.white)
   }
 
   private var status: some View {
@@ -244,20 +269,51 @@ struct MailRow: View {
   let message: MailMessage
   var selected = false
   var searchAccount: String? = nil
+  var senderGroup: MailSenderGroup? = nil
+  var isSenderChild = false
+  var expanded = false
+  var toggleGroup: (() -> Void)? = nil
+  private var unread: Bool { senderGroup.map { $0.unreadCount > 0 } ?? message.unread }
+  private var rowLabel: String {
+    "\(message.sender)，\(message.subject.isEmpty ? "无主题" : message.subject)，\(accessibilityStatus)"
+  }
   var body: some View {
     HStack(alignment: .top, spacing: 8) {
-      Circle().fill(message.unread ? Palette.blue : .clear).frame(width: 6, height: 6).padding(.top, 5)
+      if let toggleGroup {
+        Button(action: toggleGroup) {
+          Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+            .rotationEffect(.degrees(expanded ? 90 : 0)).foregroundStyle(Palette.muted)
+            .frame(width: 20, height: 22).contentShape(Rectangle())
+        }.buttonStyle(ControlFeedback(corner: 4)).controlFocus(corner: 4).padding(.top, -3)
+          .help("\(expanded ? "折叠" : "展开") \(message.sender) 的 \(senderGroup?.count ?? 0) 封邮件")
+          .accessibilityLabel("\(expanded ? "折叠" : "展开") \(message.sender) 的 \(senderGroup?.count ?? 0) 封邮件")
+          .accessibilityValue(expanded ? "已展开" : "已折叠")
+      } else if senderGroup != nil {
+        Color.clear.frame(width: 20, height: 1).accessibilityHidden(true)
+      }
+      Circle().fill(unread ? Palette.blue : .clear).frame(width: 6, height: 6).padding(.top, 5)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 4) {
-        HStack(spacing: 8) {
-          Text(message.sender).font(.system(size: 12, weight: message.unread ? .semibold : .regular)).lineLimit(1)
-          Spacer(minLength: 0)
-          Text(displayTime(message.date)).font(UIType.small).monospacedDigit().foregroundStyle(Palette.muted).fixedSize()
+        if !isSenderChild {
+          HStack(spacing: 6) {
+            Text(message.sender).font(.system(size: 12, weight: unread ? .semibold : .regular)).lineLimit(1)
+            if let group = senderGroup, group.count > 1 {
+              Text("\(group.count)").font(.system(size: 10, weight: .medium)).monospacedDigit()
+                .foregroundStyle(Palette.muted).padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 4))
+                .help("共 \(group.count) 封，\(group.unreadCount) 封未读")
+            }
+            Spacer(minLength: 0)
+            Text(displayTime(message.date)).font(UIType.small).monospacedDigit().foregroundStyle(Palette.muted).fixedSize()
+          }
         }
         HStack(spacing: 6) {
           Text(message.subject.isEmpty ? "（无主题）" : message.subject)
             .font(.system(size: 13, weight: message.unread ? .semibold : .medium)).lineLimit(1)
           Spacer(minLength: 0)
+          if isSenderChild {
+            Text(displayTime(message.date)).font(UIType.small).monospacedDigit().foregroundStyle(Palette.muted).fixedSize()
+          }
           if message.starred { Image(systemName: "star.fill").foregroundStyle(Palette.amber) }
           if message.summary != nil {
             Image(systemName: "sparkles").foregroundStyle(Palette.blue).help("已有 AI 总结")
@@ -278,15 +334,14 @@ struct MailRow: View {
           Text("\(searchAccount) · \(MailDestination(rawValue: message.folder)?.title ?? "垃圾邮件")")
             .font(UIType.small).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle)
         }
-      }
-    }.padding(.horizontal, 12).padding(.vertical, 11)
+      }.accessibilityElement(children: .ignore).accessibilityLabel(rowLabel)
+        .accessibilityHint(message.preview)
+    }.padding(.leading, isSenderChild ? 40 : 12).padding(.trailing, 12).padding(.vertical, isSenderChild ? 9 : 11)
       .frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(Palette.ink)
       .background(selected ? Palette.blueSoft : .white)
       .overlay(alignment: .leading) { if selected { Rectangle().fill(Palette.blue).frame(width: 1) } }
       .overlay(alignment: .bottom) { Rectangle().fill(Palette.softBorder).frame(height: 1) }
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("\(message.sender)，\(message.subject.isEmpty ? "无主题" : message.subject)，\(accessibilityStatus)")
-      .accessibilityHint(message.preview)
+      .accessibilityElement(children: .contain)
   }
   private var accessibilityStatus: String {
     var parts = [message.unread ? "未读" : "已读", displayTime(message.date)]
@@ -295,6 +350,9 @@ struct MailRow: View {
     if message.summary != nil { parts.append("已有 AI 总结") }
     if message.category != "未分类" { parts.append(message.category) }
     if let searchAccount { parts.append(searchAccount) }
+    if let group = senderGroup, group.count > 1 {
+      parts.append("同一发件人共 \(group.count) 封，\(group.unreadCount) 封未读，\(expanded ? "已展开" : "已折叠")")
+    }
     return parts.joined(separator: "，")
   }
 }

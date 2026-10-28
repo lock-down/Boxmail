@@ -6,9 +6,13 @@ import SwiftUI
 
 @Observable @MainActor final class MailStore {
   @ObservationIgnored let backend: BackendService
+  @ObservationIgnored let readMailPassword: @MainActor (String) throws -> String
   @ObservationIgnored var conversationBodyRequests: [String: UUID] = [:]
   @ObservationIgnored private var refreshGeneration = UUID()
-  init(backend: BackendService? = nil) { self.backend = backend ?? .shared }
+  init(backend: BackendService? = nil, readMailPassword: (@MainActor (String) throws -> String)? = nil) {
+    self.backend = backend ?? .shared
+    self.readMailPassword = readMailPassword ?? CredentialService.mailPassword(for:)
+  }
 
   var accounts: [MailAccount] = []
   var messages: [MailMessage] = []
@@ -65,6 +69,18 @@ import SwiftUI
   var attachmentBatchErrors: [String: String] = [:]
   var attachmentBatchPolling: Task<Void, Never>?
   var pageMessages: [MailMessage] = []
+  var groupMailBySender = false
+  var senderGroups: [MailSenderGroup] = []
+  var senderGroupTotal = 0
+  var senderGroupsLoaded = false
+  var expandedSenderGroups: Set<String> = []
+  var senderGroupMessages: [String: [MailMessage]] = [:]
+  var senderGroupNextOffsets: [String: Int] = [:]
+  var senderGroupLoading: Set<String> = []
+  var senderGroupErrors: [String: String] = [:]
+  var senderRevealedMessage: MailMessage?
+  @ObservationIgnored var senderGroupRevision = UUID()
+  @ObservationIgnored var senderGroupGenerations: [String: UUID] = [:]
   var pageTotal = 0
   var nextOffset: Int?
   var pageKey = ""
@@ -80,6 +96,9 @@ import SwiftUI
   var syncingFolder: String?
   var syncCancellationRequested = false
   var syncCancelInFlight = false
+  var syncStatusIssue: String?
+  @ObservationIgnored var syncContentRefresh: Task<Void, Never>?
+  @ObservationIgnored var syncPollInterval: Duration = .seconds(1)
   var pinnedMessageId: String?
   var pinnedQueryKey = ""
   var wakeObserver: NSObjectProtocol?
@@ -91,7 +110,7 @@ import SwiftUI
   var currentAccount: MailAccount? { accounts.first { $0.id == accountId } }
   var selectedMessage: MailMessage? {
     guard let id = selectedMessageId else { return nil }
-    return detailCache[id] ?? messages.first { $0.id == id } ?? pageMessages.first { $0.id == id }
+    return detailCache[id] ?? filteredMessages.first { $0.id == id } ?? messages.first { $0.id == id }
   }
   var selectedMailForCommands: MailMessage? {
     guard ready, composer == nil, !showSettings, previewAttachment == nil, isMailWorkspace,
@@ -110,6 +129,7 @@ import SwiftUI
   }
   var filteredMessages: [MailMessage] {
     guard pageKey == mailQueryKey else { return [] }
+    if usesSenderGroups { return visibleSenderMessages }
     if pinnedQueryKey == mailQueryKey, let id = pinnedMessageId,
       !pageMessages.contains(where: { $0.id == id }),
       let message = detailCache[id] ?? messages.first(where: { $0.id == id })
@@ -143,7 +163,10 @@ import SwiftUI
           if !Task.isCancelled { await syncAll(silent: true) }
         }
       }
-    } catch { startupError = error.localizedDescription }
+    } catch {
+      backend.diagnostics.record("service.start.failed", RuntimeDiagnostics.errorFields(error))
+      startupError = error.localizedDescription
+    }
   }
   func refresh(reloadContent: Bool = true) async throws {
     let generation = UUID()
@@ -265,101 +288,6 @@ import SwiftUI
       var input: [String: Any] = ["accountId": account.id, "approved": true]
       if !account.isDemo { input["password"] = try CredentialService.mailPassword(for: account.id) }
       try await self.backend.perform("/trash/empty", body: input)
-    }
-  }
-  func syncAll(silent: Bool = false, folder: String? = nil) async {
-    guard !busy.contains("sync") else { return }
-    busy.insert("sync")
-    syncingAccountIds = []
-    syncingFolder = folder
-    syncCancellationRequested = false
-    defer {
-      busy.remove("sync")
-      syncingAccountIds = []
-      syncingFolder = nil
-      syncCancellationRequested = false
-    }
-    let real = accounts.filter { !$0.isDemo && (folder == nil || $0.id == accountId) }
-    if real.isEmpty {
-      if !silent {
-        showSettings = true
-        settingsTab = "账号"
-      }
-      return
-    }
-    var failures: [String] = []
-    var started = Set<String>()
-    for account in real {
-      if syncCancellationRequested || Task.isCancelled { break }
-      do {
-        let password = try CredentialService.mailPassword(for: account.id)
-        credentialIssueAccounts.remove(account.id)
-        var input: [String: Any] = [
-          "accountId": account.id, "password": password, "background": true,
-        ]
-        if let folder { input["folder"] = folder }
-        try await self.backend.perform("/sync", body: input)
-        started.insert(account.id)
-        syncingAccountIds = started
-        if syncCancellationRequested { await cancelSync() }
-      } catch {
-        if CredentialService.isCredentialError(error) {
-          credentialIssueAccounts.insert(account.id)
-          if silent { continue }
-        }
-        // A lost start response or a previous polling interruption can leave a
-        // healthy background sync running. Rejoin it instead of reporting a conflict.
-        if let snapshot: MailSyncSnapshot = try? await self.backend.request(
-          "/sync-status", timeout: 30), snapshot.runningAccounts.contains(account.id)
-        {
-          started.insert(account.id)
-          syncingAccountIds = started
-          syncSnapshot = snapshot
-          if syncCancellationRequested { await cancelSync() }
-          continue
-        }
-        failures.append("\(account.email)：\(error.localizedDescription)")
-      }
-    }
-    do {
-      var pollingFailures = 0
-      var lastRefresh = Date.distantPast
-      var lastDownloaded = syncSnapshot?.folders.reduce(0) { $0 + ($1.downloaded ?? 0) } ?? -1
-      while !started.isEmpty && !Task.isCancelled {
-        let snapshot: MailSyncSnapshot
-        do {
-          snapshot = try await self.backend.request("/sync-status", timeout: 30)
-          pollingFailures = 0
-        } catch is CancellationError { return
-        } catch {
-          pollingFailures += 1
-          if pollingFailures >= 5 { throw error }
-          try await Task.sleep(for: .seconds(2))
-          continue
-        }
-        syncSnapshot = snapshot
-        if !snapshot.runningAccounts.contains(where: { started.contains($0) }) {
-          for result in snapshot.results
-          where started.contains(result.accountId) && result.status == "failed" {
-            let name = accounts.first { $0.id == result.accountId }?.email ?? "邮箱"
-            failures.append("\(name)：\(result.error ?? "同步未完成")")
-          }
-          break
-        }
-        let downloaded = snapshot.folders.reduce(0) { $0 + ($1.downloaded ?? 0) }
-        if downloaded != lastDownloaded && Date().timeIntervalSince(lastRefresh) >= 4 {
-          try? await refresh(reloadContent: false)
-          lastRefresh = Date()
-          lastDownloaded = downloaded
-        }
-        try await Task.sleep(for: .seconds(1))
-      }
-      try await refresh()
-    } catch is CancellationError {
-      return
-    } catch { failures.append(error.localizedDescription) }
-    if !failures.isEmpty {
-      if !silent { error = failures.joined(separator: "\n") }
     }
   }
   func newDraft(reply: MailMessage? = nil, forward: Bool = false, all: Bool = false) {
@@ -544,6 +472,7 @@ import SwiftUI
     }
   }
   func stop() async {
+    syncContentRefresh?.cancel()
     aiStreamTask?.cancel()
     polling?.cancel()
     organizePolling?.cancel()
