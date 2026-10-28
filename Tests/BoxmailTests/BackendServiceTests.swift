@@ -14,6 +14,41 @@ private struct DecodingThread: Decodable {
   }
 }
 
+@Test @MainActor func backendLogsTheRequestAndTriggeringRecordFieldWithoutResponseValues()
+  async throws
+{
+  struct Envelope: Decodable {
+    struct Message: Decodable { let uid: Int }
+    let messages: [Message]
+  }
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+    "BoxmailDecodeLog-\(UUID())")
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let payload = Data(
+    #"{"messages":[{"id":"synthetic-record","accountId":"synthetic-account","uid":"PRIVATE FIELD VALUE"}]}"#
+      .utf8)
+  let stub = HTTPStub(path: "/shape-\(UUID())", data: payload)
+  defer { stub.close() }
+  let journal = RuntimeDiagnostics(directory: directory)
+  let backend = BackendService(session: stub.session, diagnostics: journal)
+  do {
+    let _: Envelope = try await backend.request(stub.path)
+    Issue.record("Invalid UID must fail decoding")
+  } catch { #expect(error is DecodingError) }
+  await journal.flush()
+  let log = try String(
+    contentsOf: directory.appendingPathComponent("logs/app.jsonl"), encoding: .utf8)
+  let entry = try #require(JSONSerialization.jsonObject(with: Data(log.utf8)) as? [String: String])
+  #expect(entry["field"] == "$.messages[0].uid")
+  #expect(entry["expectedType"] == "integer" && entry["actualType"] == "string")
+  #expect(entry["record"] == RuntimeDiagnostics.accountReference("synthetic-record"))
+  #expect(entry["account"] == RuntimeDiagnostics.accountReference("synthetic-account"))
+  #expect(
+    entry["requestID"] == stub.latestRequest?.value(forHTTPHeaderField: "X-Boxmail-Request-ID"))
+  #expect(UUID(uuidString: entry["requestID"] ?? "") != nil)
+  #expect(!log.contains("PRIVATE FIELD VALUE") && !log.contains("synthetic-record"))
+}
+
 @Test @MainActor func committedSettingsRemainSavedWhenUnrelatedMailRefreshFails() async throws {
   var saved = SettingsData()
   saved.preferences.fontSize = 18

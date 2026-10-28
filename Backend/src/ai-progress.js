@@ -24,20 +24,22 @@ export function progressText(task, result) {
 
 // Progress is ephemeral. Durable results are committed only after validation.
 export class AIProgress {
-  constructor() { this.active = new Map(); this.clients = new Set(); this.events = new EventEmitter(); this.events.setMaxListeners(0); }
+  constructor({ diagnostics } = {}) { this.diagnostics = diagnostics; this.active = new Map(); this.clients = new Set(); this.events = new EventEmitter(); this.events.setMaxListeners(0); }
   publish(output) {
     if (output.status === 'running') this.active.set(output.id, output);
     else this.active.delete(output.id);
     this.events.emit('output', output);
   }
-  subscribe(res) {
+  subscribe(res, { requestID } = {}) {
     this.clients.add(res);
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'X-Accel-Buffering': 'no' });
     const send = event => {
       if (!res.destroyed && !res.writableEnded) {
         // A slow reader must reconnect for a snapshot instead of accumulating model output.
         if (res.writableLength > 4_000_000) { res.destroy(); return; }
-        res.write(`data: ${unicodeJSON(event)}\n\n`);
+        res.write(`data: ${unicodeJSON(event, { recordKind: 'ai_output', onInvalid: details =>
+          this.diagnostics?.recordCoalesced('data.unicode.repaired', { ...details, phase: 'stream',
+            route: '/ai/events', method: 'GET', requestID }) })}\n\n`);
       }
     };
     send({ type: 'snapshot', outputs: [...this.active.values()] });

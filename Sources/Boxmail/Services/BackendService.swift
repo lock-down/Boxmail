@@ -206,7 +206,9 @@ import Foundation
     let endpointPort = await port
     let diagnostics = diagnostics
     let started = Date()
+    let requestID = UUID().uuidString.lowercased()
     var status: Int?
+    var responseData: Data?
     do {
       if await hasExited { throw await failure(disconnectedMessage) }
       guard let url = URL(string: "http://127.0.0.1:\(endpointPort)\(path)") else {
@@ -216,12 +218,14 @@ import Foundation
       request.httpMethod = method
       request.timeoutInterval = timeout
       request.setValue(token, forHTTPHeaderField: "X-Boxmail-Token")
+      request.setValue(requestID, forHTTPHeaderField: "X-Boxmail-Request-ID")
       if let body {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
       }
       try Task.checkCancellation()
       let (data, response) = try await session.data(for: request)
+      responseData = data
       try Task.checkCancellation()
       guard let response = response as? HTTPURLResponse else { throw failure("本机服务无响应") }
       status = response.statusCode
@@ -238,13 +242,16 @@ import Foundation
           [
             "route": RuntimeDiagnostics.route(path), "method": method,
             "status": String(response.statusCode),
+            "requestID": requestID,
             "durationMs": String(Int(Date().timeIntervalSince(started) * 1000)),
           ])
       }
       return result
     } catch {
       if !(error is CancellationError) && (error as NSError).code != NSURLErrorCancelled {
-        var fields = RuntimeDiagnostics.errorFields(error)
+        var fields = RuntimeDiagnostics.errorFields(error, responseData: responseData)
+        fields["requestID"] = requestID
+        if let responseData { fields["responseBytes"] = String(responseData.count) }
         fields["route"] = RuntimeDiagnostics.route(path)
         fields["method"] = method
         fields["durationMs"] = String(Int(Date().timeIntervalSince(started) * 1000))
@@ -261,11 +268,13 @@ import Foundation
   }
   nonisolated func aiEvents(receive: @MainActor (AIStreamEvent) -> Void) async throws {
     let endpointPort = await port
+    let requestID = UUID().uuidString.lowercased()
     guard let url = URL(string: "http://127.0.0.1:\(endpointPort)/ai/events") else {
       throw failure("接口地址无效")
     }
     var request = URLRequest(url: url)
     request.setValue(token, forHTTPHeaderField: "X-Boxmail-Token")
+    request.setValue(requestID, forHTTPHeaderField: "X-Boxmail-Request-ID")
     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
     let (bytes, response) = try await session.bytes(for: request)
     guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
@@ -275,8 +284,18 @@ import Foundation
       try Task.checkCancellation()
       guard line.hasPrefix("data: ") else { continue }
       guard line.utf8.count <= 12_000_000 else { throw failure("AI 输出过长") }
-      let event = try JSONDecoder().decode(AIStreamEvent.self, from: Data(line.dropFirst(6).utf8))
-      await receive(event)
+      let payload = Data(line.dropFirst(6).utf8)
+      do {
+        let event = try JSONDecoder().decode(AIStreamEvent.self, from: payload)
+        await receive(event)
+      } catch {
+        var fields = RuntimeDiagnostics.errorFields(error, responseData: payload)
+        fields["route"] = "/ai/events"
+        fields["method"] = "GET"
+        fields["requestID"] = requestID
+        diagnostics.record("api.stream.failed", fields)
+        throw error
+      }
     }
   }
   nonisolated func failure(_ message: String) -> NSError {

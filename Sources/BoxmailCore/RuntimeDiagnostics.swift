@@ -35,7 +35,7 @@ public final class RuntimeDiagnostics: @unchecked Sendable {
       + (value.split(separator: "?", maxSplits: 1).first ?? "").split(separator: "/").prefix(6)
       .map { known.contains(String($0)) ? String($0) : ":id" }.joined(separator: "/")
   }
-  public static func errorFields(_ error: Error) -> [String: String] {
+  public static func errorFields(_ error: Error, responseData: Data? = nil) -> [String: String] {
     let value = error as NSError
     let domains: Set<String> = [
       NSURLErrorDomain, NSCocoaErrorDomain, NSPOSIXErrorDomain,
@@ -45,49 +45,15 @@ public final class RuntimeDiagnostics: @unchecked Sendable {
       "errorType": domains.contains(value.domain) ? value.domain : "Error",
       "code": String(value.code),
     ]
-    let context: DecodingError.Context
-    switch error {
-    case DecodingError.typeMismatch(_, let detail):
-      context = detail
-      fields["reason"] = "type_mismatch"
-    case DecodingError.valueNotFound(_, let detail):
-      context = detail
-      fields["reason"] = "value_missing"
-    case DecodingError.keyNotFound(_, let detail):
-      context = detail
-      fields["reason"] = "key_missing"
-    case DecodingError.dataCorrupted(let detail):
-      context = detail
-      fields["reason"] = "invalid_value"
-    default: return fields
-    }
-    // Coding paths may contain dictionary keys supplied by a mail or provider.
-    // Keep only known schema fields and replace indexes and unknown keys.
-    let known: Set<String> = [
-      "accounts", "messages", "drafts", "attachments", "jobs", "settings", "events", "sync",
-      "folders", "results",
-      "id", "accountId", "folder", "sender", "senderEmail", "to", "cc", "bcc", "subject", "body",
-      "html", "preview", "date",
-      "category", "unread", "starred", "attachmentIds", "summary", "messageId", "references",
-      "replyTo", "inReplyTo",
-      "bodyVersion", "bodyLoaded", "uid", "text", "name", "path", "contentType", "size",
-      "parseError", "analysis",
-      "ai", "preferences", "providers", "models", "model", "status", "phase", "error", "total",
-      "downloaded", "remaining",
-      "points", "todos", "keyInfo", "nextSteps", "title", "due", "done", "label", "value",
-      "progress", "inventory",
-    ]
-    let path = context.codingPath.map { key in
-      key.intValue != nil ? "[]" : known.contains(key.stringValue) ? key.stringValue : ":key"
-    }.joined(separator: ".")
-    fields["phase"] = "decode"
-    fields["field"] = path.isEmpty ? "$" : String(path.prefix(160))
+    fields.merge(WireFailureDiagnostic.fields(error, data: responseData)) { _, new in new }
     return fields
   }
   public func record(_ event: String, _ details: [String: String] = [:]) {
     let allowed: Set<String> = [
       "account", "phase", "status", "method", "route", "code", "errorType",
       "durationMs", "downloaded", "total", "remaining", "attempt", "count", "reason", "field",
+      "requestID", "record", "recordKind",
+      "expectedType", "actualType", "responseBytes",
     ]
     guard event.range(of: "^[a-z][a-z0-9_.]{1,64}$", options: .regularExpression) != nil else {
       return

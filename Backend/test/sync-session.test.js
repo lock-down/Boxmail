@@ -10,7 +10,7 @@ import { ServiceError } from '../src/validation.js';
 
 const token = 'boxmail-auto-sync-synthetic-session';
 async function fixture(t, boxes = { INBOX: 2601, Sent: 201 }) {
-  const state = { calls: [], sources: [], missing: false, failingFolder: null, bodyDelay: 0 };
+  const state = { calls: [], sources: [], missing: false, failingFolder: null, bodyDelay: 0, beforeSource: null };
   const clientFactory = () => {
     let selected, closed = false;
     return {
@@ -27,6 +27,7 @@ async function fixture(t, boxes = { INBOX: 2601, Sent: 201 }) {
       async search() { return Array.from({ length: boxes[selected] }, (_, i) => i + 1); },
       async *fetch(page) { for (const uid of page) yield { uid, flags: new Set(), size: 200 }; },
       async fetchOne(uid) {
+        if (state.beforeSource) await state.beforeSource(uid);
         if (state.bodyDelay) await delay(state.bodyDelay);
         if (closed || state.missing) return false;
         state.sources.push(`${selected}:${uid}`);
@@ -113,15 +114,21 @@ test('one failed folder still allows healthy folders to finish all automatic bat
 
 test('stopping a session preserves its checkpoint, releases the lock and resumes without duplicate downloads', async t => {
   const app = await fixture(t, { INBOX: 405 });
-  app.state.bodyDelay = 4;
+  let release, blocked = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  app.state.beforeSource = async uid => {
+    if (uid === 402) { blocked = true; await gate; }
+  };
   await app.start();
-  await app.waitFor(value => value.folders.some(folder => folder.downloaded >= 3));
+  await app.waitFor(() => blocked);
   assert.equal((await app.start()).status, 409);
   assert.equal((await app.request('/sync/cancel', { accountId: 'a1' })).status, 200);
   const paused = await app.waitFor(value => !value.runningAccounts.length);
   assert.equal(paused.results[0].status, 'paused');
   assert.ok(paused.folders[0].downloaded >= 3 && paused.folders[0].downloaded < 405);
-  app.state.bodyDelay = 0;
+  release();
+  app.state.beforeSource = null;
   assert.equal((await app.start()).status, 200);
   const completed = await app.waitFor(value => !value.runningAccounts.length);
   assert.equal(completed.results[0].status, 'completed');

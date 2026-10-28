@@ -16,10 +16,10 @@ export function fatalCategory(text) {
 // Parsers get their own process, temp directory, heap budget and process group.
 // The HTTP/SQLite process never imports PDF/canvas or office parsers to do work.
 export class ParserProcess {
-  constructor({ signal, timeoutMs = 60000, diagnostics, account,
+  constructor({ signal, timeoutMs = 60000, diagnostics, account, requestID,
     executable = new URL('./parser-runner.js', import.meta.url), rssLimitBytes = 512 * 1024 * 1024 } = {}) {
     this.signal = signal; this.timeoutMs = timeoutMs; this.diagnostics = diagnostics;
-    this.account = account; this.executable = executable;
+    this.account = account; this.executable = executable; this.requestID = requestID;
     this.rssLimitBytes = Math.min(512 * 1024 * 1024, Math.max(64 * 1024 * 1024, rssLimitBytes));
     this.child = null; this.busy = false; this.completedTasks = 0; this.lastRSS = 0;
   }
@@ -60,7 +60,7 @@ export class ParserProcess {
     const started = performance.now();
     let child, timer, abort, receive, failed, exited;
     const formats = new Set(['mime', 'pdf', 'docx', 'xlsx', 'ppt', 'pptx', 'pps', 'ppsx', 'presentation']);
-    const details = { account: this.account, parser: task, format: formats.has(options.format) ? options.format : 'unknown',
+    const details = { account: this.account, requestID: this.requestID, parser: task, format: formats.has(options.format) ? options.format : 'unknown',
       bytes: buffer.length, phase: 'parse' };
     try {
       child = await this.start();

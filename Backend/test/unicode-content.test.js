@@ -11,6 +11,7 @@ import { parseMailContent } from '../src/mail-content-worker.js';
 import { Repository } from '../src/database.js';
 import { saveAttachment } from '../src/attachments.js';
 import { AIProgress } from '../src/ai-progress.js';
+import { accountReference } from '../src/diagnostics.js';
 
 const astral = String.fromCodePoint(0x20bb7);
 test('mail previews never publish half of an astral character at the length boundary', () => {
@@ -64,9 +65,12 @@ test('legacy malformed MIME headers cannot poison startup snapshots, details or 
     starred: false, attachmentIds: [] };
   // Bypass current writes to represent an already-cached message from an older build.
   app.repo.db.prepare('INSERT INTO records VALUES(?,?,?)').run('message', message.id, JSON.stringify(message));
+  const requestID = 'd142f510-26a0-4a40-8bd1-1d8accc9f365';
   const get = async route => {
-    const response = await fetch(`http://127.0.0.1:${app.port}${route}`, { headers: { 'X-Boxmail-Token': token } });
+    const response = await fetch(`http://127.0.0.1:${app.port}${route}`, {
+      headers: { 'X-Boxmail-Token': token, 'X-Boxmail-Request-ID': requestID } });
     assert.equal(response.status, 200);
+    assert.equal(response.headers.get('x-boxmail-request-id'), requestID);
     return response.json();
   };
   for (const route of ['/state?compact=1&previews=0', '/state', '/messages/legacy', '/messages?groupBy=sender']) {
@@ -76,4 +80,16 @@ test('legacy malformed MIME headers cannot poison startup snapshots, details or 
     if (!route.includes('compact') && !route.includes('groupBy')) assert.equal(value.body, message.body);
   }
   assert.equal(app.repo.get('message', 'legacy').body, message.body);
+  await app.repo.diagnostics.flush();
+  const raw = await readFile(path.join(directory, 'logs/backend.jsonl'), 'utf8');
+  const issue = raw.trim().split('\n').map(JSON.parse).find(item =>
+    item.event === 'data.unicode.repaired' && item.field === '$.messages[0].subject');
+  assert.equal(issue.record, accountReference('legacy'));
+  assert.equal(issue.account, accountReference('a'));
+  assert.equal(issue.requestID, requestID);
+  assert.equal(issue.recordKind, 'message');
+  assert.equal(issue.expectedType, 'unicode_string');
+  assert.equal(issue.actualType, 'unpaired_surrogate');
+  assert.equal(raw.includes('Original body'), false);
+  assert.equal(raw.includes('sender@example.test'), false);
 });

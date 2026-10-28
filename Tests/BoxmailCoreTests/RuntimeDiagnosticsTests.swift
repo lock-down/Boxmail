@@ -10,11 +10,40 @@ import Testing
     _ = try JSONDecoder().decode(Container.self, from: data)
     Issue.record("A mismatched synthetic value must fail decoding")
   } catch {
-    let fields = RuntimeDiagnostics.errorFields(error)
+    let fields = RuntimeDiagnostics.errorFields(error, responseData: data)
     #expect(fields["phase"] == "decode")
     #expect(fields["reason"] == "type_mismatch")
-    #expect(fields["field"] == "messages.:key.[]")
+    #expect(fields["field"] == "$.messages.:key[0]")
+    #expect(fields["expectedType"] == "string")
+    #expect(fields["actualType"] == "number")
     #expect(!fields.description.contains("private@example.test"))
+  }
+}
+
+@Test func decodingDiagnosticsIdentifyTheRecordAndMissingFieldWithoutExposingValues() throws {
+  struct Envelope: Decodable {
+    struct Message: Decodable { let uid: Int }
+    let messages: [Message]
+  }
+  for raw in [
+    #"{"messages":[{"id":"synthetic-mail","accountId":"synthetic-account","uid":"PRIVATE VALUE"}]}"#,
+    #"{"messages":[{"id":"synthetic-mail","accountId":"synthetic-account"}]}"#,
+  ] {
+    let data = Data(raw.utf8)
+    do {
+      _ = try JSONDecoder().decode(Envelope.self, from: data)
+      Issue.record("Synthetic invalid UID must fail decoding")
+    } catch {
+      let fields = RuntimeDiagnostics.errorFields(error, responseData: data)
+      #expect(fields["field"] == "$.messages[0].uid")
+      #expect(fields["record"] == RuntimeDiagnostics.accountReference("synthetic-mail"))
+      #expect(fields["account"] == RuntimeDiagnostics.accountReference("synthetic-account"))
+      #expect(fields["recordKind"] == "message")
+      #expect(fields["actualType"] == (raw.contains("PRIVATE VALUE") ? "string" : "missing"))
+      #expect(
+        !fields.description.contains("PRIVATE VALUE")
+          && !fields.description.contains("synthetic-mail"))
+    }
   }
 }
 

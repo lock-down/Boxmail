@@ -92,7 +92,9 @@ export class Repository {
       .prepare(
         'INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data WHERE records.data<>excluded.data',
       )
-      .run(kind, value.id, unicodeJSON(value));
+      .run(kind, value.id, unicodeJSON(value, { recordKind: kind,
+        ...(this.diagnostics ? { onInvalid: details => this.diagnostics.recordCoalesced('data.unicode.repaired',
+          { ...details, phase: 'persist' }) } : {}) }));
     if (kind === 'message' && result.changes) this.previewCache?.delete(value.id);
     if (kind === 'sync' && result.changes) this.onSyncProgress?.(value);
     return value;

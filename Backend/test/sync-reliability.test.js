@@ -22,7 +22,7 @@ async function fixture(t) {
 function remote(boxes = { INBOX: [1, 2, 3], Sent: [1, 2] }) {
   const state = { boxes, downloads: [], ranges: [], connections: 0, closes: 0,
     invalidSearch: false, truncate: false, missingExists: false, zeroExists: false,
-    failingFolder: null, slowFolder: null, hangFolder: null };
+    failingFolder: null, slowFolder: null, hangFolder: null, clock: 0 };
   const clientFactory = () => {
     let selected;
     return {
@@ -53,7 +53,7 @@ function remote(boxes = { INBOX: [1, 2, 3], Sent: [1, 2] }) {
       },
       async fetchOne(uid) {
         if (selected === state.hangFolder) return new Promise(() => {});
-        if (selected === state.slowFolder) await delay(15);
+        if (selected === state.slowFolder) state.clock += 15;
         state.downloads.push(`${selected}:${uid}`);
         return { source: Buffer.from(`From: sender@example.com\r\nSubject: Test\r\nMessage-ID: <${selected}-${uid}@example.com>\r\nContent-Type: text/plain\r\n\r\nBody`) };
       },
@@ -165,6 +165,9 @@ test('large UID lists use bounded metadata requests while body batches keep resu
 test('a slow folder yields after its time budget and lets the next folder synchronize', async t => {
   const repo = await fixture(t), { state, options } = remote();
   state.slowFolder = 'INBOX';
+  // Advance only the simulated slow download. Parser startup and host CPU load
+  // must not decide whether an unrelated healthy folder fits in five milliseconds.
+  t.mock.method(performance, 'now', () => state.clock);
   await syncAccount(repo, { ...account }, 'pw', { ...options, downloadBudgetMs: 5 });
   assert.equal(repo.list('message').filter(m => m.folder === 'inbox').length, 1);
   assert.equal(repo.list('message').filter(m => m.folder === 'sent').length, 2);

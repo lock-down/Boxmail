@@ -79,7 +79,7 @@ export async function startServer({
     if (!task.lastLogged || performance.now() - task.lastLogged >= 5000 || progress.status !== 'running') {
       task.lastLogged = performance.now();
       diagnostics.record('sync.progress', { account: accountReference(progress.accountId), folder: progress.folder,
-        phase: task.phase, status: progress.status, downloaded: progress.downloaded, total: progress.total,
+        phase: task.phase, status: progress.status, requestID: task.requestID, downloaded: progress.downloaded, total: progress.total,
         remaining: progress.remaining, metadataCount: progress.inventory?.metadataCount,
         metadataRequests: progress.inventory?.metadataRequests, statusCount: progress.inventory?.statusCount,
         uidCount: progress.inventory?.uidCount, metadataMissingCount: progress.inventory?.metadataMissingCount,
@@ -97,7 +97,7 @@ export async function startServer({
         phase: task.phase, startedAt: task.startedAt, lastProgressAt: task.lastProgressAt,
         error: task.error || null })) };
   }
-  const aiProgress = new AIProgress();
+  const aiProgress = new AIProgress({ diagnostics });
   const onProgress = output => aiProgress.publish(output);
   const organizer = new Organizer(repo, { ...(organizerComplete ? { complete: organizerComplete } : {}), onProgress });
   const attachmentBatch = new AttachmentBatch(repo, { run: agentRun, onProgress });
@@ -163,7 +163,13 @@ export async function startServer({
   }
   const server = http.createServer(async (req, res) => {
     const requestStarted = performance.now();
+    const suppliedID = req.headers['x-boxmail-request-id'];
+    const requestID = typeof suppliedID === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(suppliedID)
+      ? suppliedID : randomUUID();
+    const serialize = value => unicodeJSON(value, { onInvalid: details => diagnostics.recordCoalesced(
+      'data.unicode.repaired', { ...details, phase: 'response', route: diagnosticRoute(req.url), method: req.method, requestID }) });
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('X-Boxmail-Request-ID', requestID);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     const provided = Buffer.from(String(req.headers['x-boxmail-token'] || ''));
@@ -174,7 +180,7 @@ export async function startServer({
       req.headers.origin
     ) {
       res.writeHead(403);
-      res.end(unicodeJSON({ error: '未授权访问' }));
+      res.end(serialize({ error: '未授权访问' }));
       return;
     }
     let countedWrite = false;
@@ -182,7 +188,7 @@ export async function startServer({
       const url = new URL(req.url, 'http://127.0.0.1');
       const route = url.pathname;
       if (req.method === 'GET' && route === '/ai/events') {
-        aiProgress.subscribe(res);
+        aiProgress.subscribe(res, { requestID });
         return;
       }
       if (maintenance && req.method !== 'GET') throw new ServiceError('正在备份、恢复或重建索引，请稍候', 409);
@@ -337,14 +343,14 @@ export async function startServer({
         if (locks.has(a.id)) throw new ServiceError('该账户正在同步', 409);
         locks.add(a.id);
         const controller = new AbortController();
-        const task = { status: 'queued', phase: 'queued', controller };
+        const task = { status: 'queued', phase: 'queued', controller, requestID };
         syncTasks.set(a.id, task);
-        diagnostics.record('sync.queued', { account: accountReference(a.id), queued: syncQueue.pending.length + 1,
+        diagnostics.record('sync.queued', { account: accountReference(a.id), requestID, queued: syncQueue.pending.length + 1,
           active: syncQueue.active });
         const run = async () => {
           task.status = 'running'; task.phase = 'connect'; task.startedAt = new Date().toISOString();
           task.lastProgress = performance.now();
-          diagnostics.record('sync.started', { account: accountReference(a.id) });
+          diagnostics.record('sync.started', { account: accountReference(a.id), requestID });
           const watchdog = setInterval(() => {
             if (performance.now() - task.lastProgress < syncStallTimeoutMs || controller.signal.aborted) return;
             const error = new ServiceError('同步长时间没有进展，已暂停本次任务并保留已下载邮件，请检查网络后重试。', 504);
@@ -356,7 +362,7 @@ export async function startServer({
           watchdog.unref();
           try {
             const result = await syncSession(repo, a, body.password, {
-              syncBatch: mailSync, folder: body.folder || undefined, signal: controller.signal });
+              syncBatch: mailSync, folder: body.folder || undefined, signal: controller.signal, requestID });
             task.status = result.partial ? 'paused' : 'completed'; return result;
           } finally { clearInterval(watchdog); }
         };
@@ -366,12 +372,12 @@ export async function startServer({
           task.error = stalled ? controller.signal.reason.message
             : controller.signal.aborted ? '同步已停止，已下载邮件已保留'
               : error instanceof ServiceError ? error.message : '同步未完成，请检查网络与邮箱配置后重试';
-          diagnostics.record('sync.failed', { account: accountReference(a.id), phase: task.phase,
+          diagnostics.record('sync.failed', { account: accountReference(a.id), phase: task.phase, requestID,
             ...errorDiagnostic(error) });
           throw error;
         }).finally(() => {
           locks.delete(a.id);
-          diagnostics.record(`sync.${task.status}`, { account: accountReference(a.id), phase: task.phase });
+          diagnostics.record(`sync.${task.status}`, { account: accountReference(a.id), phase: task.phase, requestID });
         });
         if (body.background === true) {
           task.promise.catch(() => {});
@@ -582,13 +588,13 @@ export async function startServer({
         };
       } else throw new ServiceError('接口不存在', 404);
       res.writeHead(200);
-      res.end(unicodeJSON(result));
+      res.end(serialize(result));
     } catch (e) {
-      diagnostics.record('api.failed', { route: diagnosticRoute(req.url), method: req.method,
+      diagnostics.record('api.failed', { route: diagnosticRoute(req.url), method: req.method, requestID,
         status: e.status || 500, durationMs: performance.now() - requestStarted, ...errorDiagnostic(e) });
       res.writeHead(e.status || 500);
       res.end(
-        unicodeJSON({
+        serialize({
           error:
             e instanceof ServiceError
               ? e.message
@@ -600,7 +606,7 @@ export async function startServer({
     } finally {
       if (countedWrite) activeWrites--;
       if (performance.now() - requestStarted >= 2000) diagnostics.record('api.slow', {
-        route: diagnosticRoute(req.url), method: req.method, status: res.statusCode,
+        route: diagnosticRoute(req.url), method: req.method, status: res.statusCode, requestID,
         durationMs: performance.now() - requestStarted });
     }
   });
@@ -608,6 +614,7 @@ export async function startServer({
   diagnostics.record('service.started');
   let previousTick = performance.now(), previousCPU = process.cpuUsage();
   const runtimeTimer = setInterval(() => {
+    void diagnostics.flush();
     const now = performance.now(), cpu = process.cpuUsage();
     diagnostics.record('service.resources', { rssMB: process.memoryUsage().rss / 1024 / 1024,
       lagMs: Math.max(0, now - previousTick - 30000),

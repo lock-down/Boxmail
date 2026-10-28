@@ -1,3 +1,5 @@
+import { diagnosticPath, diagnosticRecord, diagnosticReferences } from './diagnostic-values.js';
+
 // JavaScript offsets count UTF-16 units. Keep display/extraction limits without
 // leaving half a surrogate pair for Foundation's stricter JSON decoder.
 export function textSlice(text, start = 0, end = text.length) {
@@ -13,6 +15,20 @@ export function textSlice(text, start = 0, end = text.length) {
 // JSON.stringify accepts lone surrogates and emits escapes that Swift rejects.
 // Repair string values at both persistence and wire boundaries; old records can
 // be read without rewriting or deleting their original bodies and attachments.
-export function unicodeJSON(value) {
-  return JSON.stringify(value, (_key, item) => typeof item === 'string' ? item.toWellFormed() : item);
+export function unicodeJSON(value, { onInvalid, recordKind } = {}) {
+  if (!onInvalid) return JSON.stringify(value, (_key, item) => typeof item === 'string' ? item.toWellFormed() : item);
+  const contexts = new WeakMap();
+  return JSON.stringify(value, function(key, item) {
+    const parent = contexts.get(this);
+    const path = () => !parent && key === '' ? []
+      : [...(parent?.path || []), Array.isArray(this) ? Number(key) : key];
+    if (item && typeof item === 'object') {
+      contexts.set(item, diagnosticRecord(item, path(), parent, recordKind));
+    } else if (typeof item === 'string' && !item.isWellFormed()) {
+      onInvalid({ field: diagnosticPath(path()), ...diagnosticReferences(parent),
+        recordKind: parent?.recordKind, expectedType: 'unicode_string', actualType: 'unpaired_surrogate', action: 'replaced' });
+      return item.toWellFormed();
+    }
+    return item;
+  });
 }
