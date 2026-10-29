@@ -4,12 +4,14 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ServiceError } from './validation.js';
-import { isPresentation, presentationPDF } from './presentations.js';
+import { isPresentation } from './presentations.js';
 import { processPDF } from './pdf-processing.js';
 import { errorDiagnostic } from './diagnostics.js';
 import { MailContentWorker } from './mail-content-worker.js';
+import { attachmentContentType, attachmentMetadata } from './attachment-metadata.js';
 
 export async function extractText(buffer, name, contentType = '', { signal, contentWorker, diagnostics, account } = {}) {
+  contentType = attachmentContentType(contentType);
   signal?.throwIfAborted();
   const ext = path.extname(name).toLowerCase();
   if (['.txt', '.csv', '.md', '.json', '.log'].includes(ext))
@@ -44,6 +46,7 @@ export async function prepareAttachment(
   if (buffer.length > 25 * 1024 * 1024)
     throw new ServiceError('单个附件超过 25 MB');
   const id = randomUUID();
+  ({ contentType } = attachmentMetadata({ id, contentType }, { diagnostics: repo.diagnostics, phase: 'persist' }));
   const folder = path.join(repo.directory, 'attachments');
   await mkdir(folder, { recursive: true, mode: 0o700 });
   const file = path.join(
@@ -174,9 +177,12 @@ export async function modelAttachment(repo, id, { signal } = {}) {
   if (imageType)
     return { kind: 'image', images: [{ name: metadata.name, contentType: imageType, buffer }] };
   if (isPresentation(metadata)) {
-    const document = await presentationPDF(buffer, metadata, { signal });
-    return { ...await processPDF(document.buffer, { name: metadata.name, kind: 'presentation', signal,
-      diagnostics: repo.diagnostics }), text: document.text };
+    const parser = new MailContentWorker({ signal, diagnostics: repo.diagnostics });
+    try {
+      const result = await parser.run('presentation', buffer, { name: metadata.name, contentType: metadata.contentType, format: 'presentation' });
+      for (const image of result.images || []) image.buffer = Buffer.from(image.buffer);
+      return result;
+    } finally { await parser.close(); }
   }
   if (ext === '.pdf' || metadata.contentType === 'application/pdf')
     return processPDF(buffer, { name: metadata.name, signal, diagnostics: repo.diagnostics });

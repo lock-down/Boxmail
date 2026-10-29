@@ -4,11 +4,10 @@ public enum MailSignature {
   /// Only a complete signature on its own final lines is a visual bottom anchor.
   public static func trailingRange(in body: String, signature: String) -> NSRange? {
     guard !signature.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-      body.hasSuffix(signature) else { return nil }
-    let range = NSRange(location: body.utf16.count - signature.utf16.count, length: signature.utf16.count)
-    guard range.location == 0 || (body as NSString).substring(
-      with: NSRange(location: range.location - 1, length: 1)) == "\n" else { return nil }
-    return range
+      let range = body.range(of: signature, options: [.anchored, .backwards]),
+      range.lowerBound == body.startIndex || body[body.index(before: range.lowerBound)].isNewline
+    else { return nil }
+    return NSRange(range, in: body)
   }
 
   public static func replacingContent(with content: String, in body: String, signature: String) -> String {

@@ -71,7 +71,7 @@ test('snapshot skips source bodies for replies and forwards that already have a 
   reads.length = 0;
   const state = await request('/state?compact=1&previews=0');
   assert.equal(state.drafts.length, 2);
-  assert.ok(state.drafts.some(draft => draft.forwardedHTML?.includes('可读正文')));
+  assert.ok(state.drafts.every(draft => !draft.bodyLoaded && draft.body === '' && draft.forwardedHTML === undefined));
   assert.equal(reads.length, 0);
 });
 
@@ -87,4 +87,41 @@ test('initial category catalog preserves custom names without materializing ever
   const state = await request('/state?compact=1&previews=0');
   assert.ok(state.categories.some(category => category.name === '已有自定义分类'));
   assert.ok(state.categories.some(category => category.name === '未分类'));
+});
+
+test('state responses bound large forward drafts and full edit and reading endpoints preserve complete content', async t => {
+  const { repo, request } = await fixture(t);
+  const forwardedText = 'Original forwarded text ' + 'x'.repeat(20 * 1024 * 1024);
+  const draft = { id: 'large-forward', accountId: 'a', to: 'recipient@example.test', cc: '', bcc: '',
+    subject: 'Large forward', body: 'Editable notes', forwardedText, forwardedHTML: '', attachmentIds: [],
+    updatedAt: '2026-10-28T00:00:00Z', status: 'draft' };
+  repo.put('draft', draft);
+  repo.activeDrafts = () => { throw new Error('state must not materialize full drafts'); };
+  for (const route of ['/state?compact=1&previews=0', '/state?compact=1', '/state']) {
+    const state = await request(route);
+    assert.ok(Buffer.byteLength(JSON.stringify(state)) < 64000, route);
+    assert.equal(state.drafts[0].bodyLoaded, false);
+    assert.equal(state.drafts[0].body, '');
+    assert.equal(state.drafts[0].forwardedText, undefined);
+    assert.equal(state.drafts[0].forwardedHTML, undefined);
+    assert.match(state.drafts[0].preview, /Editable notes/);
+  }
+  const editable = await request('/drafts/large-forward');
+  assert.equal(editable.bodyLoaded, true);
+  assert.equal(editable.body, draft.body);
+  assert.equal(editable.forwardedText, forwardedText);
+  const readable = await request('/messages/draft:large-forward');
+  assert.equal(readable.body, draft.body + '\n\n' + forwardedText);
+  assert.deepEqual(repo.get('draft', draft.id), draft);
+});
+
+test('saving a light draft header is rejected before it can replace the complete stored draft', async t => {
+  const { repo, request, port } = await fixture(t);
+  const draft = buildReplyDraft(repo.get('message', 'm0'), {}, { forward: true });
+  repo.put('draft', draft);
+  const state = await request('/state?compact=1');
+  const response = await fetch(`http://127.0.0.1:${port}/drafts`, { method: 'POST',
+    headers: { 'X-Boxmail-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(state.drafts[0]) });
+  assert.equal(response.status, 409);
+  assert.deepEqual(repo.get('draft', draft.id), draft);
 });

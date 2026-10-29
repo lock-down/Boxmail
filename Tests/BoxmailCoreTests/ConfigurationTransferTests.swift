@@ -135,3 +135,25 @@ private enum TransferFailure: Error { case write, response, offline }
   } catch { #expect(error.localizedDescription.contains("账号映射")) }
   #expect(writes == 0)
 }
+
+@MainActor @Test func emptyImportedCredentialsPreserveLocalReferencesAndLogicalKeys() async throws {
+  var configuration = transferArchive().configuration
+  configuration.accounts = [.init(id: "source", email: "reader@example.test")]
+  let archive = ConfigurationArchive(configuration: configuration,
+    credentials: .init(mailPasswords: ["source": ""], aiKey: "", aiProviderKeys: ["alpha": "", "beta": "   "]), appVersion: "test")
+  var vault = ["local-alpha": "local-secret", "ai-provider-beta": "local-beta", "local-mail": "mail-secret"]
+  var snapshot = archive.configuration
+  snapshot.accounts[0].id = "target"
+  snapshot.settings.credentialReferences = ["ai-provider-alpha": "local-alpha", "mail-target": "local-mail"]
+  let plan = ConfigurationImportPlan(revision: "r", accounts: [
+    .init(sourceId: "source", accountId: "target", name: "", email: "reader@example.test", existing: true),
+  ])
+  let result = try await ConfigurationTransfer.apply(archive: archive, plan: plan,
+    saveCredential: { vault[$0] = $1 }, removeCredential: { vault.removeValue(forKey: $0) },
+    commit: { references in
+      #expect(references.isEmpty)
+      return snapshot
+    }, current: { snapshot })
+  #expect(vault == ["local-alpha": "local-secret", "ai-provider-beta": "local-beta", "local-mail": "mail-secret"])
+  #expect(result.settings.credentialReferences == snapshot.settings.credentialReferences)
+}

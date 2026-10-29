@@ -81,6 +81,14 @@ func twelveThousandMessagesWithLegacyUnicodeKeepStartupBodiesAndSavedSettingsAft
     let snapshot: AppSnapshot = try await backend.request("/state?compact=1&previews=0")
     #expect(snapshot.messages.count == 12001)
     #expect(snapshot.accounts.count == 6)
+    #expect(snapshot.attachments.count == 4135)
+    #expect(snapshot.attachments[4134].contentType == "application/octet-stream")
+    let attachment: MailAttachment = try await backend.request("/attachments/file-04134/metadata")
+    #expect(attachment.text == "Original extracted text" && attachment.analysis == "Saved AI analysis")
+    #expect(attachment.size == 49)
+    struct Download: Decodable { var content: String }
+    let download: Download = try await backend.request("/attachments/file-04134")
+    #expect(Data(base64Encoded: download.content) == Data("Original attachment bytes survive metadata repair".utf8))
     let full: MailMessage = try await backend.request("/messages/legacy")
     let originalBody =
       String(repeating: "a", count: 139) + String(UnicodeScalar(0x20bb7)!) + " original body tail"
@@ -100,6 +108,9 @@ func twelveThousandMessagesWithLegacyUnicodeKeepStartupBodiesAndSavedSettingsAft
     let reopened: AppSnapshot = try await backend.request("/state?compact=1&previews=0")
     let restored: MailMessage = try await backend.request("/messages/legacy")
     #expect(reopened.messages.count == 12001 && reopened.settings.preferences.fontSize == 18)
+    #expect(reopened.attachments.count == 4135 && reopened.attachments[4134].contentType == "application/octet-stream")
+    let reopenedFile: MailAttachment = try await backend.request("/attachments/file-04134/metadata")
+    #expect(reopenedFile == attachment)
     #expect(restored.body == originalBody && restored.html == full.html)
     await backend.stop()
     backend.remove()

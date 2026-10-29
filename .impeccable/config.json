@@ -11,6 +11,15 @@
         ],
         "createdAt": "2026-10-24T08:49:42.385Z",
         "reason": "Agent: Arial is intentional in generated email HTML headers and editable introductions for mail-client compatibility; original forwarded email typography is preserved."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "Backend/src/mail-body.js"
+        ],
+        "createdAt": "2026-10-28T08:06:57.386Z",
+        "reason": "Codex: this file sanitizes arbitrary incoming email HTML; line 75 is a regex detecting remote image URLs, not a product image with an empty source."
       }
     ]
   }

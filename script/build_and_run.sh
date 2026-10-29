@@ -6,6 +6,7 @@ BUNDLE_ID="com.boxmail.desktop"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 APP_VERSION="$(cat VERSION)"
+APP_BUILD="42"
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VERSION must contain a version such as 0.1.0" >&2
   exit 2
@@ -23,18 +24,21 @@ case "$MODE" in
   APP_BUNDLE="$ROOT_DIR/artifacts/ui-review/Boxmail Review.app"
   pkill -f "$APP_BUNDLE/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 || true
   ;;
---package|package)
+--package|package|--package-test|package-test)
   BUILD_CONFIGURATION="release"
   DEMO_DATA="false"
   PACKAGE_ARCH="$(uname -m)"
   APP_BUNDLE="$ROOT_DIR/dist/Boxmail-v$APP_VERSION-macos-$PACKAGE_ARCH-clean/$APP_NAME.app"
+  if [[ "$MODE" == "--package-test" || "$MODE" == "package-test" ]]; then
+    APP_BUNDLE="$ROOT_DIR/dist/Boxmail-v$APP_VERSION-build$APP_BUILD-macos-$PACKAGE_ARCH-test/$APP_NAME.app"
+  fi
   # Recreate only this generated bundle so stale development files cannot enter the package.
   rm -rf "$APP_BUNDLE"
   ;;
 run|--verify|verify|--debug|debug|--logs|logs|--telemetry|telemetry)
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
   ;;
-*) echo "usage: $0 [run|--verify|--debug|--logs|--telemetry|--review|--package]" >&2; exit 2 ;;
+*) echo "usage: $0 [run|--verify|--debug|--logs|--telemetry|--review|--package|--package-test]" >&2; exit 2 ;;
 esac
 APP_CONTENTS="$APP_BUNDLE/Contents"
 SIGNING_IDENTITY="${BOXMAIL_SIGNING_IDENTITY:-}"
@@ -94,7 +98,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleIconFile</key><string>Boxmail</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-<key>CFBundleVersion</key><string>39</string>
+<key>CFBundleVersion</key><string>$APP_BUILD</string>
 <key>BoxmailDemoDataEnabled</key><$DEMO_DATA/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -114,6 +118,7 @@ codesign --verify --deep --strict "$APP_BUNDLE"
 touch "$APP_BUNDLE"
 case "$MODE" in
 --package|package) echo "已生成全新安装测试 App：$APP_BUNDLE" ;;
+--package-test|package-test) echo "已生成独立诊断修复测试 App：$APP_BUNDLE" ;;
 run) launch_app ;;
 --review|review) launch_app ;;
 --verify|verify) launch_app; sleep 1; pgrep -x "$APP_NAME" >/dev/null ;;

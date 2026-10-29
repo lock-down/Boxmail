@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { ServiceError } from './validation.js';
-import { forwardedFields, forwardText } from './forward-content.js';
+import { forwardedFields } from './forward-content.js';
 
 export function addresses(value) {
   return addressparser(String(value || '').replace(/[，；]/g, ','), { flatten: true })
@@ -36,7 +36,7 @@ export function buildReplyDraft(message, account = {}, { all = false, forward = 
   return {
     id: randomUUID(), accountId: message.accountId,
     to: forward ? '' : to.join(', '), cc: forward ? '' : cc.join(', '), bcc: '', subject: title,
-    body: body ?? (forward && !formatted.forwardedHTML ? `${signature}\n\n${forwardText(message)}` : signature),
+    body: body ?? signature,
     ...formatted,
     attachmentIds: forward ? [...message.attachmentIds] : [],
     inReplyTo: forward ? '' : message.messageId || '',

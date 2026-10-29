@@ -132,7 +132,7 @@ struct MailReplyView: View {
                 .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2)
             }
             Spacer()
-            ActionButton(title: "审核草稿") { store.composer = draft }
+            ActionButton(title: "审核草稿") { store.editDraft(draft.id) }
           }.padding(10).background(.white, in: RoundedRectangle(cornerRadius: 6))
         }
       }

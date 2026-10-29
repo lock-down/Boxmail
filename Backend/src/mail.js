@@ -9,12 +9,13 @@ import { prepareAttachment, attachmentBytes, copyBorrowedAttachments, reassignAt
 import { ServiceError, required, recipients } from './validation.js';
 import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
-import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder } from './mail-folders.js';
+import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder, missingMailbox } from './mail-folders.js';
 import { clearTrash } from './mail-trash.js';
 import { imapOperation, mailboxMetadata, mailboxUIDNext, messageSource, MessageSourceError } from './mail-sync.js';
 import { draftContent, inlineForwardImages } from './forward-content.js';
 import { MailContentWorker } from './mail-content-worker.js';
 import { accountReference, errorDiagnostic } from './diagnostics.js';
+import { pruneMailRecovery } from './mail-recovery.js';
 
 // Status changes re-read the stored draft, so a slow send never writes back the snapshot it
 // started with and clobbers fields saved in the meantime.
@@ -136,7 +137,14 @@ export async function syncAccount(
     catch (error) { throw mailServiceError(error, 'IMAP', account); }
     const folders = await perform(() => client.list(), 'list-folders');
     discoverMailFolders(account, folders);
-    await applyMailMutations(repo, account, client, { signal, timeoutMs: operationTimeoutMs });
+    const availablePaths = new Set(folders.map(f => f.path));
+    for (const progress of repo.list('sync', { accountId: account.id }))
+      if (progress.remotePath && (!availablePaths.has(progress.remotePath)
+        || account.folders[progress.folder] !== progress.remotePath)) repo.remove('sync', progress.id);
+    await pruneMailRecovery(repo, account.id, { signal });
+    const mutations = await applyMailMutations(repo, account, client, { signal, timeoutMs: operationTimeoutMs,
+      paths: new Set(folders.map(f => f.path)) });
+    if (mutations.reconnect) { client?.close(); client = null; }
     if (requestedFolder && !account.folders[requestedFolder])
       throw new ServiceError(`服务器未提供${names[requestedFolder] || '该'}文件夹，请检查网页版邮箱及收取范围。`, 502);
     for (const folder of Object.keys(names).filter(f => account.folders[f] && (!requestedFolder || requestedFolder === f))) {
@@ -193,7 +201,8 @@ export async function syncAccount(
           signal?.throwIfAborted();
           repo.transaction(() => { for (const old of stored.slice(offset, offset + 200)) {
             if (old.uidValidity !== validity || !seen.has(old.uid)) {
-              repo.put('recovery', { id: old.id, accountId: account.id, remotePath, original: repo.get('message', old.id) });
+              repo.put('recovery', { id: old.id, accountId: account.id, remotePath,
+                createdAt: new Date().toISOString(), original: repo.get('message', old.id) });
               repo.remove('message', old.id);
               if (old.uidValidity === validity) cached.delete(old.uid);
             }
@@ -302,14 +311,28 @@ export async function syncAccount(
             try { ({ parsed, content } = await contentWorker.run('mime', source, { format: 'mime' })); }
             catch (error) {
               if (signal?.aborted) throw error;
-              skipped++; deferredSources.add(id); consecutiveFailures++;
-              sourceFailureStreaks.set(failureScope, consecutiveFailures);
-              currentSync = { ...currentSync, source: { ...currentSync.source,
-                lastError: '本封邮件解析未完成，正在继续其余邮件，稍后同步会重试。' },
-                updatedAt: new Date().toISOString() };
-              repo.put('sync', currentSync);
-              if (consecutiveFailures >= 3) break;
-              continue;
+              if (error.code === 'PARSER_INVALID_DOCUMENT') {
+                const metadata = remote.envelope ? remote : await perform(() => client.fetchOne(remote.uid,
+                  { envelope: true, internalDate: true }, { uid: true }));
+                if (!metadata?.envelope) throw new ServiceError('服务器未完整返回邮件头，请稍后重试。', 502);
+                const envelope = metadata.envelope;
+                parsed = { ...envelope, date: envelope.date || metadata.internalDate,
+                  from: { value: envelope.from || [] },
+                  to: { text: (envelope.to || []).map(value => value.address).join(', ') },
+                  cc: { text: (envelope.cc || []).map(value => value.address).join(', ') },
+                  text: '该邮件格式无法解析，原始邮件已保存为附件，可下载查看或删除本封邮件。',
+                  attachments: [{ filename: '原始邮件.eml', content: source, contentType: 'message/rfc822' }] };
+                repo.event('sync', '一封邮件格式无法解析，已保留邮件头及原始邮件附件，其余邮件继续同步。');
+              } else {
+                skipped++; deferredSources.add(id); consecutiveFailures++;
+                sourceFailureStreaks.set(failureScope, consecutiveFailures);
+                currentSync = { ...currentSync, source: { ...currentSync.source,
+                  lastError: '本封邮件解析未完成，正在继续其余邮件，稍后同步会重试。' },
+                  updatedAt: new Date().toISOString() };
+                repo.put('sync', currentSync);
+                if (consecutiveFailures >= 3) break;
+                continue;
+              }
             }
             signal?.throwIfAborted();
           } else {
@@ -349,19 +372,11 @@ export async function syncAccount(
               unread: !remote.flags.has('\\Seen'), starred: remote.flags.has('\\Flagged'),
               category: '未分类', summary: null, attachmentIds: [], oversized: remote.size > 25 * 1024 * 1024,
             };
-            const relocations = repo.list('relocation', { accountId: account.id })
-              .filter(r => r.destination === remotePath);
-            const legacyRelocations = relocations.filter(r => (!r.destinationUID || r.uidValidity !== validity)
-              && parsed.messageId && r.original.messageId === parsed.messageId);
-            const relocation = relocations.find(r => r.destinationUID === remote.uid && r.uidValidity === validity)
-              || (legacyRelocations.length === 1 ? legacyRelocations[0] : null);
-            const recoveries = parsed.messageId ? repo.list('recovery', { accountId: account.id })
-              .filter(r => r.original.messageId === parsed.messageId) : [];
-            const sameFolder = recoveries.filter(r => r.remotePath === remotePath);
+            const match = repo.retainedMail(account.id, remotePath, validity, remote.uid, parsed.messageId);
+            const relocation = match?.kind === 'relocation' ? match.value : null;
             const localSent = folder === 'sent' && parsed.messageId
               ? repo.localSentMessage(account.id, parsed.messageId) : null;
-            const retained = relocation || (sameFolder.length === 1 ? sameFolder[0]
-              : recoveries.length === 1 ? recoveries[0] : null)
+            const retained = match?.value
               || (localSent ? { id: localSent.id, original: localSent } : null);
             const commitMessage = () => {
               if (localSent) repo.remove('message', localSent.id);
@@ -450,6 +465,12 @@ export async function syncAccount(
         repo.put('sync', currentSync);
       } catch (error) {
         if (signal?.aborted) throw error;
+        if (missingMailbox(error)) {
+          delete account.folders[folder];
+          repo.remove('sync', syncId);
+          repo.event('sync', '服务器文件夹已移除，已更新本机文件夹映射，其余邮件继续同步。');
+          continue;
+        }
         repo.diagnostics?.record('sync.folder.failed', { account: reference, folder,
           phase: currentSync.phase, ...errorDiagnostic(error) });
         const safe = mailServiceError(error, 'IMAP', account);
@@ -464,6 +485,7 @@ export async function syncAccount(
     // The account may have been edited while the sync ran: merge this sync's folder discoveries
     // and lastSync into the latest record instead of writing back the pre-sync snapshot.
     const latest = repo.get('account', account.id) || account;
+    await pruneMailRecovery(repo, account.id, { signal });
     repo.put('account', {
       ...latest,
       folders: account.folders ?? latest.folders,

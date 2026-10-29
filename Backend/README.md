@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。0.1.3 与客户端同步版本，凭证继续由客户端从本机 `.env` 读取，沿用现有同步、AI、附件、搜索和恢复能力；HTTP 契约和数据库结构版本 2 保持兼容。当前版本见根目录 [VERSION](../VERSION)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.4，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。主状态的草稿统一返回轻量头部，完整编辑内容改由 `GET /drafts/:id` 读取，配置与恢复结果增加 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -42,7 +42,7 @@ npm start
 | 方法 | 路径 | 参数与行为 |
 | --- | --- | --- |
 | GET | `/health` | 经会话令牌认证的就绪检查，不读取全量邮件状态 |
-| GET | `/state` | 完整状态；`compact=1` 返回轻量邮件索引，不带正文及完整附件文本；同时传 `previews=0` 时仅复用已有预览缓存，未生成项为空，由 `/messages` 分页补齐；summary / translate / attachment 任务省略重复 result |
+| GET | `/state` | 主状态；草稿始终为轻量头部，body 清空、转发字段省略、bodyLoaded=false；`compact=1` 同时返回轻量邮件与附件，`previews=0` 仅复用已有邮件预览；summary / translate / attachment 任务省略重复 result |
 | GET | `/messages` | `accountId`、`folder`、`filter`、`q`、`limit`、`offset`；默认每页 100，limit 1 至 200，返回总数与 nextOffset；`groupBy=sender` 按发件人分页，`senderGroup` 分页读取组内邮件 |
 | GET | `/messages/:id` | 完整邮件及 `bodyLoaded: true`，也支持草稿搜索结果 |
 | GET | `/messages/:id/thread` | 同账户引用链、原邮件头、总数、分页及未缓存提示 |
@@ -56,7 +56,8 @@ npm start
 | POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台立即返回并自动逐批补齐指定范围 |
 | POST | `/sync/cancel` | `accountId`；停止该账户当前同步会话，保留已下载邮件与断点，重复停止可安全返回 |
 | GET | `/sync-status` | 运行及排队账号、文件夹进度与阶段、本次结果；结果包含 queued / running / completed / paused / failed |
-| POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿；保存响应附签名过滤后的 `preview`；删除后清理未被邮件、其他草稿及保留记录引用的附件 |
+| GET | `/drafts/:id` | 完整可编辑正文及独立转发快照，附 `bodyLoaded: true` 和签名过滤后的 `preview`；不存在或已发送返回 404 |
+| POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿；bodyLoaded=false 拒绝保存并返回 409，保存响应附 `preview`；删除后清理未被其他记录引用的附件 |
 | POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；发送中或结果不明返回 409，已发送的重复请求返回 `alreadySent: true` |
 | POST | `/attachments` | `name`、Base64 `content`，可带关联 ID 和 `contentType` |
 | GET | `/attachments/:id` | 名称及 Base64 原始字节 |
@@ -76,11 +77,11 @@ npm start
 | PATCH / DELETE | `/categories/:id` | 修改名称及说明 / 删除并将相关邮件归为未分类 |
 | POST | `/settings` | `ai`、`preferences`；允许部分更新偏好，未提交字段保留；保留已有凭证引用和独立模型缓存 |
 | POST | `/configuration/export` | 返回真实账号、AI 和偏好，不含密钥、本机凭证引用或邮件数据 |
-| POST | `/configuration/inspect` | `configuration`；返回合并映射及当前修订值 |
-| POST | `/configuration/import` | 配置、账号映射、修订值、凭证引用及 `approved: true`；事务提交并返回账号与设置 |
+| POST | `/configuration/inspect` | `configuration`；返回合并映射、当前修订值及端点或身份变化时的 `credentialsRequired` |
+| POST | `/configuration/import` | 配置、账号映射、修订值、凭证引用及 `approved: true`；事务提交账号、设置与引用，返回 `credentialsRequired` 重填清单 |
 | POST | `/backups/create` | 本机绝对 `path`；生成并复核 ZIP |
 | POST | `/backups/inspect` | `path`；校验并返回摘要和 SHA-256 |
-| POST | `/backups/restore` | `path`、检查得到的 `sha256`、`approved: true`；恢复前保存完整备份 |
+| POST | `/backups/restore` | `path`、检查得到的 `sha256`、`approved: true`；恢复前保存完整备份，结果含 `credentialsRequired` |
 
 ### AI 与任务
 
@@ -91,7 +92,7 @@ npm start
 | POST | `/ai/models` | `config`、`apiKey`；刷新服务商列表，成功后替换缓存 |
 | POST | `/agent` | `task`、`apiKey` 及任务参数；可选 `background: true` 立即返回单封 Job，用 `/jobs/:id` 获取结果；缺省等待最终结果，classify 兼容后台整理 |
 | POST | `/organize` | `accountId`、`apiKey`、`scope`（unclassified / inbox）、`limit`（1 至 200）；立即返回后台任务 |
-| POST | `/messages/:id/attachments/analyze` | `accountId`、`apiKey`；批量处理，`force: true` 重新理解全部 |
+| POST | `/messages/:id/attachments/analyze` | `accountId`、`apiKey`、可选 `attachmentIds` 子集；每批及重试最多 100 项，`force: true` 重新理解选定附件 |
 | GET | `/jobs/:id` | 任务及批次进度 |
 | POST | `/jobs/:id/draft` | 回复预览转草稿，重复使用保留编辑 |
 | POST | `/jobs/:id/pause`、`/jobs/:id/retry` | 中断 / 仅继续未完成项，重试传运行时 `apiKey` |
@@ -110,15 +111,21 @@ npm start
 
 同步新邮件时先准备附件文件，再在同一事务中登记附件与邮件；失败清理本次准备的文件，重试不会累积重复附件。恢复历史邮件时，附件归属、草稿和任务引用、恢复记录的移除与新邮件一并提交；事务失败保留原记录。独立添加附件的登记失败也会清理本次文件。事务中不执行异步文件或网络操作。
 
+深嵌套 HTML 通过流式深度检查降级；永久 MIME 解析失败保留邮件头及原始 EML，不重复解析。工作簿预览及 PPT 转换和页面解析全部在 ParserProcess 内执行，复用 512 MB RSS 上限、超时和取消；工作簿单元格渲染内容上限 32,768 字符，总输出 8 MB。
+
 客户端启动使用 `compact=1&previews=0`，全局元数据不触发正文读取；列表页、邮件详情及会话当前页提供签名过滤预览。原 `compact=1` 契约保留。Word、表格及 AI SDK 在首次使用时加载，未发送草稿在 SQL 查询阶段筛选；已有格式化转发与普通回复不读取来源正文，完整旧转发仍按需恢复。
+
+附件理解支持 `attachmentIds` 子集，每批最多 100 项（含重试），状态持久化仅提交变化条目和计数，保留原 job 接口。纯文本转发也使用 forwardedText 快照，普通草稿正文超过 500,000 字符时明确拒绝保存。
 
 发送成功后，隐藏的草稿记录保留状态及防重复发送回执，正文、格式化转发快照和附件引用由已发送邮件持有。删除草稿、移除账户及明确清空已删除时共用附件引用检查；旧发送回执的附件引用不阻止清理，活跃草稿、邮件及 relocation / recovery 引用继续保留。备份要求 forwardedHTML / forwardedText 成对为字符串，字段均缺省的旧草稿继续兼容。
 
-密钥由客户端从当前数据目录的 `.env`（或 `BOXMAIL_ENV_FILE` 指定文件）读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机凭证引用，对应 `.env` 的 `BOXMAIL_CONFIGURATION_<UUID>` 条目，普通设置保存和重启保留；导出移除引用，导入按邮箱合并，客户端先写新凭证，再事务切换账号、设置和引用。修订冲突及提交失败保持旧配置。
+密钥由客户端从当前数据目录的 `.env`（或 `BOXMAIL_ENV_FILE` 指定文件）读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机凭证引用，对应 `.env` 的 `BOXMAIL_CONFIGURATION_<UUID>` 条目，普通设置保存和重启保留；导出移除引用，导入按邮箱合并，客户端仅为非空凭证先写新条目，再事务切换账号、设置和引用。`credential-bindings.js` 与备份恢复共用端点和身份比较，省略项不能把本机密钥送往新端点；inspect 与 import 返回 `credentialsRequired`，客户端显示服务器地址、凭证处理方式及重填清单。修订冲突及提交失败保持旧配置。
 
-导入要求精确提供文件内邮箱与服务商的凭证引用：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；所有服务商的密钥由 Swift 客户端读写，不进入配置 HTTP 请求。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
+导入仅为非空凭证提供新的引用，省略项仅在端点、协议和邮箱身份一致时保留本机引用或逻辑键；变化时解除旧绑定，生成空的新引用并返回 `credentialsRequired`；拒绝不属于导入账号或服务商的引用。引用名称为：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；所有服务商的密钥由 Swift 客户端读写，不进入配置 HTTP 请求。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
 
 每个文件夹用 STATUS 与 UID SEARCH ALL 核对邮件数量，再按每页最多 200 个 UID 只读取 UID、FLAGS、RFC822.SIZE，避免批量 ENVELOPE / INTERNALDATE 被服务器截断。缺项按每批 50、10、1 个 UID 逐步补拉，每个原始页最多 24 次补拉，每条命令使用独立期限并支持取消。校验继续拒绝重复、非请求 UID、无效标志和大小；完整清单通过后才校准缓存，补拉后仍不完整则保留缓存，包括 UIDVALIDITY 已变化的旧缓存。EXAMINE 的缺失或误报计数不会直接当作空文件夹；服务器确认删除的邮件放入 `recovery`。服务商收取范围也会改变 IMAP 可见清单，客户端无法绕过，排查方法见使用指南。
+
+文件夹映射按当前服务器特殊用途重建，移除失效同步检查点；失效 mutation 单条取消并记事件，临时故障保留重试并重连下载。relocation / recovery 通过 Message-ID 和远端 UID 的 SQLite 索引只读取候选原件，保留 30 天、每账户最多 2,000 条，清理时检查共享附件引用。
 
 `sync.inventory` 保留 selectedCount、statusCount、uidCount、metadataCount，并记录 metadataRequests（全部清单 FETCH 次数）、metadataRetryRequests（补拉次数）、metadataRecoveredCount（补拉成功的邮件数）、metadataMissingCount（当前页仍缺项的数量）及 metadataMissingUIDs（最多 20 个缺失 UID 样本）。进度、成功和失败均保存诊断；清单全部完成后缺项归零。普通邮件从单封正文读取时保留 INTERNALDATE，分段正文首段请求日期，缺项或 NO / BAD 响应重试时拆为单独正文请求；超过 25 MB 的邮件单独请求信封及日期，保留发件人、主题及时间，不下载超限正文。
 
@@ -132,15 +139,15 @@ npm start
 
 删除与归档来源保存在 `deletedFromFolder/Path`、`archivedFromFolder/Path`，接口返回可选 `restoreFolder`、`unarchiveFolder`。恢复先更新本机并登记远端移动，清空先提交待处理恢复，再清理整个服务器 Trash；失败保留本机记录，其他邮件、草稿及 recovery 引用的附件保留。清空结束只将发现的文件夹合并到最新账户记录，保留期间保存的其他字段。
 
-全文搜索通过 SQLite 触发器登记 message / attachment / job 变化，检索时增量补齐双字符 n-gram 索引并核对子串，单字符回退。完全相同的记录写入不触发更新，无变化同步不重写邮件；索引更新与重建在事务内完成，失败保留原索引及待更新标记。`q` 支持关键词、短语及 from / to / cc / subject / category / after / before / is / has / account / folder，参数绑定不执行原始查询。明确 `folder:drafts` 时查询未发送本机草稿，ID 带 `draft:` 前缀及 `draftId`，日期取最后更新时间，不增加普通邮件索引数。
+全文搜索通过 SQLite 触发器登记 message / attachment / job 变化，后台按每轮一封邮件补齐双字符 n-gram 索引，检索请求只读取已完成索引并核对子串，单字符回退。完全相同的记录写入不触发更新，无变化同步不重写邮件；每封索引独立提交，失败隔离并计入 `failed`，不回滚其他邮件或在每次搜索时重试；重建重新排队后台处理。正文和关联内容采用有界 SQL 投影，单封总索引上限 262,144 个字符，bigram 逐字符生成。`q` 支持关键词、短语及 from / to / cc / subject / category / after / before / is / has / account / folder，参数绑定不执行原始查询。明确 `folder:drafts` 或 `folder=drafts`（含关键词）时查询未发送本机草稿，ID 带 `draft:` 前缀及 `draftId`，日期取最后更新时间，不增加普通邮件索引数。逐条投影到临时表，不物化全库附件或单一 JSON 数组；每个正文、转发文字及引用附件字段取前 65,536 字符，合计最多 262,144 字符。分页仅返回 `bodyLoaded:false` 的元数据，详情端点仍提供完整原文。
 
 会话按同账户引用链归并，分页前将当前邮件置顶，其余按时间倒序、相同时间按 ID 稳定排列；分页不重复当前邮件。联系人只来自当前账户，分类目录及任务快照保存在 records。模型列表按服务商 ID、协议和规范化 API 地址隔离，只保存模型 ID、服务商返回的名称及能力元数据和 updatedAt；原默认 Responses 连接沿用旧缓存 ID。成功刷新替换、合法空数组清空、失败保留，独立于设置应用与取消。Anthropic 模型列表按游标获取后一次提交，分页失败不覆盖旧缓存。
 
-`mail-preview.js` 从完整缓存正文生成只排除签名的显示文本，保留引用历史。列表、紧凑快照、会话及草稿使用同一规则，HTML 只移除明确的签名容器，纯文本识别签名分隔符、企业联系信息及设备落款。Repository 按邮件 ID 在内存缓存短预览，实际邮件写入和删除使其失效，事务回滚或数据库句柄替换后清空。读取预览不重写邮件，不触发全文索引更新，也不要求重新同步。搜索仍匹配完整原文，正文片段在显示前按同一规则过滤；只有签名命中时回退到普通预览。完整正文与 HTML 不改动。
+`mail-preview.js` 从完整缓存正文生成只排除签名的显示文本，保留引用历史。列表、紧凑快照、会话及草稿使用同一规则，HTML 只移除明确的签名容器，纯文本识别签名分隔符、企业联系信息及设备落款。Repository 按邮件 ID 在内存缓存短预览，实际邮件写入和删除使其失效，事务回滚或数据库句柄替换后清空。读取预览不重写邮件，不触发全文索引更新，也不要求重新同步。搜索在上述长度范围内匹配含签名的原文，正文片段在显示前按同一规则过滤；只有签名命中时回退到普通预览。完整正文与 HTML 不改动。
 
-`/state` 的完整与轻量快照均为草稿附加 `preview`，与草稿搜索及保存响应共用规则；空字符串表示没有可显示的正文，客户端显示“尚未撰写正文”，不回退到含签名的 `body`。该字段按需生成，不写入数据库，也不采纳客户端提交的预览；`body` 继续用于编辑、保存和发送。
+`/state` 的完整与轻量快照均只返回草稿头部（`bodyLoaded:false`、`body:""`，省略 forwardedText / forwardedHTML），并附加有限字符生成的 `preview`；与草稿搜索及保存响应共用规则；空字符串表示没有可显示的正文，客户端显示“尚未撰写正文”，不回退到含签名的 `body`。该字段按需生成，不写入数据库，也不采纳客户端提交的预览；阅读详情仍走 `/messages/draft:<id>`；编辑通过 `GET /drafts/<id>` 按需取得完整原始字段及 `bodyLoaded:true`。`POST /drafts` 拒绝 `bodyLoaded:false`，完整 body 和转发快照继续用于编辑、保存和发送。
 
-备份为 SQLite 快照、附件及逐项 SHA-256 清单。恢复核验路径、未知文件、完整性、必要字段和引用，恢复前备份失败即停止；事务失败回滚并清理暂存，成功后重建派生索引并清空邮件预览缓存，原 ID 被复用时也从恢复后的正文生成预览。维护期拒绝并发写入，容量边界见使用指南。
+备份为 SQLite 快照、附件及逐项 SHA-256 清单。恢复核验路径、未知文件、完整性、必要字段和引用，并复用 `aiConfig` 做语义校验；恢复前备份失败即停止；事务失败回滚并清理暂存，成功后重建派生索引并清空邮件预览缓存，原 ID 被复用时也从恢复后的正文生成预览。维护期拒绝并发写入，容量边界见使用指南。附件从校验暂存区复制到数据目录，支持跨本地磁盘；提交失败清理本次附件及 before-restore 备份，保留真实文件系统错误。恢复不采用归档中的凭证引用，只按本机相同端点与身份重绑，其余映射到空的新引用并返回 `credentialsRequired`，待用户重填。启动遇到非法 AI 设置时停用 AI、恢复默认参数并解除默认密钥绑定。
 
 完整备份包含 `translationHTML`、`summaryHidden` 及完整总结、待办、服务商和模型参数。可选译文字段仅允许字符串或空值，收录字段仅允许布尔或空值；旧备份缺省值仍兼容。恢复会重定位附件路径，运行中的整理或附件批量任务暂停，单封 AI 任务失败、发送中草稿转为待确认；实时 AI 输出不持久化，客户端清空旧的显示、列表撤销和多选状态。
 
@@ -223,6 +230,8 @@ PDF 文本提取和 PDF / PPT 页面栅格化通过 `pdf-processing.js` 在独�
 客户端另存 `app.jsonl`，记录 API 超时、轮询错误、连接和子进程退出。解码错误补充 `field`、`expectedType`、`actualType`、`responseBytes`、`recordKind` 及匿名 `record` / `account`；保留数组下标，未知字典键变为 `:key`，不包含字段值或原始错误描述。`DiagnosticArchive` 直接读取允许的轮转日志并生成 ZIP，不通过后端接口；清单只保留版本、系统、匿名账户状态和计数，排除数据库、凭证、邮件、附件和文件扩展属性。设置中的开发者页负责选择位置与显示结果。
 
 ### 异常字段关联
+
+空的 MIME `Content-Type:` 可能由 mailparser 表示为 false。`attachment-metadata.js` 将未知、空或非法 MIME 描述归一化为 `application/octet-stream`；Repository 启动时仅扫描 MIME 字段，并事务修正异常记录，新写入及读取也保持相同契约。名称、原始文件、提取文本及 AI 分析均保留。`data.attachment.repaired` 使用匿名 record、字段、实际类型、phase 与 action，不记录原值；可与客户端 `$.attachments[n].contentType` 的解码失败关联。Swift 对该可缺省描述字段单独兼容，其他必填字段继续严格验证。
 
 客户端为 HTTP 与 AI 输出流生成 UUID v4 `X-Boxmail-Request-ID`，后端接受有效值并随响应回传，无效或缺省时重新生成。`requestID` 写入 API 错误、慢请求、同步与解析日志，方便串联同一次操作。请求正文、认证头和查询值不进入日志。
 

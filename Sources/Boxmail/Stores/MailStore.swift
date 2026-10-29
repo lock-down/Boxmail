@@ -9,6 +9,7 @@ import SwiftUI
   @ObservationIgnored let readMailPassword: @MainActor (String) throws -> String
   @ObservationIgnored var conversationBodyRequests: [String: UUID] = [:]
   @ObservationIgnored private var refreshGeneration = UUID()
+  @ObservationIgnored private var draftOpenGeneration = UUID()
   init(backend: BackendService? = nil, readMailPassword: (@MainActor (String) throws -> String)? = nil) {
     self.backend = backend ?? .shared
     self.readMailPassword = readMailPassword ?? CredentialService.mailPassword(for:)
@@ -248,7 +249,26 @@ import SwiftUI
       error = "草稿已发送、移除或正在发送，请刷新后重试。"
       return
     }
-    composer = draft
+    if draft.bodyLoaded != false { composer = draft; return }
+    let generation = UUID()
+    let revision = restoreRevision
+    draftOpenGeneration = generation
+    busy.insert("draft-load")
+    Task {
+      defer { if draftOpenGeneration == generation { busy.remove("draft-load") } }
+      do {
+        let full: MailDraft = try await self.backend.request("/drafts/\(id)")
+        try Task.checkCancellation()
+        guard generation == draftOpenGeneration, revision == restoreRevision, composer == nil,
+          let latest = drafts.first(where: { $0.id == id }), latest.accountId == full.accountId,
+          latest.status != "sending", full.status != "sending" else { return }
+        composer = full
+      } catch {
+        if generation == draftOpenGeneration, revision == restoreRevision, composer == nil {
+          self.error = "草稿正文未能加载，原草稿已保留。\(error.localizedDescription)"
+        }
+      }
+    }
   }
   func openMail(_ message: MailMessage, tab: MailAITab? = nil) {
     accountId = message.accountId
@@ -375,7 +395,7 @@ import SwiftUI
         let job = try await runAI(
           task: task, message: message, attachment: attachment, prompt: prompt,
           replyPreset: replyPreset, preview: preview)
-        if !preview, let id = job.result?.draftId { composer = drafts.first { $0.id == id } }
+        if !preview, let id = job.result?.draftId { editDraft(id) }
       } catch {
         mailAIErrors[message.id] = error.localizedDescription
       }

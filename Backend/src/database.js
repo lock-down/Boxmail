@@ -5,12 +5,14 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SearchIndex } from './search-index.js';
 import { parseSearch, searchWhere } from './search-query.js';
-import { draftSearchPage } from './draft-search.js';
+import { draftSearchPage, draftPreview } from './draft-search.js';
 import { mailPreview } from './mail-preview.js';
 import { senderMessagePage } from './sender-groups.js';
+import { attachmentContentType, attachmentMetadata } from './attachment-metadata.js';
 
 export class Repository {
-  constructor(directory) {
+  constructor(directory, { diagnostics } = {}) {
+    this.diagnostics = diagnostics;
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.directory = directory;
     this.db = new DatabaseSync(path.join(directory, 'boxmail.sqlite'));
@@ -42,7 +44,30 @@ export class Repository {
     this.db.exec("CREATE INDEX IF NOT EXISTS records_account ON records(kind,json_extract(data,'$.accountId'))");
     this.db.exec(`CREATE INDEX IF NOT EXISTS message_identity ON records(
       json_extract(data,'$.accountId'),json_extract(data,'$.messageId')) WHERE kind='message'`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS retained_identity ON records(kind,
+      json_extract(data,'$.accountId'),json_extract(data,'$.original.messageId'));
+      CREATE INDEX IF NOT EXISTS relocation_uid ON records(kind,json_extract(data,'$.accountId'),
+      json_extract(data,'$.destination'),json_extract(data,'$.uidValidity'),json_extract(data,'$.destinationUID'));`);
     this.searchIndex = new SearchIndex(this);
+    this.repairAttachmentMetadata();
+  }
+  repairAttachmentMetadata() {
+    const invalid = [];
+    // Scan only MIME metadata, not all attachment text and AI analysis. Repair
+    // existing cached records transactionally before startup or backup reads.
+    for (const row of this.db.prepare(`SELECT id,json_type(data,'$.contentType') AS type,
+      json_extract(data,'$.contentType') AS value FROM records WHERE kind='attachment'`).iterate())
+      if (row.type !== 'text' || attachmentContentType(row.value) !== row.value) invalid.push(row.id);
+    for (let offset = 0; offset < invalid.length; offset += 100) this.transaction(() => {
+      for (const id of invalid.slice(offset, offset + 100)) {
+        const row = this.db.prepare("SELECT data FROM records WHERE kind='attachment' AND id=?").get(id);
+        const repaired = attachmentMetadata(JSON.parse(row.data), { diagnostics: this.diagnostics, phase: 'migration' });
+        this.db.prepare("UPDATE records SET data=json_set(data,'$.contentType',?) WHERE kind='attachment' AND id=?")
+          .run(repaired.contentType, id);
+      }
+    });
+    if (invalid.length) this.searchIndex.schedule();
+    return invalid.length;
   }
   rebuildSearch() { return this.searchIndex.rebuild(); }
   list(kind, { accountId, remotePath, messageId } = {}) {
@@ -55,13 +80,15 @@ export class Repository {
     return this.db
       .prepare(`SELECT data FROM records WHERE ${clauses.join(' AND ')} ORDER BY id`)
       .all(...params)
-      .map((r) => JSON.parse(r.data));
+      .map((r) => kind === 'attachment' ? attachmentMetadata(JSON.parse(r.data), { diagnostics: this.diagnostics }) : JSON.parse(r.data));
   }
   get(kind, id) {
     const r = this.db
       .prepare('SELECT data FROM records WHERE kind=? AND id=?')
       .get(kind, id);
-    return r ? JSON.parse(r.data) : null;
+    if (!r) return null;
+    const value = JSON.parse(r.data);
+    return kind === 'attachment' ? attachmentMetadata(value, { diagnostics: this.diagnostics }) : value;
   }
   activeDrafts(accountId) {
     return this.db.prepare(`SELECT data FROM records WHERE kind='draft'
@@ -69,11 +96,42 @@ export class Repository {
       ${accountId === undefined ? '' : "AND json_extract(data,'$.accountId')=?"} ORDER BY id`)
       .all(...(accountId === undefined ? [] : [accountId])).map(row => JSON.parse(row.data));
   }
+  draftHeaders() {
+    const accounts = new Map(this.list('account').map(account => [account.id, account]));
+    const rows = this.db.prepare(`SELECT json_set(json_remove(data,'$.forwardedText','$.forwardedHTML','$.preview'),
+      '$.body','','$.bodyLoaded',json('false')) AS data,
+      substr(coalesce(json_extract(data,'$.body'),''),1,8192) AS previewBody,
+      substr(coalesce(json_extract(data,'$.forwardedText'),''),1,8192) AS previewForwarded
+      FROM records WHERE kind='draft' AND coalesce(json_extract(data,'$.status'),'draft')!='sent' ORDER BY id`);
+    const headers = [];
+    for (const row of rows.iterate()) {
+      const draft = JSON.parse(row.data);
+      headers.push({ ...draft, preview: draftPreview({ body: row.previewBody, forwardedText: row.previewForwarded }, accounts.get(draft.accountId)) });
+    }
+    return headers;
+  }
   localSentMessage(accountId, messageId) {
     const row = this.db.prepare(`SELECT data FROM records WHERE kind='message'
       AND json_extract(data,'$.accountId')=? AND json_extract(data,'$.messageId')=?
       AND id LIKE 'sent-%' ORDER BY id LIMIT 1`).get(accountId, messageId);
     return row ? JSON.parse(row.data) : null;
+  }
+  retainedMail(accountId, remotePath, validity, uid, messageId) {
+    const exact = this.db.prepare(`SELECT data FROM records WHERE kind='relocation'
+      AND json_extract(data,'$.accountId')=? AND json_extract(data,'$.destination')=?
+      AND json_extract(data,'$.uidValidity')=? AND json_extract(data,'$.destinationUID')=? LIMIT 1`)
+      .get(accountId, remotePath, validity, uid);
+    if (exact) return { kind: 'relocation', value: JSON.parse(exact.data) };
+    if (!messageId) return null;
+    const find = (kind, extra = '', params = []) => this.db.prepare(`SELECT id FROM records WHERE kind=?
+      AND json_extract(data,'$.accountId')=? AND json_extract(data,'$.original.messageId')=? ${extra} LIMIT 2`)
+      .all(kind, accountId, messageId, ...params);
+    const moved = find('relocation', `AND json_extract(data,'$.destination')=?
+      AND (json_extract(data,'$.destinationUID') IS NULL OR json_extract(data,'$.uidValidity') IS NOT ?)`, [remotePath, validity]);
+    if (moved.length === 1) return { kind: 'relocation', value: this.get('relocation', moved[0].id) };
+    const same = find('recovery', "AND json_extract(data,'$.remotePath')=?", [remotePath]);
+    const recovered = same.length === 1 ? same : find('recovery');
+    return recovered.length === 1 ? { kind: 'recovery', value: this.get('recovery', recovered[0].id) } : null;
   }
   syncMessageHeaders(accountId, remotePath) {
     return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML','$.summary') AS data
@@ -88,6 +146,7 @@ export class Repository {
       .all().map(row => JSON.parse(row.data));
   }
   put(kind, value) {
+    if (kind === 'attachment') value = attachmentMetadata(value, { diagnostics: this.diagnostics, phase: 'persist' });
     const result = this.db
       .prepare(
         'INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data WHERE records.data<>excluded.data',
@@ -97,11 +156,13 @@ export class Repository {
           { ...details, phase: 'persist' }) } : {}) }));
     if (kind === 'message' && result.changes) this.previewCache?.delete(value.id);
     if (kind === 'sync' && result.changes) this.onSyncProgress?.(value);
+    if (result.changes && ['message', 'attachment', 'job'].includes(kind)) this.searchIndex?.schedule();
     return value;
   }
   remove(kind, id) {
     this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id);
     if (kind === 'message') this.previewCache?.delete(id);
+    if (['message', 'attachment', 'job'].includes(kind)) this.searchIndex?.schedule();
   }
   invalidateMessagePreviews() {
     this.previewCache?.clear();
@@ -183,7 +244,7 @@ export class Repository {
       substr(json_extract(data,'$.text'),1,160) AS textPreview,
       substr(json_extract(data,'$.analysis'),1,160) AS analysisPreview
       FROM records WHERE kind='attachment'`)
-      .all().map(row => ({ ...JSON.parse(row.data), text: '', hasExtractedText: !!row.hasText, hasAnalysis: !!row.hasAnalysis,
+      .all().map(row => ({ ...attachmentMetadata(JSON.parse(row.data), { diagnostics: this.diagnostics }), text: '', hasExtractedText: !!row.hasText, hasAnalysis: !!row.hasAnalysis,
         textPreview: row.textPreview || null, analysisPreview: row.analysisPreview || null }));
   }
   searchAttachmentIDs(query, accountId) {
@@ -212,6 +273,7 @@ export class Repository {
       total, nextOffset: offset + rows.length < total ? offset + rows.length : null };
   }
   close() {
+    this.searchIndex.close();
     this.invalidateMessagePreviews();
     this.db.close();
   }

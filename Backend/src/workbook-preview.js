@@ -1,4 +1,11 @@
 import { ServiceError } from './validation.js';
+import { ParserProcess } from './parser-process.js';
+
+export async function workbookPreview(buffer, options = {}) {
+  const parser = new ParserProcess(options);
+  try { return (await parser.run('workbook-preview', buffer, { format: 'xlsx' })).html; }
+  finally { await parser.close(); }
+}
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const themes = ['#ffffff','#000000','#e7e6e6','#44546a','#4472c4','#ed7d31','#a5a5a5','#ffc000','#5b9bd5','#70ad47'];
@@ -44,11 +51,17 @@ function cellContent(cell) {
   return escape(valueText(cell));
 }
 
-export async function workbookPreview(buffer) {
+export async function renderWorkbookPreview(buffer) {
+  if (buffer.length > 25 * 1024 * 1024) throw new ServiceError('工作簿超过 25 MB');
   const { default: ExcelJS } = await import('exceljs');
   const book=new ExcelJS.Workbook();
   try { await book.xlsx.load(buffer); } catch { throw new ServiceError('工作簿无法读取，请使用原应用检查文件是否损坏或加密'); }
-  const sheets=[];let limited=book.worksheets.length>10;
+  const sheets=[];let limited=book.worksheets.length>10, contentBytes=0;
+  const consume = value => {
+    contentBytes += Buffer.byteLength(value);
+    if (contentBytes > 8 * 1024 * 1024) throw new ServiceError('工作簿预览内容过大，请在原应用中查看或拆分文件。');
+    return value;
+  };
   for(const sheet of book.worksheets.slice(0,10)){
     const images=sheet.getImages();
     const maxImageRow=Math.max(0,...images.map(image=>Math.ceil(image.range.br?.row??(image.range.tl?.row||0)+20)));
@@ -71,7 +84,9 @@ export async function workbookPreview(buffer) {
         const cell=sheet.getCell(row,col);
         if(cell.isMerged&&cell.master.address!==cell.address)continue;
         const merge=merges.get(cell.address);
-        table+=`<td${merge?` colspan="${merge.colspan}" rowspan="${merge.rowspan}"`:''} style="${escape(cellStyle(cell))};${widths[col-1]===0?'display:none':''}">${cellContent(cell)}</td>`;
+        const content = cellContent(cell);
+        if (content.length > 32768) throw new ServiceError('工作簿单元格内容过长，请在原应用中查看。');
+        table+=consume(`<td${merge?` colspan="${merge.colspan}" rowspan="${merge.rowspan}"`:''} style="${escape(cellStyle(cell))};${widths[col-1]===0?'display:none':''}">${content}</td>`);
       }
       table+='</tr>';
     }
@@ -84,7 +99,7 @@ export async function workbookPreview(buffer) {
       const left=position(image.range.tl,'col'),top=position(image.range.tl,'row');
       const width=image.range.ext?.width??position(image.range.br,'col')-left;
       const height=image.range.ext?.height??position(image.range.br,'row')-top;
-      graphics+=`<img alt="工作簿内嵌图片" src="data:image/${extension==='jpg'?'jpeg':extension};base64,${data}" style="position:absolute;left:${left}px;top:${top}px;width:${Math.max(1,width)}px;height:${Math.max(1,height)}px">`;
+      graphics+=consume(`<img alt="工作簿内嵌图片" src="data:image/${extension==='jpg'?'jpeg':extension};base64,${data}" style="position:absolute;left:${left}px;top:${top}px;width:${Math.max(1,width)}px;height:${Math.max(1,height)}px">`);
     }
     sheets.push(`<section><h2>${escape(sheet.name)}</h2><div class="sheet-scroll"><div class="sheet" style="width:${x.at(-1)}px;min-height:${y.at(-1)}px"><table style="width:${x.at(-1)}px">${table}</table>${graphics}</div></div></section>`);
   }

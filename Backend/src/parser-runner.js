@@ -25,6 +25,14 @@ process.on('message', async message => {
     } else if (task === 'presentation-text') {
       const { presentationText } = await import('./presentations.js');
       result = { text: await presentationText(buffer, { name: options.name, contentType: options.contentType }) };
+    } else if (task === 'presentation') {
+      const { presentationPDF } = await import('./presentations.js');
+      const { parsePDF } = await import('./pdf-processing.js');
+      const document = await presentationPDF(buffer, { name: options.name, contentType: options.contentType });
+      result = { ...await parsePDF(document.buffer, { name: options.name, kind: 'presentation' }), text: document.text };
+    } else if (task === 'workbook-preview') {
+      const { renderWorkbookPreview } = await import('./workbook-preview.js');
+      result = { html: await renderWorkbookPreview(buffer) };
     } else throw new Error('Unknown parser task');
     process.send({ type: 'result', result, rss: process.memoryUsage.rss() });
   } catch (error) {

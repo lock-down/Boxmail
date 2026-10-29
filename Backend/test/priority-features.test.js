@@ -76,6 +76,7 @@ test('full text index finds Chinese two-character and sentence-internal terms, f
   repo.put('attachment', { id: 'f', messageId: 'm', name: '深圳采购合同.xlsx', text: '隐含成本与履约条款', analysis: '付款上限为300万元' });
   repo.put('message', { ...repo.get('message', 'm'), attachmentIds: ['f'], summary: { overview: '审批事项' }, translation: 'translation needle' });
   repo.put('job', { id: 'reply', messageId: 'm', result: { body: '已收到审阅意见' } });
+  await repo.searchIndex.drain();
   for (const query of ['发票', '季度付款', 'FY2026', '采购合同', '隐含成本', '上限', '300万', '审批', '审阅意见', 'translation'])
     assert.deepEqual(repo.messagePage({ query }).messages.map(m => m.id), ['m'], query);
   assert.deepEqual(repo.messagePage({ query: '付款 FY2026' }).messages.map(m => m.id), ['m']);
@@ -90,14 +91,17 @@ test('index updates after attachment understanding, message moves, deletes, roll
   repo.put('attachment', { id: 'f', messageId: 'm', name: '文件', text: '', analysis: '' });
   assert.equal(repo.search('新理解').length, 0);
   repo.put('attachment', { ...repo.get('attachment', 'f'), analysis: '新理解结论' });
+  await repo.searchIndex.drain();
   assert.equal(repo.search('新理解').length, 1);
   assert.throws(() => repo.transaction(() => { repo.put('message', { ...repo.get('message', 'm'), body: '不该保留' }); throw new Error('rollback'); }));
   assert.equal(repo.search('不该保留').length, 0);
   repo.put('message', { ...repo.get('message', 'm'), folder: 'archive' });
+  await repo.searchIndex.drain();
   assert.equal(repo.search('folder:archive 合同').length, 1);
   const reopened = new Repository(directory);
   assert.equal(reopened.search('新理解').length, 1);
   reopened.rebuildSearch();
+  await reopened.searchIndex.drain();
   assert.equal(reopened.search('新理解').length, 1);
   reopened.close();
   repo.remove('message', 'm');
@@ -109,6 +113,7 @@ test('combined search conditions agree with pagination and preserve account, fol
   for (let i = 0; i < 5; i++) repo.put('message', { ...base, id: `b${i}`, accountId: 'b', folder: 'sent',
     bcc: 'audit@example.com', attachmentIds: ['f'], date: `2026-10-${20 + (i % 2)}T10:00:00Z` });
   const query = '合同 from:zhang to:audit after:2026-10-20 before:2026-10-22 is:unread has:attachment account:other@example.com folder:sent';
+  await repo.searchIndex.drain();
   const first = repo.messagePage({ accountId: 'a', query, limit: 2 });
   const second = repo.messagePage({ accountId: 'a', query, offset: first.nextOffset, limit: 2 });
   const last = repo.messagePage({ accountId: 'a', query, offset: second.nextOffset, limit: 2 });
@@ -146,7 +151,7 @@ test('draft status searches local unsent drafts with account, date, recipient, a
   assert.equal(page.total, 2);
   assert.equal(page.messages[0].id, 'draft:d');
   assert.equal(page.messages[0].draftId, 'd');
-  assert.equal(page.messages[0].bodyLoaded, true);
+  assert.equal(page.messages[0].bodyLoaded, false);
   assert.equal(page.messages[0].senderEmail, 'me@example.com');
   assert.equal(page.nextOffset, 1);
   assert.equal(repo.messagePage({ accountId: 'a', query: 'folder:drafts 合同', offset: 1, limit: 1 }).messages[0].draftId, 'older');

@@ -51,12 +51,10 @@ export async function startServer({
 }) {
   if (!token || token.length < 24)
     throw new Error('A session token is required');
-  const repo = new Repository(directory);
   const diagnostics = new Diagnostics(directory);
-  repo.diagnostics = diagnostics;
+  const repo = new Repository(directory, { diagnostics });
   if (demo) await seedDemo(repo);
-  for (const d of repo.activeDrafts().filter((d) => d.status === 'sending'))
-    repo.put('draft', { ...d, status: 'uncertain' });
+  repo.db.prepare("UPDATE records SET data=json_set(data,'$.status','uncertain') WHERE kind='draft' AND json_extract(data,'$.status')='sending'").run();
   for (const j of repo.list('job').filter((j) => j.status === 'running'))
     repo.put('job', {
       ...j,
@@ -124,9 +122,18 @@ export async function startServer({
   // Normalize existing 0.0.1 settings without losing custom prompts or providers.
   const saved = repo.get('settings', 'settings');
   let savedAI = { ...DEFAULT_AI, ...saved.ai, prompts: upgradeDefaultPrompts(saved.ai?.prompts) };
-  if (!saved.ai.effort && !saved.ai.model && saved.ai.baseURL === 'https://api.openai.com/v1')
+  if (!saved.ai?.effort && !saved.ai?.model && saved.ai?.baseURL === 'https://api.openai.com/v1')
     savedAI = { ...savedAI, baseURL: DEFAULT_AI.baseURL, model: DEFAULT_AI.model };
-  repo.put('settings', { ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, ai: aiConfig(savedAI, { requireModel: false }) });
+  try {
+    if (!saved.ai || typeof saved.ai !== 'object' || Array.isArray(saved.ai)) throw new ServiceError('AI 设置无效');
+    savedAI = aiConfig(savedAI, { requireModel: false });
+  }
+  catch {
+    savedAI = aiConfig({ ...DEFAULT_AI, enabled: false }, { requireModel: false });
+    saved.credentialReferences = { ...saved.credentialReferences, 'ai-key': `configuration-${randomUUID()}` };
+    repo.event('settings', 'AI 设置无效，已停用并恢复默认参数，请检查服务地址并重新填写密钥。');
+  }
+  repo.put('settings', { ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, ai: savedAI });
   function requestedAI(body) {
     const config = repo.get('settings', 'settings').ai;
     if (body.providerId !== undefined && body.providerId !== config.providerId)
@@ -143,13 +150,10 @@ export async function startServer({
   }
   function state(compact = false, previews = true) {
     const accounts = repo.list('account');
-    const byAccount = new Map(accounts.map(account => [account.id, account]));
     return {
       accounts,
       messages: (compact ? repo.messageHeaders(undefined, { previews }) : repo.search('')).map(presentMessage),
-      drafts: repo.activeDrafts()
-        .map(draft => upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null))
-        .map(draft => ({ ...draft, preview: draftPreview(draft, byAccount.get(draft.accountId)) })),
+      drafts: repo.draftHeaders(),
       attachments: compact ? repo.attachmentHeaders() : repo.list('attachment'),
       jobs: (compact ? repo.jobHeaders() : repo.list('job'))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
@@ -236,7 +240,7 @@ export async function startServer({
       else if (req.method === 'GET' && route === '/search/index') result = repo.searchIndex.status();
       else if (req.method === 'POST' && route === '/search/rebuild') {
         requireIdle(); maintenance = true;
-        try { result = repo.transaction(() => repo.rebuildSearch()); }
+        try { repo.rebuildSearch(); result = await repo.searchIndex.drain(); }
         finally { maintenance = false; }
       } else if (req.method === 'POST' && route === '/backups/inspect') result = await inspectBackup(body.path);
       else if (req.method === 'POST' && ['/backups/create', '/backups/restore'].includes(route)) {
@@ -514,12 +518,18 @@ export async function startServer({
           route.split('/')[2],
           route.endsWith('/undo'),
         );
-      else if (req.method === 'POST' && route === '/drafts') {
+      else if (req.method === 'GET' && /^\/drafts\/[^/]+$/.test(route)) {
+        const draft = repo.get('draft', route.split('/')[2]);
+        if (!draft || draft.status === 'sent') throw new ServiceError('草稿不存在或已发送，请刷新后重试', 404);
+        result = upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null);
+        result = { ...result, preview: draftPreview(result, repo.get('account', draft.accountId)), bodyLoaded: true };
+      } else if (req.method === 'POST' && route === '/drafts') {
         const account = repo.get('account', body.accountId);
         if (!account)
           throw new ServiceError('请选择发送账户');
         const id = body.id || randomUUID();
         const old = repo.get('draft', id);
+        if (body.bodyLoaded === false) throw new ServiceError('草稿正文尚未加载，请重新打开草稿后保存', 409);
         if (old && ['sent', 'sending', 'uncertain'].includes(old.status))
           throw new ServiceError('该草稿不能修改，请另存为新草稿', 409);
         const draft = {
@@ -529,7 +539,7 @@ export async function startServer({
           cc: String(body.cc || ''),
           bcc: String(body.bcc || ''),
           subject: textSlice(String(body.subject || ''), 0, 2000),
-          body: textSlice(String(body.body || ''), 0, 500000),
+          body: String(body.body || ''),
           attachmentIds: (body.attachmentIds || []).filter((a) =>
             repo.get('attachment', a),
           ),
@@ -541,6 +551,7 @@ export async function startServer({
           ...savedForwardFields(body, old),
         };
         const saved = upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null);
+        if (saved.body.length > 500000) throw new ServiceError('草稿正文超过 500,000 个字符，请缩短正文后保存；转发原文请保留在引用区域。');
         result = { ...repo.put('draft', saved), preview: draftPreview(saved, account) };
       } else if (req.method === 'DELETE' && route.startsWith('/drafts/')) {
         const id = route.split('/')[2];

@@ -47,7 +47,7 @@ test('configuration export includes settings and real accounts without data or c
 
 test('configuration import merges by email and preserves account IDs, sync history, mail and unrelated accounts', async t => {
   const repo = await fixture(t);
-  const original = { id: 'message', accountId: 'existing', body: '已有正文' };
+  const original = { id: 'message', accountId: 'existing', body: '已有正文', contentType: 'application/octet-stream' };
   for (const kind of ['message', 'attachment', 'draft', 'job', 'mutation']) repo.put(kind, original);
   const request = body(repo);
   assert.equal(request.accounts.find(a => a.sourceId === 'foreign').accountId, 'existing');
@@ -154,4 +154,52 @@ test('custom-only configuration imports require exactly their provider keys and 
   assert.equal(repo.get('settings', 'settings').credentialReferences['ai-key'], oldReference);
   assert.deepEqual(exportConfiguration(repo).settings.ai.providers[0].models, custom.ai.providers[0].models);
   assert.equal(exportConfiguration(repo).settings.credentialReferences, undefined);
+});
+
+test('configuration imports with empty credentials detach changed mail identities and AI endpoints', async t => {
+  const repo = await fixture(t);
+  const oldReferences = { 'ai-key': reference(), 'mail-existing': reference(), 'mail-other': reference() };
+  for (const change of [
+    value => { value.accounts[0].imapHost = 'imap.attacker.test'; },
+    value => { value.accounts[0].smtpHost = 'smtp.attacker.test'; },
+    value => { value.accounts[0].username = 'different@example.test'; },
+    value => { value.accounts[0].imapPort = 1993; },
+    value => { value.accounts[0].smtpTLS = false; },
+    value => { value.settings.ai.baseURL = 'https://attacker.test/v1'; },
+    value => { value.settings.ai.baseURL = DEFAULT_AI.baseURL + '/untrusted-path'; },
+    value => { value.settings.ai.apiProtocol = 'anthropic-messages'; },
+  ]) {
+    repo.put('settings', { ...settings(), credentialReferences: oldReferences });
+    repo.put('account', account('existing', 'me@example.test'));
+    const configuration = { accounts: [account('foreign', 'me@example.test')], settings: settings() };
+    change(configuration);
+    const plan = inspectConfiguration(repo, configuration);
+    assert.ok(plan.credentialsRequired.length > 0);
+    const imported = importConfiguration(repo, { configuration, ...plan, approved: true, credentialReferences: {} });
+    assert.deepEqual(imported.credentialsRequired, plan.credentialsRequired);
+    for (const logical of imported.credentialsRequired) {
+      assert.match(imported.settings.credentialReferences[logical], /^configuration-[0-9a-f-]{36}$/);
+      assert.ok(!Object.values(oldReferences).includes(imported.settings.credentialReferences[logical]));
+    }
+    assert.equal(imported.settings.credentialReferences['mail-other'], oldReferences['mail-other']);
+  }
+});
+
+test('configuration imports preserve unchanged local bindings and accept fresh credentials at changed endpoints', async t => {
+  const repo = await fixture(t);
+  const oldReferences = { 'ai-key': reference(), 'mail-existing': reference(), 'mail-other': reference() };
+  repo.put('settings', { ...settings(), credentialReferences: oldReferences });
+  const configuration = { accounts: [account('foreign', 'me@example.test')], settings: settings() };
+  configuration.accounts[0].username = repo.get('account', 'existing').username;
+  let plan = inspectConfiguration(repo, configuration);
+  const preserved = importConfiguration(repo, { configuration, ...plan, approved: true, credentialReferences: {} });
+  assert.deepEqual(preserved.credentialsRequired, []);
+  assert.deepEqual(preserved.settings.credentialReferences, oldReferences);
+  configuration.accounts[0].imapHost = 'imap.new-provider.test';
+  configuration.settings.ai.baseURL = 'https://new-provider.test/v1';
+  plan = inspectConfiguration(repo, configuration);
+  const supplied = { 'ai-key': reference(), 'mail-existing': reference() };
+  const replaced = importConfiguration(repo, { configuration, ...plan, approved: true, credentialReferences: supplied });
+  assert.deepEqual(replaced.credentialsRequired, []);
+  assert.deepEqual(replaced.settings.credentialReferences, { ...oldReferences, ...supplied });
 });

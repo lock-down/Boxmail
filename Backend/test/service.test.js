@@ -174,6 +174,7 @@ test('search includes Chinese attachment contents; star and delete survive resta
     'text/plain',
   );
   repo.put('message', { ...message, attachmentIds: [a.id] });
+  await repo.searchIndex.drain();
   assert.equal(repo.search('十一月中旬')[0].id, 'm1');
   updateMessage(repo, 'm1', { starred: true, folder: 'trash' });
   const second = new Repository(repo.directory);

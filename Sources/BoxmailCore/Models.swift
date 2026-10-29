@@ -87,6 +87,30 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
   public var analysis: String?
   public var hasExtractedText, hasAnalysis: Bool?
   public var textPreview, analysisPreview: String?
+  enum CodingKeys: String, CodingKey {
+    case id, messageId, name, contentType, path, text, parseError, date, size, analysis,
+      hasExtractedText, hasAnalysis, textPreview, analysisPreview
+  }
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(String.self, forKey: .id)
+    messageId = try values.decode(String.self, forKey: .messageId)
+    name = try values.decode(String.self, forKey: .name)
+    // Old MIME caches may contain false for an empty Content-Type header. Keep
+    // the bytes and identity strict, but allow unknown descriptive MIME metadata.
+    let mime = (try? values.decode(String.self, forKey: .contentType))?.trimmingCharacters(in: .whitespacesAndNewlines)
+    contentType = mime.flatMap { $0.isEmpty ? nil : $0 } ?? "application/octet-stream"
+    path = try values.decode(String.self, forKey: .path)
+    text = try values.decode(String.self, forKey: .text)
+    parseError = try values.decode(String.self, forKey: .parseError)
+    date = try values.decode(String.self, forKey: .date)
+    size = try values.decode(Int.self, forKey: .size)
+    analysis = try values.decodeIfPresent(String.self, forKey: .analysis)
+    hasExtractedText = try values.decodeIfPresent(Bool.self, forKey: .hasExtractedText)
+    hasAnalysis = try values.decodeIfPresent(Bool.self, forKey: .hasAnalysis)
+    textPreview = try values.decodeIfPresent(String.self, forKey: .textPreview)
+    analysisPreview = try values.decodeIfPresent(String.self, forKey: .analysisPreview)
+  }
   public var isAnalyzed: Bool { hasAnalysis == true || analysis != nil }
   public var kind: AttachmentKind { AttachmentKind(name: name, contentType: contentType) }
   public var isImage: Bool { kind == .image }
@@ -114,10 +138,20 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
 public struct MailDraft: Codable, Identifiable, Hashable {
   public var id, accountId, to, cc, bcc, subject, body, status, updatedAt: String
   public var preview: String?
+  public var bodyLoaded: Bool?
   public var forwardedHTML, forwardedText: String?
   public var attachmentIds: [String]
   public var inReplyTo, sourceMessageId: String?
   public var references: [String]?
+  public var compact: MailDraft {
+    var header = self
+    header.preview = preview ?? String(body.prefix(140))
+    header.body = ""
+    header.forwardedHTML = nil
+    header.forwardedText = nil
+    header.bodyLoaded = false
+    return header
+  }
   public init(accountId: String, to: String = "", subject: String = "", body: String = "") {
     id = UUID().uuidString
     self.accountId = accountId
@@ -232,7 +266,7 @@ public struct MailSyncSnapshot: Codable {
 }
 public enum MailDestination: String, CaseIterable, Identifiable {
   case inbox, starred, drafts, sent, attachments, trash, summary, replies, organize, analysis,
-    archive
+    archive, spam
   public var id: String { rawValue }
   public var title: String {
     switch self {
@@ -247,6 +281,7 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     case .organize: return "智能整理"
     case .analysis: return "附件解析"
     case .archive: return "已归档"
+    case .spam: return "垃圾邮件"
     }
   }
   public var icon: String {
@@ -262,6 +297,7 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     case .organize: return "wand.and.stars"
     case .analysis: return "doc.text.magnifyingglass"
     case .archive: return "archivebox"
+    case .spam: return "exclamationmark.shield"
     }
   }
   public var isAI: Bool { [.summary, .replies, .organize, .analysis].contains(self) }

@@ -29,6 +29,18 @@ import Testing
   #expect(MailSignature.trailingRange(in: "正文\n\n", signature: "\n") == nil)
 }
 
+@Test(arguments: [("é", "e\u{301}"), ("e\u{301}", "é"), ("한", "\u{1112}\u{1161}\u{11ab}"), ("\u{20000}", "\u{20000}")])
+func signatureRangeUsesTheActualBodyUnicodeRepresentation(pair: (String, String)) throws {
+  for prefix in ["", "正文\n", "正文\r\n"] {
+    let body = prefix + pair.0
+    let range = try #require(MailSignature.trailingRange(in: body, signature: pair.1))
+    #expect((body as NSString).substring(with: range) == pair.0)
+    #expect(range.location == prefix.utf16.count)
+    #expect(range.length == pair.0.utf16.count)
+  }
+  #expect(MailSignature.trailingRange(in: "正文" + pair.0, signature: pair.1) == nil)
+}
+
 @Test func generatedContentKeepsSignatureOnceWithoutRestoringRemovedSignatures() {
   let signature = "张三\n示例公司"
   let old = "旧正文\n\n" + signature

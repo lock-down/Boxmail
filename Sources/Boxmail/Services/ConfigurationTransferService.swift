@@ -6,6 +6,26 @@ struct PendingConfigurationImport: Identifiable {
   let archive: ConfigurationArchive
   let plan: ConfigurationImportPlan
   let fileName: String
+  func containsCredential(_ logical: String) -> Bool {
+    let value: String
+    if logical == "ai-key" { value = archive.credentials.aiKey }
+    else if logical.hasPrefix("ai-provider-") {
+      value = archive.credentials.aiProviderKeys?[String(logical.dropFirst("ai-provider-".count))] ?? ""
+    } else if let account = plan.accounts.first(where: { logical == "mail-\($0.accountId)" }) {
+      value = archive.credentials.mailPasswords[account.sourceId] ?? ""
+    } else { return false }
+    return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+  func credentialDisposition(_ logical: String) -> String {
+    if containsCredential(logical) { return "使用文件中提供的新凭证" }
+    if plan.credentialsRequired?.contains(logical) == true { return "地址或身份已改变，导入后需重新填写凭证" }
+    return "未提供新凭证；仅在地址和身份一致时保留本机凭证（如有）"
+  }
+}
+
+struct ConfigurationImportOutcome {
+  let refreshed: Bool
+  let credentialsRequired: [String]
 }
 
 @MainActor enum ConfigurationTransferService {
@@ -28,7 +48,7 @@ struct PendingConfigurationImport: Identifiable {
 
   /// New credential items let an unsuccessful import leave all existing secrets intact.
   /// The database commits account/settings changes and their references together.
-  static func apply(_ candidate: PendingConfigurationImport, store: MailStore) async throws -> Bool {
+  static func apply(_ candidate: PendingConfigurationImport, store: MailStore) async throws -> ConfigurationImportOutcome {
     let applied = try await ConfigurationTransfer.apply(archive: candidate.archive, plan: candidate.plan,
       saveCredential: { reference, value in try CredentialService.save(value, account: reference) },
       removeCredential: { try? CredentialService.save("", account: $0) },
@@ -40,7 +60,8 @@ struct PendingConfigurationImport: Identifiable {
         ])
       }, current: {
         let state: AppSnapshot = try await BackendService.shared.request("/state?compact=1", timeout: 10)
-        return ConfigurationSnapshot(accounts: state.accounts, settings: state.settings)
+        return ConfigurationSnapshot(accounts: state.accounts, settings: state.settings,
+          credentialsRequired: candidate.plan.credentialsRequired?.filter { !candidate.containsCredential($0) })
       })
     // Use the committed response before refreshing mail lists. A refresh failure
     // must not leave editable settings pointing at the pre-import values.
@@ -48,13 +69,15 @@ struct PendingConfigurationImport: Identifiable {
     store.settings = applied.settings
     CredentialService.useReferences(applied.settings.credentialReferences ?? [:])
     store.credentialIssueAccounts.subtract(candidate.plan.accounts.map(\.accountId))
+    let required = applied.credentialsRequired ?? []
+    store.credentialIssueAccounts.formUnion(required.filter { $0.hasPrefix("mail-") }.map { String($0.dropFirst(5)) })
     do {
       try await store.refresh()
       store.restoreRevision += 1
-      return true
+      return ConfigurationImportOutcome(refreshed: true, credentialsRequired: required)
     } catch {
       store.restoreRevision += 1
-      return false
+      return ConfigurationImportOutcome(refreshed: false, credentialsRequired: required)
     }
   }
 }

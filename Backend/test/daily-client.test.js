@@ -64,7 +64,7 @@ test('replying to own sent mail addresses recipients; forwarding has no reply he
   assert.equal(buildReplyDraft(m,account).subject,'Re: 项目');
   const draft=buildReplyDraft(m,account,{forward:true});
   assert.equal(draft.inReplyTo,'');assert.deepEqual(draft.references,[]);
-  assert.deepEqual(draft.attachmentIds,['file1']);assert.match(draft.body,/原文/);
+  assert.deepEqual(draft.attachmentIds,['file1']);assert.match(draft.forwardedText,/原文/);
 });
 test('history backfill passes an unavailable body and resumes after restart without redownloading completed mail',async t=>{
   const repo=await fixture(t), {state,client}=mailbox();
@@ -126,7 +126,8 @@ test('unchanged synchronization keeps the index clean and later flag changes rem
   assert.equal(repo.searchIndex.status().pending, 0);
   state.flags.set(1, new Set(['\\Seen', '\\Flagged']));
   await syncAccount(repo, { ...account }, 'pw', { clientFactory: () => client });
-  assert.equal(repo.searchIndex.status().pending, 1);
+  await repo.searchIndex.drain();
+  assert.equal(repo.searchIndex.status().pending, 0);
   const updated = repo.list('message').find(item => item.uid === 1);
   assert.equal(updated.unread, false);
   assert.equal(updated.starred, true);
@@ -194,6 +195,7 @@ test('paged HTTP lists are lightweight, body and attachment analysis load on dem
   assert.equal(first.total,205);assert.equal(first.messages.length,100);
   assert.equal(new Set([...first.messages,...second.messages].map(m=>m.id)).size,200);
   assert.equal((await request('/messages?limit=-1')).status,400);
+  await app.repo.searchIndex.drain();
   assert.equal((await request('/messages?q=%E4%B8%93%E7%94%A8%E8%AF%8D')).body.total,205);
   assert.equal((await request('/messages?q=body')).body.total,0);
   assert.match((await request('/messages/mail-000')).body.html,/<table>/);

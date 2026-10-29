@@ -1,4 +1,4 @@
-import { ServiceError } from './validation.js';
+import { accountInput, aiConfig, ServiceError } from './validation.js';
 
 const strings = (value, names) => names.every(name => typeof value[name] === 'string');
 const bools = (value, names) => names.every(name => typeof value[name] === 'boolean');
@@ -25,6 +25,7 @@ export function validateBackupRecords(records) {
     if (!object(value) || typeof value.id !== 'string') fail();
     if (kind === 'account' && (!strings(value, ['name', 'email', 'username', 'imapHost', 'smtpHost'])
       || !integers(value, ['imapPort', 'smtpPort']) || !bools(value, ['imapTLS', 'smtpTLS', 'isDemo']))) fail();
+    if (kind === 'account' && !value.isDemo) { try { accountInput(value); } catch { fail(); } }
     if (kind === 'message' && !mailShape(value)) fail();
     if (kind === 'draft' && (!strings(value, ['accountId', 'to', 'cc', 'bcc', 'subject', 'body', 'status', 'updatedAt'])
       || !stringArray(value.attachmentIds)
@@ -54,7 +55,12 @@ export function validateBackupRecords(records) {
         || !bools(ai, ['enabled']) || !object(ai.prompts) || Object.values(ai.prompts).some(item => typeof item !== 'string')
         || !object(p) || !integers(p, ['syncMinutes', 'fontSize']) || !strings(p, ['signature', 'language'])
         || !bools(p, ['markRead', 'launchAtLogin', 'notifications', 'blockRemoteImages', 'spamFilter'])) fail();
+      try { aiConfig(ai, { requireModel: false }); } catch { fail(); }
+      if (ai.timeout < 10 || ai.timeout > 600 || p.syncMinutes < 1 || p.syncMinutes > 60
+        || p.fontSize < 12 || p.fontSize > 24 || p.signature.length > 4000 || !p.language.trim()) fail();
     }
   }
   if (!values.some(row => row.kind === 'settings' && row.value.id === 'settings')) fail();
 }
+
+export { credentialBindings as restoreCredentialReferences } from './credential-bindings.js';

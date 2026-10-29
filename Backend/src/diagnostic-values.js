@@ -6,7 +6,7 @@ const knownFields = new Set([
   "baseURL batch batchSize bcc body bodyLoaded bodyVersion cached canAnalyze capability catalogConfigured",
   "catalogScope categories category cc changedCount changes checked compact compat completed conditions",
   "configuration contacts contentType contextWindow contextWindowDraft count counts createdAt",
-  "credentialAccount credentialAccounts credentialReferences credentials credentialsIncluded date description",
+  "credentialAccount credentialAccounts credentialReferences credentials credentialsIncluded credentialsRequired date description",
   "detail directory displayName done downloaded draftId drafts due effort email enabled error events existing",
   "expected failed field fileURL folder folders forceAdaptiveThinking format forwardedHTML forwardedText",
   "frequency groupTotal hasAnalysis hasExtractedText hasMore hasRemoteImages headers headersVersion html icon",

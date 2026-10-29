@@ -83,20 +83,29 @@ test('formatted drafts survive save, restart and source removal and remain searc
   app.repo.remove('message', message.id);
   await app.restart();
   const state = await app.request('/state?compact=1');
-  assert.equal(state.body.drafts[0].body, edited.body);
-  assert.match(state.body.drafts[0].forwardedHTML, /background-color:#edf3ff/);
+  assert.equal(state.body.drafts[0].bodyLoaded, false);
+  assert.equal(state.body.drafts[0].body, '');
+  assert.equal(state.body.drafts[0].forwardedHTML, undefined);
+  const reopened = await app.request('/drafts/' + created.body.id);
+  assert.equal(reopened.body.body, edited.body);
+  assert.match(reopened.body.forwardedHTML, /background-color:#edf3ff/);
   const search = await app.request('/messages?accountId=a1&folder=drafts&q=' + encodeURIComponent('folder:drafts 交付期限'));
   assert.equal(search.body.total, 1);
-  assert.match(search.body.messages[0].body, /请审核这份合同/);
-  assert.match(search.body.messages[0].html, /<table/);
+  assert.equal(search.body.messages[0].bodyLoaded, false);
+  const detail = await app.request('/messages/' + search.body.messages[0].id);
+  assert.match(detail.body.body, /请审核这份合同/);
+  assert.match(detail.body.html, /<table/);
 });
 
 test('intact legacy forward quotations recover HTML without discarding notes or rewriting storage on read', async t => {
   const app = await fixture(t);
   const legacy = buildReplyDraft({ ...message, html: undefined }, account, { forward: true });
-  legacy.body = '原有转发说明。' + legacy.body;
+  legacy.body = '原有转发说明。\n\n' + legacy.forwardedText;
+  delete legacy.forwardedText; delete legacy.forwardedHTML;
   app.repo.put('draft', legacy);
-  const projected = (await app.request('/state?compact=1')).body.drafts[0];
+  const header = (await app.request('/state?compact=1')).body.drafts[0];
+  assert.equal(header.bodyLoaded, false);
+  const projected = (await app.request('/drafts/' + legacy.id)).body;
   assert.equal(projected.body, '原有转发说明。');
   assert.match(projected.forwardedHTML, /<table/);
   const detail = await app.request('/messages/draft:' + legacy.id);

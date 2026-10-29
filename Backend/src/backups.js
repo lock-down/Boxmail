@@ -1,14 +1,14 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, lstat, readFile, writeFile, chmod, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, lstat, readFile, writeFile, chmod, rename, copyFile, rm } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { Readable, Writable } from 'node:stream';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
-import { ServiceError } from './validation.js';
-import { validateBackupRecords } from './backup-validation.js';
+import { aiConfig, ServiceError } from './validation.js';
+import { validateBackupRecords, restoreCredentialReferences } from './backup-validation.js';
 
 const MB = 1024 * 1024;
 const MAX_ARCHIVE = 512 * MB, MAX_DATABASE = 256 * MB, MAX_TOTAL = 2048 * MB;
@@ -154,7 +154,7 @@ async function withValidatedBackup(source, action, expectedSHA256) {
     }
     if (!names.has('boxmail.sqlite') || entries.some(entry => !entry.dir && entry.name !== 'manifest.json' && !names.has(entry.name)))
       throw new ServiceError('备份含有未列入清单的文件');
-    let db;
+    let db, validated;
     try {
       db = new DatabaseSync(path.join(staging, 'boxmail.sqlite'), { readOnly: true });
       if (db.prepare('PRAGMA integrity_check').get().integrity_check !== 'ok'
@@ -171,11 +171,12 @@ async function withValidatedBackup(source, action, expectedSHA256) {
       const counts = Object.fromEntries(Object.keys(manifest.counts).map(kind => [kind, records.filter(row => row.kind === kind).length]));
       if (Object.entries(counts).some(([kind, count]) => count !== manifest.counts[kind])) throw new Error('Count mismatch');
       db.close(); db = null;
-      return await action({ manifest, records, events, staging, archiveSHA256 });
+      validated = { manifest, records, events, staging, archiveSHA256 };
     } catch (error) {
       if (error instanceof ServiceError) throw error;
       throw new ServiceError('备份数据库或附件关联无效，当前数据未更改');
     } finally { db?.close(); }
+    return await action(validated);
   } finally { await rm(staging, { recursive: true, force: true }); }
 }
 
@@ -186,22 +187,30 @@ export async function inspectBackup(source) {
 export async function restoreBackup(repo, source, approved, { beforeCommit, expectedSHA256 } = {}) {
   if (approved !== true) throw new ServiceError('恢复备份需要明确确认', 403);
   return withValidatedBackup(source, async ({ manifest, records, events, staging }) => {
+    const settings = JSON.parse(records.find(row => row.kind === 'settings' && row.id === 'settings').data);
+    settings.ai = aiConfig(settings.ai, { requireModel: false });
+    const accounts = records.filter(row => row.kind === 'account').map(row => JSON.parse(row.data));
+    const credentials = restoreCredentialReferences(settings, accounts, repo.get('settings', 'settings'), repo.list('account'));
     const backups = path.join(repo.directory, 'backups');
     await mkdir(backups, { recursive: true, mode: 0o700 });
     const previousBackup = path.join(backups, `before-restore-${randomUUID()}.zip`);
     await createBackup(repo, previousBackup);
     const attachments = path.join(repo.directory, 'attachments', `restored-${randomUUID()}`);
-    await mkdir(attachments, { recursive: true, mode: 0o700 });
     let committed = false;
     try {
+      await mkdir(attachments, { recursive: true, mode: 0o700 });
       for (const entry of manifest.files.filter(item => item.attachmentId))
-        await rename(path.join(staging, entry.path), path.join(attachments, path.basename(entry.path)));
+        await copyFile(path.join(staging, entry.path), path.join(attachments, path.basename(entry.path)));
       beforeCommit?.();
       repo.transaction(() => {
         repo.db.exec('DELETE FROM records; DELETE FROM events;');
         const insert = repo.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?)');
         for (const row of records) {
           const value = JSON.parse(row.data);
+          if (row.kind === 'settings' && row.id === 'settings') {
+            value.ai = settings.ai;
+            value.credentialReferences = credentials.references;
+          }
           if (row.kind === 'attachment') value.path = path.join(attachments, path.basename(filenameFor(row.id)));
           if (row.kind === 'draft' && value.status === 'sending') value.status = 'uncertain';
           if (row.kind === 'job' && value.status === 'running') {
@@ -216,10 +225,16 @@ export async function restoreBackup(repo, source, approved, { beforeCommit, expe
         for (const row of events) event.run(row.id, row.time, row.type, row.detail);
         repo.rebuildSearch?.();
         repo.event('restore', '已恢复完整备份，恢复前的数据已另存为备份；本机 .env 凭证保持原状');
+        if (credentials.reset.length) repo.event('restore', '备份中的部分服务地址或账号与本机不同，已解除凭证绑定，请在设置中重新填写对应密钥及邮箱授权码。');
       });
-      repo.invalidateMessagePreviews();
       committed = true;
-      return { ok: true, previousBackup, ...summary(manifest) };
-    } finally { if (!committed) await rm(attachments, { recursive: true, force: true }); }
+      repo.invalidateMessagePreviews();
+      return { ok: true, previousBackup, credentialsRequired: credentials.reset, ...summary(manifest) };
+    } finally {
+      if (!committed) {
+        await rm(attachments, { recursive: true, force: true });
+        await rm(previousBackup, { force: true });
+      }
+    }
   }, expectedSHA256);
 }

@@ -6,7 +6,8 @@ extension MailStore {
     jobs.first { $0.task == "attachmentBatch" && $0.messageId == message.id }
   }
 
-  func analyzeAttachments(in message: MailMessage, force: Bool = false, retry job: AgentJob? = nil) {
+  func analyzeAttachments(in message: MailMessage, force: Bool = false, retry job: AgentJob? = nil,
+    attachmentIds: [String]? = nil) {
     let control = "attachment-batch-\(message.id)"
     guard !busy.contains(control), attachmentBatch(for: message)?.status != "running" else { return }
     busy.insert(control)
@@ -15,10 +16,12 @@ extension MailStore {
       defer { busy.remove(control) }
       do {
         let key = try CredentialService.read(settings.ai.credentialAccount)
+        var body: [String: Any] = ["accountId": message.accountId, "apiKey": key,
+          "providerId": settings.ai.providerId, "force": force]
+        if let attachmentIds { body["attachmentIds"] = attachmentIds }
         let updated: AgentJob = try await self.backend.request(
           job.map { "/jobs/\($0.id)/retry" } ?? "/messages/\(message.id)/attachments/analyze",
-          method: "POST", body: ["accountId": message.accountId, "apiKey": key,
-            "providerId": settings.ai.providerId, "force": force],
+          method: "POST", body: body,
           timeout: 15)
         replaceJob(updated)
         watchAttachmentBatches()

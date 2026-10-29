@@ -11,7 +11,10 @@ public struct ConfigurationImportPlan: Decodable {
   }
   public let revision: String
   public let accounts: [Account]
-  public init(revision: String, accounts: [Account]) { self.revision = revision; self.accounts = accounts }
+  public let credentialsRequired: [String]?
+  public init(revision: String, accounts: [Account], credentialsRequired: [String]? = nil) {
+    self.revision = revision; self.accounts = accounts; self.credentialsRequired = credentialsRequired
+  }
 }
 
 @MainActor public enum ConfigurationTransfer {
@@ -50,7 +53,7 @@ public struct ConfigurationImportPlan: Decodable {
     for account in plan.accounts { values["mail-\(account.accountId)"] = archive.credentials.mailPasswords[account.sourceId] }
     var references: [String: String] = [:]
     do {
-      for logical in values.keys.sorted() {
+      for logical in values.keys.sorted() where !values[logical]!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         let reference = "configuration-\(UUID().uuidString)"
         try saveCredential(reference, values[logical]!)
         references[logical] = reference
@@ -68,7 +71,7 @@ public struct ConfigurationImportPlan: Decodable {
         // A missing response may follow a committed transaction. Keep its possible live keys.
         throw failure("暂时无法确认导入结果，请重新打开 Boxmail 检查配置后再操作。")
       }
-      if references.allSatisfy({ state.settings.credentialReferences?[$0.key] == $0.value }) { return state }
+      if !references.isEmpty && references.allSatisfy({ state.settings.credentialReferences?[$0.key] == $0.value }) { return state }
       for reference in references.values { removeCredential(reference) }
       throw original
     }

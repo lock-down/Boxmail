@@ -110,8 +110,13 @@ struct BackupSettingsView: View {
         store.conversationError = nil; store.detailError = nil; store.detailGeneration = UUID()
         store.conversationBodyRequests = [:]
         store.restoreRevision += 1
-        try await store.refresh()
+        var refreshed = true
+        do { try await store.refresh() } catch { refreshed = false }
         status = "备份已恢复。恢复前的数据保存在：\n\(result.previousBackup ?? "本机数据目录的 backups 文件夹")\n请检查账户和待同步更改后再同步邮箱。"
+        if let notice = CredentialRequirements.notice(result.credentialsRequired ?? [], accounts: store.accounts, ai: store.settings.ai) {
+          status = (status ?? "备份已恢复。") + "\n" + notice
+        }
+        if !refreshed { status = (status ?? "备份已恢复。") + "\n邮件列表暂未刷新，重新打开 Boxmail 后检查设置。" }
       } catch { status = nil; failure = error.localizedDescription }
     }
   }
@@ -129,7 +134,10 @@ struct SearchIndexSettingsView: View {
           if let index = store.searchIndex {
             Text("已索引 \(index.indexed) / \(index.cached) 封邮件").font(UIType.body).monospacedDigit()
             if index.pending > 0 {
-              Text("\(index.pending) 项变化将在搜索时自动更新").font(UIType.small).foregroundStyle(Palette.muted)
+              Text("\(index.pending) 项变化正在后台更新").font(UIType.small).foregroundStyle(Palette.muted)
+            }
+            if let failed = index.failed, failed > 0 {
+              Text("\(failed) 封邮件索引未完成，可重建后重试").font(UIType.small).foregroundStyle(Palette.amber)
             }
           }
           Text("检索正文、附件名称与提取文本、AI 结果，仅覆盖本机已缓存内容。")
@@ -150,7 +158,9 @@ struct SearchIndexSettingsView: View {
       defer { working = false }
       do {
         let result: SearchIndexStatus = try await BackendService.shared.request("/search/rebuild", method: "POST", body: [:], timeout: 600)
-        store.searchIndex = result; status = "已重建 \(result.indexed) 封邮件的搜索索引，邮件内容保持不变。"
+        store.searchIndex = result
+        failed = (result.failed ?? 0) > 0
+        status = "已重建 \(result.indexed) 封邮件的搜索索引" + (failed ? "，\(result.failed ?? 0) 封未完成，可稍后重试。" : "，邮件内容保持不变。")
       } catch { failed = true; status = error.localizedDescription }
     }
   }

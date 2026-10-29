@@ -1,6 +1,7 @@
 import { textSlice } from './unicode.js';
 import sanitizeHtml from 'sanitize-html';
 import { convert } from 'html-to-text';
+import { inspectMailHTML } from './mail-body.js';
 
 const signatureNames = new Set([
   'gmail_signature', 'moz-signature', 'qqmail_signature', 'netease_mail_signature',
@@ -56,8 +57,11 @@ export function mailPreviewText(message) {
   let body = message.body || '';
   let imageOnly = false;
   if (message.html && (!body.trim() || /\b(?:class|id)\s*=\s*["'][^"']*signature/i.test(message.html))) {
+    const inspected = inspectMailHTML(message.html);
+    if (inspected.tooDeep) return withoutSignatures(body.trim() ? body : inspected.text, message.sender).trim();
     let removed = false;
     const html = sanitizeHtml(message.html, {
+      nestingLimit: 100,
       allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img'],
       allowedAttributes: { '*': ['class', 'id'] },
       exclusiveFilter: frame => {
@@ -68,6 +72,7 @@ export function mailPreviewText(message) {
       },
     });
     if (removed || !body.trim()) body = convert(html, {
+      limits: { maxDepth: 100 },
       wordwrap: false, selectors: [{ selector: 'img', format: 'skip' }],
     });
     imageOnly = /<img\b/i.test(html);

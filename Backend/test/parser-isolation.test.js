@@ -12,6 +12,13 @@ import { syncAccount } from '../src/mail.js';
 import { spawn } from 'node:child_process';
 
 const fixture = new URL('./helpers/parser-fault.js', import.meta.url);
+for (const task of ['workbook-preview', 'presentation']) test(`${task} receives the same native crash isolation as other parsers`, async t => {
+  const parser = new ParserProcess({ executable: fixture });
+  t.after(() => parser.close());
+  await assert.rejects(parser.run(task, Buffer.from('SYNTHETIC_ABORT')), { code: 'PARSER_CRASH' });
+  assert.equal(parser.child, null);
+  assert.equal((await parser.run(task, Buffer.from('next document'))).text, 'healthy synthetic attachment');
+});
 test('resident attachment memory is recycled before the next MIME body without raising the memory limit', async t => {
   const parser = new ParserProcess({ executable: fixture, rssLimitBytes: 256 * 1024 * 1024 });
   t.after(() => parser.close());

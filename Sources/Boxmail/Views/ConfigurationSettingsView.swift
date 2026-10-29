@@ -97,11 +97,14 @@ struct ConfigurationSettingsView: View {
     Task {
       defer { importing = false; store.busy.remove("configuration-import") }
       do {
-        let refreshed = try await ConfigurationTransferService.apply(candidate, store: store)
+        let outcome = try await ConfigurationTransferService.apply(candidate, store: store)
         let added = candidate.plan.accounts.filter { !$0.existing }.count
         let updated = candidate.plan.accounts.count - added
         status = "配置已导入：新增 \(added) 个账号，更新 \(updated) 个账号；AI、签名和其他偏好已应用。"
-          + (refreshed ? "" : "\n配置已生效，邮件列表暂未刷新，可稍后重新打开 Boxmail。")
+          + (outcome.refreshed ? "" : "\n配置已生效，邮件列表暂未刷新，可稍后重新打开 Boxmail。")
+        if let notice = CredentialRequirements.notice(outcome.credentialsRequired, accounts: store.accounts, ai: store.settings.ai) {
+          status = (status ?? "配置已导入。") + "\n" + notice
+        }
         pending = nil
       } catch { failure = error.localizedDescription }
     }
@@ -134,7 +137,14 @@ private struct ConfigurationImportReview: View {
                 Image(systemName: "envelope").foregroundStyle(Palette.muted).frame(width: 20).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                   Text(account.email).font(UIType.caption).textSelection(.enabled)
-                  Text(candidate.archive.credentials.mailPasswords[account.sourceId]?.isEmpty == false ? "包含邮箱授权码" : "未配置授权码")
+                  if let source = candidate.archive.configuration.accounts.first(where: { $0.id == account.sourceId }) {
+                    Text("登录用户名：\(source.username)").font(UIType.small).textSelection(.enabled)
+                    Text("IMAP：\(source.imapHost):\(source.imapPort) · \(source.imapTLS ? "SSL/TLS" : "STARTTLS")")
+                      .font(UIType.small).textSelection(.enabled)
+                    Text("SMTP：\(source.smtpHost):\(source.smtpPort) · \(source.smtpTLS ? "SSL/TLS" : "STARTTLS")")
+                      .font(UIType.small).textSelection(.enabled)
+                  }
+                  Text(candidate.credentialDisposition("mail-\(account.accountId)"))
                     .font(UIType.small).foregroundStyle(Palette.muted)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Text(account.existing ? "更新" : "新增").font(UIType.small).foregroundStyle(Palette.muted)
@@ -157,6 +167,7 @@ private struct ConfigurationImportReview: View {
                 Text(provider.baseURL).font(UIType.small).textSelection(.enabled)
                 Text("\(provider.apiProtocol.title) · \(provider.models.count) 个目录模型 · \(hasKey(provider) ? "包含 API 密钥" : "未配置 API 密钥")")
                   .font(UIType.small)
+                Text(candidate.credentialDisposition(provider.credentialAccount)).font(UIType.small)
               }.foregroundStyle(Palette.muted).padding(.vertical, 3)
             }
             Text("包括自定义提示词、邮件签名、同步和阅读设置。").font(UIType.small).foregroundStyle(Palette.muted)
@@ -178,7 +189,6 @@ private struct ConfigurationImportReview: View {
   }
 
   private func hasKey(_ provider: AIProvider) -> Bool {
-    (provider.id == "default" ? candidate.archive.credentials.aiKey
-      : candidate.archive.credentials.aiProviderKeys?[provider.id] ?? "").isEmpty == false
+    candidate.containsCredential(provider.credentialAccount)
   }
 }

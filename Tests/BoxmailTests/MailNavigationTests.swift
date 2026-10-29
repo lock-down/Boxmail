@@ -45,7 +45,7 @@ private func page(_ messages: [MailMessage], total: Int? = nil, nextOffset: Int?
   #expect(store.mailAITab == .attachment)
 }
 
-@Test(arguments: ["inbox", "sent", "archive", "trash"])
+@Test(arguments: ["inbox", "sent", "archive", "trash", "spam"])
 @MainActor func originalMailNavigationLoadsTheRightAccountFolderAndPanel(folder: String) throws {
   let store = MailStore()
   store.accountId = "previous-account"
@@ -71,13 +71,14 @@ private func page(_ messages: [MailMessage], total: Int? = nil, nextOffset: Int?
   #expect(store.mailAITab == .summary)
 }
 
-@Test @MainActor func originalMailBeyondFirstPageStaysVisibleThroughPaginationAndRefresh() throws {
+@Test(arguments: ["inbox", "spam"])
+@MainActor func originalMailBeyondFirstPageStaysVisibleThroughPaginationAndRefresh(folder: String) throws {
   let store = MailStore()
   store.accountId = "account"
   store.destination = .attachments
   store.pageKey = store.mailQueryKey
-  let first = try message("first")
-  let target = try message("older-than-first-page")
+  let first = try message("first", folder: folder)
+  let target = try message("older-than-first-page", folder: folder)
   store.messages = [first, target]
   store.openMail(target, tab: .attachment)
   let key = store.mailQueryKey

@@ -235,9 +235,9 @@ struct ComposerView: View {
     saved = snapshot == draft
     saveError = nil
     if let index = store.drafts.firstIndex(where: { $0.id == result.id }) {
-      store.drafts[index] = result
+      store.drafts[index] = result.compact
     } else {
-      store.drafts.append(result)
+      store.drafts.append(result.compact)
     }
   }
   private func generate() {
@@ -270,7 +270,9 @@ struct ComposerView: View {
       } catch {
         store.error = error.localizedDescription
         try? await store.refresh()
-        if let current = store.drafts.first(where: { $0.id == draft.id }) { draft = current }
+        if let current = store.drafts.first(where: { $0.id == draft.id }) {
+          if current.bodyLoaded != false { draft = current } else { draft.status = current.status }
+        }
       }
     }
   }

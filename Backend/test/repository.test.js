@@ -23,36 +23,44 @@ test('identical writes leave a clean search index while real changes remain sear
   assert.equal(repo.searchIndex.status().pending, 0);
   repo.put('message', { ...message, body: '新检索内容' });
   assert.equal(repo.searchIndex.status().pending, 1);
+  await repo.searchIndex.drain();
   assert.deepEqual(repo.search('新检索内容').map(item => item.id), ['m1']);
   assert.deepEqual(repo.search('旧检索内容'), []);
 });
 
-test('search index refresh rolls back every document and dirty marker on failure', async t => {
+test('background index failures skip one document and preserve successful neighbours', async t => {
   const repo = await fixture(t);
   repo.put('message', { ...message, id: 'm2' });
   repo.searchIndex.flush();
   for (const id of ['m1', 'm2']) repo.put('message', { ...message, id, body: '替换后的正文' });
   const update = repo.searchIndex.update.bind(repo.searchIndex);
   repo.searchIndex.update = id => { if (id === 'm2') throw new Error('模拟索引失败'); update(id); };
-  assert.throws(() => repo.searchIndex.flush(), /模拟索引失败/);
-  assert.equal(repo.searchIndex.status().pending, 2);
-  assert.equal(repo.db.prepare("SELECT count(*) AS n FROM mail_fts WHERE instr(text,'替换后的正文')>0").get().n, 0);
+  await repo.searchIndex.drain();
+  assert.equal(repo.searchIndex.status().pending, 0);
+  assert.equal(repo.searchIndex.status().failed, 1);
+  assert.equal(repo.db.prepare("SELECT count(*) AS n FROM mail_fts WHERE instr(text,'替换后的正文')>0").get().n, 1);
+  assert.deepEqual(repo.search('替换后的正文').map(item => item.id), ['m1']);
   repo.searchIndex.update = update;
+  repo.rebuildSearch(); await repo.searchIndex.drain();
   assert.deepEqual(repo.search('替换后的正文').map(item => item.id), ['m1', 'm2']);
 });
 
-test('search rebuild failure retains the previously usable index', async t => {
+test('search rebuild runs in bounded background tasks and isolates a failing document', async t => {
   const repo = await fixture(t);
   repo.put('message', { ...message, id: 'm2' });
   repo.searchIndex.flush();
   const update = repo.searchIndex.update.bind(repo.searchIndex);
   repo.searchIndex.update = id => { if (id === 'm2') throw new Error('模拟重建失败'); update(id); };
-  assert.throws(() => repo.rebuildSearch(), /模拟重建失败/);
-  assert.equal(repo.searchIndex.status().indexed, 2);
+  repo.rebuildSearch();
+  await repo.searchIndex.drain();
+  assert.equal(repo.searchIndex.status().indexed, 1);
   assert.equal(repo.searchIndex.status().pending, 0);
+  assert.equal(repo.searchIndex.status().failed, 1);
   repo.searchIndex.update = update;
+  repo.rebuildSearch(); await repo.searchIndex.drain();
   assert.deepEqual(repo.search('旧检索内容').map(item => item.id), ['m1', 'm2']);
   repo.transaction(() => repo.rebuildSearch());
+  await repo.searchIndex.drain();
   assert.equal(repo.searchIndex.status().indexed, 2);
 });
 

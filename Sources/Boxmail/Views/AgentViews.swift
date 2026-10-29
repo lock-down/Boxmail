@@ -54,7 +54,7 @@ struct DraftsView: View {
               }.disabled(draft.status == "uncertain")
               ActionButton(
                 title: draft.status == "uncertain" ? "查看草稿" : "继续编辑", icon: "square.and.pencil"
-              ) { store.composer = draft }
+              ) { store.editDraft(draft.id) }
             }
           }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
             .background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))

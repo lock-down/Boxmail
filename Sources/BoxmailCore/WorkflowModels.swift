@@ -24,6 +24,7 @@ public struct MailConversation: Codable {
 }
 public struct SearchIndexStatus: Codable {
   public var indexed, cached, pending, version: Int
+  public var failed: Int?
   public var updatedAt: String?
   public var partial: Bool
 }
@@ -35,6 +36,7 @@ public struct BackupSummary: Codable {
   public var totalBytes: Int
   public var credentialsIncluded: Bool
   public var sha256, path, previousBackup: String?
+  public var credentialsRequired: [String]?
 }
 
 public enum RecipientCompletion {

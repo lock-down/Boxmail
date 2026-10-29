@@ -13,11 +13,11 @@ const specialFolders = {
 
 export function discoverMailFolders(account, folders) {
   account.folders = {
-    ...account.folders,
-    ...Object.fromEntries(folders.filter(f => f.specialUse)
-      .map(f => [specialFolders[f.specialUse] || f.specialUse, f.path])),
-    inbox: folders.find(f => f.path.toUpperCase() === 'INBOX')?.path || 'INBOX',
+    ...Object.fromEntries(folders.filter(f => specialFolders[f.specialUse])
+      .map(f => [specialFolders[f.specialUse], f.path])),
   };
+  const inbox = folders.find(f => f.path.toUpperCase() === 'INBOX');
+  if (inbox) account.folders.inbox = inbox.path;
   for (const [folder, path] of Object.entries(mailFolderNames))
     if (!account.folders[folder] && folders.some(f => f.path === path)) account.folders[folder] = path;
 }
@@ -50,18 +50,25 @@ export function archiveRestoreFolder(message, account) {
   return originalFolder(message, account, 'archived', ['archive', 'trash']);
 }
 
-export async function applyMailMutations(repo, account, client, { strict = false, signal, timeoutMs } = {}) {
+export function missingMailbox(error) {
+  return error?.serverResponseCode === 'NONEXISTENT'
+    || /mailbox (?:does not exist|not found)|no such (?:mailbox|folder)|nonexistent/i.test(error?.responseText || error?.message || '');
+}
+
+export async function applyMailMutations(repo, account, client, { strict = false, signal, timeoutMs, paths } = {}) {
   const perform = operation => imapOperation(client, operation, { signal, timeoutMs });
   for (const mutation of repo.list('mutation').filter(m => m.accountId === account.id)
     .sort((a, b) => Number(!!a.target) - Number(!!b.target))) {
     signal?.throwIfAborted();
     const path = mutation.path || account.folders[mutation.sourceFolder];
-    if (!path) {
-      if (mutation.rfcMessageId) { repo.remove('mutation', mutation.id); continue; }
-      throw new ServiceError('找不到邮件所在的服务器文件夹，请先同步邮箱');
-    }
-    const lock = await perform(() => client.getMailboxLock(path));
+    let lock;
     try {
+      if (!path || paths && !paths.has(path)) {
+        const error = new ServiceError('找不到邮件所在的服务器文件夹，请先同步邮箱', 409);
+        error.serverResponseCode = 'NONEXISTENT';
+        throw error;
+      }
+      lock = await perform(() => client.getMailboxLock(path));
       if (mutation.uid && String(client.mailbox.uidValidity) !== mutation.uidValidity) {
         if (strict) throw new ServiceError('邮件文件夹已改变，请先同步邮箱后再清空', 409);
         repo.remove('mutation', mutation.id);
@@ -95,6 +102,7 @@ export async function applyMailMutations(repo, account, client, { strict = false
           if (original) repo.put('relocation', {
             id: randomUUID(), accountId: account.id, destination: target, original,
             destinationUID: moved.uidMap?.get(uid),
+            createdAt: new Date().toISOString(),
             uidValidity: moved.uidValidity == null ? undefined : String(moved.uidValidity),
           });
           repo.remove('message', mutation.messageId);
@@ -102,6 +110,18 @@ export async function applyMailMutations(repo, account, client, { strict = false
       }
       if (repo.get('mutation', mutation.id)?.revision === mutation.revision)
         repo.remove('mutation', mutation.id);
-    } finally { lock.release(); }
+    } catch (error) {
+      if (signal?.aborted || strict) throw error;
+      if (missingMailbox(error)) {
+        if (repo.get('mutation', mutation.id)?.revision === mutation.revision) repo.remove('mutation', mutation.id);
+        repo.event('sync', '服务器文件夹已失效，已取消对应的旧远端操作，本机邮件仍保留。');
+        continue;
+      }
+      // Retry transient failures next time, but let this sync download mail using
+      // a new connection (a timed-out IMAP operation may have closed this one).
+      repo.event('sync', '部分远端操作暂未完成，已保留待重试，继续下载邮件。');
+      return { reconnect: true };
+    } finally { lock?.release(); }
   }
+  return { reconnect: false };
 }

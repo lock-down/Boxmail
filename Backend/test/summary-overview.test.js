@@ -39,6 +39,7 @@ test('single removal changes only overview membership and keeps summary, todos, 
   assert.equal(result.status, 200); assert.deepEqual(result.body.messageIds, ['m1']);
   assert.deepEqual(app.repo.get('message', 'm1'), { ...before, summaryHidden: true });
   assert.deepEqual(app.repo.get('message', 'm1').summary, summary);
+  await app.repo.searchIndex.drain();
   assert.ok(app.repo.search('确认排期').some(message => message.id === 'm1'));
   assert.equal(app.repo.list('mutation').length, 0);
   assert.equal(app.repo.get('message', 'm2').summaryHidden, undefined);

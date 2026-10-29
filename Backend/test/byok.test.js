@@ -142,7 +142,7 @@ test('model discovery isolates provider identities and protocols and handles Ant
   assert.equal(JSON.stringify(repo.list('modelCatalog')).includes('catalog-key'), false);
 });
 
-test('multiple providers survive settings saves and restart and configuration imports require each key reference', async t => {
+test('multiple providers survive settings saves, restart and configuration imports with optional preserved credentials', async t => {
   const repo = await repository(t);
   let app = await startServer({ directory: repo.directory, token: 'byok-test-token-long-enough-012345', demo: false });
   t.after(() => app.close());
@@ -174,8 +174,9 @@ test('multiple providers survive settings saves and restart and configuration im
     .map(key => [key, 'configuration-' + randomUUID()]));
   const body = { configuration, ...plan, credentialReferences, approved: true };
   const incomplete = { ...credentialReferences }; delete incomplete['ai-provider-claude'];
-  assert.throws(() => importConfiguration(app.repo, { ...body, credentialReferences: incomplete }), /凭证保存状态/);
-  importConfiguration(app.repo, body);
+  importConfiguration(app.repo, { ...body, credentialReferences: incomplete });
+  assert.deepEqual(app.repo.get('settings', 'settings').credentialReferences, incomplete);
+  importConfiguration(app.repo, { ...body, ...inspectConfiguration(app.repo, configuration) });
   assert.deepEqual(app.repo.get('settings', 'settings').credentialReferences, credentialReferences);
   assert.equal(configuration.settings.ai.providers[1].apiProtocol, 'anthropic-messages');
 });

@@ -19,7 +19,7 @@ async function fixture(t) {
   let closed = 0, released = 0;
   const client = { mailbox: { uidValidity: '10' },
     close() { closed++; }, async connect() {}, async logout() {},
-    async list() { return [{ path: 'INBOX' }]; },
+    async list() { return [{ path: 'INBOX' }, { path: 'Archive', specialUse: '\\Archive' }]; },
     async getMailboxLock() { return { release() { released++; } }; },
     async messageMove() { return { uidMap: new Map([[1, 2]]), uidValidity: '20' }; },
   };
@@ -38,7 +38,7 @@ for (const command of ['getMailboxLock', 'messageMove', 'messageFlagsAdd', 'mess
     if (command === 'mailboxCreate') delete account.folders.archive;
     repo.put('mutation', queued);
     client[command] = () => new Promise(() => {});
-    await assert.rejects(applyMailMutations(repo, account, client, { timeoutMs: 15 }), /超时/);
+    assert.equal((await applyMailMutations(repo, account, client, { timeoutMs: 15 })).reconnect, true);
     assert.deepEqual(repo.get('message', 'm'), message);
     assert.deepEqual(repo.get('mutation', 'mutation'), queued);
     assert.deepEqual(repo.list('relocation'), []);

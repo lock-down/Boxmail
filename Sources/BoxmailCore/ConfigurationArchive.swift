@@ -4,9 +4,11 @@ import Foundation
 public struct ConfigurationSnapshot: Codable {
   public var accounts: [MailAccount]
   public var settings: SettingsData
-  public init(accounts: [MailAccount], settings: SettingsData) {
+  public var credentialsRequired: [String]?
+  public init(accounts: [MailAccount], settings: SettingsData, credentialsRequired: [String]? = nil) {
     self.accounts = accounts
     self.settings = settings
+    self.credentialsRequired = credentialsRequired
   }
 }
 

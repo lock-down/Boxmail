@@ -162,7 +162,8 @@ test('draft list previews exclude signatures and preserve quoted history', async
     subject: '草稿', body: '草稿正文\n-- \n我的签名\nOn Tuesday, someone wrote:\n> 历史引用' });
   const page = repo.messagePage({ accountId: 'a1', folder: 'drafts' });
   assert.equal(page.messages[0].preview, '草稿正文 On Tuesday, someone wrote: > 历史引用');
-  assert.match(page.messages[0].body, /我的签名/);
+  assert.equal(page.messages[0].bodyLoaded, false);
+  assert.match(repo.get('draft', 'draft').body, /我的签名/);
 });
 
 test('draft cards in full and compact snapshots receive clean previews without changing editable bodies', async t => {
@@ -185,7 +186,8 @@ test('draft cards in full and compact snapshots receive clean previews without c
     assert.equal(drafts.get('reply').preview, '请核对合同。 -----原始邮件----- 发件人：李四 历史正文');
     assert.equal(drafts.get('ordinary').preview, '请联系 person@example.com ---------------- 下一步：核对合同。');
     for (const [id, body] of Object.entries(bodies)) {
-      assert.equal(drafts.get(id).body, body);
+      assert.equal(drafts.get(id).body, '');
+      assert.equal(drafts.get(id).bodyLoaded, false);
       assert.equal(repo.get('draft', id).body, body);
       assert.equal(repo.get('draft', id).preview, '不应使用的旧预览');
     }
@@ -224,6 +226,7 @@ test('HTTP lists, snapshots and conversations filter previews while full mail re
 test('search still matches original signatures but never puts them back into list snippets', async t => {
   const repo = await fixture(t), original = repo.get('message', 'selected');
   repo.put('message', { ...original, body: '正文\n-- \n独特签名公司\nOn Tuesday, someone wrote:\n> 历史引用关键词' });
+  await repo.searchIndex.drain();
   const signature = repo.messagePage({ query: '独特签名公司' }).messages[0];
   assert.equal(signature.id, original.id);
   assert.equal(signature.searchSnippet, undefined);

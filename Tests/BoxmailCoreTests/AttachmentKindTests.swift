@@ -47,3 +47,28 @@ import Testing
   #expect(compact.compact == compact)
   #expect(file.text.count > 10000 && file.analysis!.count > 10000)
 }
+
+@Test(arguments: ["false", "true", "null", "12", "{}", "[]", "\"\"", "\"text/plain\""])
+func legacyAttachmentMIMEMetadataCannotBlockSnapshotDecoding(mime: String) throws {
+  let raw = """
+    {"id":"legacy","messageId":"mail","name":"original.pdf","contentType":\(mime),
+    "path":"/synthetic/original.pdf","text":"extracted text","analysis":"saved analysis",
+    "parseError":"","date":"2026-10-28T08:08:32Z","size":125}
+    """
+  let file = try JSONDecoder().decode(MailAttachment.self, from: Data(raw.utf8))
+  #expect(file.contentType == (mime == "\"text/plain\"" ? "text/plain" : "application/octet-stream"))
+  #expect(file.id == "legacy" && file.size == 125 && file.isPDF)
+  #expect(file.text == "extracted text" && file.analysis == "saved analysis")
+  let roundTrip = try JSONDecoder().decode(MailAttachment.self, from: JSONEncoder().encode(file))
+  #expect(roundTrip == file)
+}
+
+@Test func attachmentMetadataFallbackKeepsRequiredIdentityAndSizeValidation() throws {
+  let raw = #"{"id":"a","messageId":"m","name":"file.bin","path":"/synthetic","text":"","parseError":"","date":"","size":1}"#
+  let missing = try JSONDecoder().decode(MailAttachment.self, from: Data(raw.utf8))
+  #expect(missing.contentType == "application/octet-stream")
+  for invalid in [raw.replacingOccurrences(of: #""id":"a""#, with: #""id":false"#),
+    raw.replacingOccurrences(of: #""size":1"#, with: #""size":"invalid""#)] {
+    #expect(throws: (any Error).self) { try JSONDecoder().decode(MailAttachment.self, from: Data(invalid.utf8)) }
+  }
+}

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { accountInput, aiConfig, aiCredentialAccounts, ServiceError } from './validation.js';
+import { credentialBindings } from './credential-bindings.js';
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const fail = message => { throw new ServiceError(message); };
@@ -71,7 +72,9 @@ export function inspectConfiguration(repo, value, requestedMapping) {
     targets.add(accountId);
     return { sourceId: source.id, accountId, name: source.name, email: source.email, existing: !!existing };
   });
-  return { revision: revision(repo), accounts };
+  const targetsForBinding = accounts.map(entry => ({ ...configuration.accounts.find(a => a.id === entry.sourceId), id: entry.accountId }));
+  const bindings = credentialBindings(configuration.settings, targetsForBinding, repo.get('settings', 'settings'), current);
+  return { revision: revision(repo), accounts, credentialsRequired: bindings.reset };
 }
 
 export function importConfiguration(repo, body) {
@@ -81,19 +84,28 @@ export function importConfiguration(repo, body) {
   const plan = inspectConfiguration(repo, configuration, body.accounts);
   const references = body.credentialReferences;
   const expected = new Set([...aiCredentialAccounts(configuration.settings.ai), ...plan.accounts.map(account => `mail-${account.accountId}`)]);
-  if (!object(references) || Object.keys(references).length !== expected.size
+  if (!object(references)
     || Object.entries(references).some(([key, value]) => !expected.has(key) || !referenceValid(value))
-    || new Set(Object.values(references)).size !== expected.size) fail('凭证保存状态无效，请重新导入配置');
+    || new Set(Object.values(references)).size !== Object.keys(references).length) fail('凭证保存状态无效，请重新导入配置');
+  const oldSettings = repo.get('settings', 'settings');
+  const importedAccounts = plan.accounts.map(entry => ({
+    ...configuration.accounts.find(account => account.id === entry.sourceId), id: entry.accountId,
+  }));
+  const bindings = credentialBindings(configuration.settings, importedAccounts, oldSettings, repo.list('account'));
+  const nextReferences = { ...oldSettings?.credentialReferences };
+  for (const logical of expected) delete nextReferences[logical];
+  Object.assign(nextReferences, bindings.references, references);
+  const credentialsRequired = bindings.reset.filter(logical => !Object.hasOwn(references, logical));
   return repo.transaction(() => {
     for (const entry of plan.accounts) {
       const source = configuration.accounts.find(account => account.id === entry.sourceId);
       const old = repo.get('account', entry.accountId);
       repo.put('account', { ...old, ...source, id: entry.accountId, lastSync: old?.lastSync ?? null });
     }
-    const old = repo.get('settings', 'settings');
     repo.put('settings', { ...configuration.settings,
-      credentialReferences: { ...old?.credentialReferences, ...references } });
+      credentialReferences: nextReferences });
     repo.event('configuration-import', `导入 ${plan.accounts.length} 个邮箱账号及 AI、签名和偏好设置`);
-    return { ok: true, accounts: repo.list('account'), settings: repo.get('settings', 'settings') };
+    if (credentialsRequired.length) repo.event('configuration-import', '部分服务地址或邮箱身份已改变且未提供新凭证，请在设置中重新填写对应密钥及授权码。');
+    return { ok: true, accounts: repo.list('account'), settings: repo.get('settings', 'settings'), credentialsRequired };
   });
 }

@@ -85,6 +85,7 @@ test('aggregation and expansion retain search, folder, unread and attachment fil
   repo.put('message', { ...base, id: 'other-folder', attachmentIds: ['file'] });
   repo.put('message', { ...base, id: 'no-attachment', folder: 'archive' });
   const options = { accountId: 'a', folder: 'inbox', query: 'folder:archive 合同 has:attachment', filter: '未读' };
+  await repo.searchIndex.drain();
   const page = repo.messagePage({ ...options, groupBy: 'sender' });
   assert.equal(page.total, 1);
   assert.equal(page.senderGroups[0].count, 1);

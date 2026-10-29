@@ -11,7 +11,7 @@ export function forwardText(message) {
 
 export function forwardedFields(message) {
   const html = mailBody({ html: message.html, text: message.body }).html;
-  if (!html) return {};
+  if (!html) return { forwardedHTML: '', forwardedText: forwardText(message) };
   return {
     forwardedText: forwardText(message),
     forwardedHTML: `<div style="border-top:1px solid #e9edf2;margin-top:20px;padding-top:16px;font-family:Arial,sans-serif;font-size:13px;line-height:1.6">`
@@ -23,13 +23,13 @@ export function forwardedFields(message) {
 
 // Upgrade only an intact legacy quotation; never replace edits inside old mail.
 export function upgradeForwardDraft(draft, message) {
-  if (draft.forwardedHTML || !/^(?:fwd?|转发):/i.test(draft.subject || '')) return draft;
+  if (draft.forwardedHTML || draft.forwardedText || !/^(?:fwd?|转发):/i.test(draft.subject || '')) return draft;
   message = typeof message === 'function' ? message() : message;
-  if (!message?.html) return draft;
+  if (!message) return draft;
   const suffix = '\n\n' + forwardText(message);
   if (!draft.body.endsWith(suffix)) return draft;
   const fields = forwardedFields(message);
-  return fields.forwardedHTML ? { ...draft, body: draft.body.slice(0, -suffix.length), ...fields } : draft;
+  return { ...draft, body: draft.body.slice(0, -suffix.length), ...fields };
 }
 
 export function savedForwardFields(input, previous = {}) {

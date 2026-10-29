@@ -86,6 +86,51 @@ test('ZIP backups exclude local dotenv secrets and restore preserves the current
   assert.equal(previous.file('.env'), null);
 });
 
+test('a self-consistent backup cannot bind local credentials to changed AI, IMAP or SMTP endpoints', async t => {
+  const { repo, backup } = await fixture(t);
+  const originalSettings = repo.get('settings', 'settings');
+  const originalAccount = { ...repo.get('account', 'a'), isDemo: false };
+  const localSettings = { ...originalSettings, credentialReferences: { 'ai-key': 'local-ai', 'mail-a': 'local-mail' } };
+  repo.put('account', { ...originalAccount, imapHost: 'imap.attacker.test', smtpHost: 'smtp.attacker.test' });
+  repo.put('settings', { ...originalSettings, ai: { ...originalSettings.ai, baseURL: 'https://attacker.test' },
+    credentialReferences: { 'ai-key': 'local-mail', 'mail-a': 'local-ai' } });
+  await createBackup(repo, backup);
+  repo.put('account', originalAccount); repo.put('settings', localSettings);
+  const env = 'BOXMAIL_AI_KEY="synthetic-local-key"\nBOXMAIL_MAIL_A_PASSWORD="synthetic-mail-password"\n';
+  await writeFile(path.join(repo.directory, '.env'), env);
+  const result = await restoreBackup(repo, backup, true);
+  assert.deepEqual(new Set(result.credentialsRequired), new Set(['ai-key', 'mail-a']));
+  for (const reference of Object.values(repo.get('settings', 'settings').credentialReferences)) {
+    assert.match(reference, /^configuration-[0-9a-f-]{36}$/);
+    assert.notEqual(reference, 'local-ai'); assert.notEqual(reference, 'local-mail');
+  }
+  assert.equal(await readFile(path.join(repo.directory, '.env'), 'utf8'), env);
+  assert.ok(repo.events().some(event => /解除凭证绑定/.test(event.detail)));
+});
+
+test('matching backup endpoints use only local credential references, including archives with omitted references', async t => {
+  const { repo, backup } = await fixture(t);
+  const settings = repo.get('settings', 'settings');
+  for (const references of [undefined, { 'ai-key': 'arbitrary-backup-key', 'mail-a': 'arbitrary-backup-mail' }]) {
+    repo.put('settings', { ...settings, credentialReferences: references });
+    await createBackup(repo, backup);
+    repo.put('settings', { ...settings, credentialReferences: { 'ai-key': 'trusted-local-ai', 'mail-a': 'trusted-local-mail' } });
+    const result = await restoreBackup(repo, backup, true);
+    assert.deepEqual(result.credentialsRequired, []);
+    assert.deepEqual(repo.get('settings', 'settings').credentialReferences, { 'ai-key': 'trusted-local-ai', 'mail-a': 'trusted-local-mail' });
+  }
+});
+
+test('semantically invalid AI backups fail validation before replacing local data', async t => {
+  const { repo, backup } = await fixture(t);
+  const settings = repo.get('settings', 'settings');
+  for (const change of [{ effort: 'invalid' }, { providers: [] }, { baseURL: 'http://attacker.test' }, { timeout: 100000 }]) {
+    repo.put('settings', { ...settings, ai: { ...settings.ai, ...change } });
+    await assert.rejects(createBackup(repo, backup), /记录字段或附件关联/);
+    assert.equal(repo.get('message', 'm').subject, '合同');
+  }
+});
+
 test('restore requires confirmation and a corrupted checksum leaves current data unchanged', async t => {
   const { repo, backup } = await fixture(t);
   await createBackup(repo, backup);
@@ -157,7 +202,7 @@ test('failure before restore commit retains records and files and removes staged
   assert.equal(repo.get('attachment', 'f').path, originalPath);
   assert.equal(await readFile(originalPath, 'utf8'), '附件原始字节');
   assert.deepEqual(await readdir(path.join(repo.directory, 'attachments')), ['original.txt']);
-  assert.equal((await readdir(path.join(repo.directory, 'backups'))).length, 1);
+  assert.equal((await readdir(path.join(repo.directory, 'backups'))).length, 0);
 });
 
 test('missing attachments refuse incomplete export without replacing a prior backup', async t => {
@@ -275,6 +320,11 @@ test('HTTP full backup transfers all record kinds and attachment bytes to anothe
       expected.path = actual.path;
     }
     if (row.kind === 'draft' && expected.status === 'sending') expected.status = 'uncertain';
+    if (row.kind === 'settings') {
+      assert.notEqual(actual.credentialReferences['ai-provider-work'], expected.credentialReferences['ai-provider-work']);
+      assert.deepEqual(new Set(restored.body.credentialsRequired), new Set(['ai-provider-work', 'mail-other']));
+      expected.credentialReferences = actual.credentialReferences;
+    }
     if (row.kind === 'sync' && expected.status === 'running') expected.status = 'paused';
     if (row.kind === 'job' && expected.status === 'running') {
       expected.status = ['classify', 'attachmentBatch'].includes(expected.task) ? 'paused' : 'failed';

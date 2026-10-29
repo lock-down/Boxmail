@@ -1,6 +1,7 @@
 import { textSlice } from './unicode.js';
 import sanitizeHtml from 'sanitize-html';
 import { convert } from 'html-to-text';
+import { Parser } from 'htmlparser2';
 
 export const MAIL_BODY_VERSION = 1;
 const cssValue = /^(?!.*(?:url|expression)\s*\()[\w\s#.,%()'"-]+$/i;
@@ -16,8 +17,30 @@ const styleNames = [
   'overflow-wrap',
 ];
 
+// Streaming tokenization never walks an untrusted DOM recursively. Deep mail
+// remains readable as text, including on the forward/translation request paths.
+export function inspectMailHTML(html) {
+  let depth = 0, tooDeep = false, suppressed = 0;
+  const text = [];
+  const parser = new Parser({
+    onopentag(name) { depth++; tooDeep ||= depth > 100; if (['script', 'style'].includes(name)) suppressed++; },
+    ontext(value) { if (!suppressed) text.push(value); },
+    onclosetag(name) {
+      depth = Math.max(0, depth - 1);
+      if (['script', 'style'].includes(name)) suppressed = Math.max(0, suppressed - 1);
+      if (!suppressed && ['p', 'div', 'br', 'tr', 'li'].includes(name)) text.push('\n');
+    },
+  }, { decodeEntities: true });
+  parser.end(html);
+  return { tooDeep, text: text.join('').trim() };
+}
+
 export function mailBody(parsed) {
-  const html = typeof parsed.html === 'string' ? sanitizeHtml(parsed.html, {
+  const source = typeof parsed.html === 'string' ? parsed.html : '';
+  const inspected = inspectMailHTML(source);
+  let html = '';
+  try { html = source && !inspected.tooDeep ? sanitizeHtml(source, {
+    nestingLimit: 100,
     allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img', 'font', 'center'],
     allowedAttributes: {
       '*': ['style', 'class', 'align', 'valign', 'width', 'height', 'bgcolor', 'dir'],
@@ -39,10 +62,12 @@ export function mailBody(parsed) {
         return { tagName, attribs: attributes };
       },
     },
-  }).trim() : '';
+  }).trim() : ''; }
+  catch (error) { if (!(error instanceof RangeError)) throw error; }
   const text = typeof parsed.text === 'string' ? parsed.text : '';
-  const body = text.trim() ? text : convert(html, {
+  const body = text.trim() ? text : !html ? inspected.text : convert(html, {
     wordwrap: false,
+    limits: { maxDepth: 100 },
     selectors: [{ selector: 'img', format: 'skip' }],
   });
   return {

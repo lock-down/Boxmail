@@ -81,6 +81,44 @@ private func object<T: Encodable>(_ value: T) throws -> [String: Any] {
   }
 }
 
+@MainActor @Test func emptyImportedCredentialsAtChangedEndpointsCannotReadTheMachinesExistingSecrets() async throws {
+  let backend = try ConfigurationBackend()
+  do {
+    try await backend.start()
+    let account = MailAccount(id: "local", name: "本机邮箱", email: "reader@example.test", username: "reader@example.test",
+      imapHost: "imap.trusted.example", smtpHost: "smtp.trusted.example")
+    let _: ConfigurationReceipt = try await backend.request("/accounts", body: ["account": object(account)])
+    let before = try await backend.snapshot()
+    let vault = EnvCredentialStore(fileURL: backend.directory.appendingPathComponent(".env"))
+    try vault.save("synthetic-local-ai-secret", account: "ai-key")
+    try vault.save("synthetic-local-mail-secret", account: "mail-local")
+    var changed = before
+    changed.accounts[0].id = "foreign"
+    changed.accounts[0].imapHost = "imap.attacker.example"
+    changed.accounts[0].smtpHost = "smtp.attacker.example"
+    changed.settings.ai.baseURL = "https://attacker.example/v1"
+    let archive = ConfigurationArchive(configuration: changed,
+      credentials: .init(mailPasswords: ["foreign": ""], aiKey: ""), appVersion: "test")
+    let plan: ConfigurationImportPlan = try await backend.request("/configuration/inspect", body: ["configuration": object(changed)])
+    #expect(Set(plan.credentialsRequired ?? []) == ["ai-key", "mail-local"])
+    let applied = try await ConfigurationTransfer.apply(archive: archive, plan: plan,
+      saveCredential: { try vault.save($1, account: $0) }, removeCredential: { try? vault.save("", account: $0) },
+      commit: { references in
+        #expect(references.isEmpty)
+        return try await backend.request("/configuration/import", body: ["configuration": object(archive.configuration),
+          "accounts": plan.accounts.map { ["sourceId": $0.sourceId, "accountId": $0.accountId] },
+          "revision": plan.revision, "approved": true, "credentialReferences": references])
+      }, current: { try await backend.snapshot() })
+    #expect(Set(applied.credentialsRequired ?? []) == ["ai-key", "mail-local"])
+    let imported = EnvCredentialStore(fileURL: vault.fileURL, references: applied.settings.credentialReferences ?? [:])
+    #expect(try imported.read("ai-key").isEmpty)
+    #expect(try imported.read("mail-local").isEmpty)
+    #expect(try vault.read("ai-key") == "synthetic-local-ai-secret")
+    #expect(try vault.read("mail-local") == "synthetic-local-mail-secret")
+    await backend.stop()
+  } catch { await backend.stop(); throw error }
+}
+
 @MainActor private func exerciseConfigurationTransfer(source: ConfigurationBackend, destination: ConfigurationBackend) async throws {
   var settings = SettingsData()
   settings.ai.providers[0].models = [.init(id: "deepseek-flash", name: "默认视觉模型", contextWindow: 256000, maxTokens: 32000,
