@@ -44,7 +44,7 @@ final class HTTPStub {
     throw URLError(.timedOut)
   }
 
-  func respond() {
+  func respond(data responseData: Data? = nil) {
     let request = lock.withLock {
       let value = pending
       pending = nil
@@ -56,7 +56,7 @@ final class HTTPStub {
         headerFields: ["Content-Type": "application/json"])
     else { return }
     request.client?.urlProtocol(request, didReceive: response, cacheStoragePolicy: .notAllowed)
-    request.client?.urlProtocol(request, didLoad: data)
+    request.client?.urlProtocol(request, didLoad: responseData ?? data)
     request.client?.urlProtocolDidFinishLoading(request)
   }
 

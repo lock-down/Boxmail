@@ -16,6 +16,18 @@ import Foundation
   static func save(_ value: String, account: String) throws { try storage().save(value, account: account) }
   static func createFileIfNeeded() throws { try storage().createIfNeeded() }
 
+  static func commit<Result>(
+    values: [String: String], storage override: EnvCredentialStore? = nil,
+    operation: ([String: String]) async throws -> Result,
+    current: () async throws -> (Result, [String: String])
+  ) async throws -> Result {
+    guard !values.isEmpty else { return try await operation([:]) }
+    let vault = try override ?? storage()
+    return try await CredentialUpdate.apply(
+      values: values, save: { try vault.save($1, account: $0) },
+      remove: { try? vault.save("", account: $0) }, commit: operation, current: current)
+  }
+
   static func mailPassword(for accountID: String) throws -> String {
     let password = try read("mail-\(accountID)")
     guard !password.isEmpty else {

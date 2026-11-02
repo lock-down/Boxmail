@@ -6,6 +6,7 @@ struct SummaryOverviewView: View {
   @ViewState<Bool> private var showingRemoved = false
   @ViewState<Bool> private var selecting = false
   @ViewState<Set<String>> private var selected: Set<String> = []
+  @ViewState<Set<String>> private var expanded: Set<String> = []
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var listed: [MailMessage] { store.summaryOverviewMessages }
@@ -29,14 +30,13 @@ struct SummaryOverviewView: View {
           }.disabled(store.busy.contains("summarize-unread") || store.busy.contains("agent")
             || store.unreadInboxMessages.allSatisfy { $0.summary != nil })
         }
-        HStack(spacing: 24) {
-          metric("列表摘要", listed.count)
-          Divider().frame(height: 24)
-          metric("待完成事项", listed.flatMap { $0.summary?.todos ?? [] }.filter { !$0.done }.count)
-          Divider().frame(height: 24)
-          metric("收件箱未读", store.unreadInboxMessages.count)
-        }.padding(.vertical, 14)
-          .overlay(alignment: .bottom) { Rectangle().fill(Palette.softBorder).frame(height: 1) }
+        HStack(spacing: 20) {
+          Label(
+            "\(listed.flatMap { $0.summary?.todos ?? [] }.filter { !$0.done }.count) 项待处理",
+            systemImage: "checklist")
+          Text("收件箱未读 \(store.unreadInboxMessages.count)")
+          Spacer(minLength: 0)
+        }.font(UIType.caption).foregroundStyle(Palette.muted)
         toolbar
         if let change = store.summaryListChange, change.accountId == store.accountId {
           HStack(spacing: 10) {
@@ -67,7 +67,9 @@ struct SummaryOverviewView: View {
             }.padding(20).background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
           }
         }
-        ForEach(messages) { message in summaryRow(message) }
+        LazyVStack(spacing: 0) {
+          ForEach(messages) { message in summaryRow(message) }
+        }.background(Palette.paper, in: RoundedRectangle(cornerRadius: 8))
         if messages.isEmpty && (showingRemoved || outputs.isEmpty) {
           EmptyState(title: showingRemoved ? "没有已移除的摘要" : removed.isEmpty ? "还没有 AI 摘要" : "总结列表已清空",
             subtitle: showingRemoved ? "从列表移除的摘要会出现在这里，可随时恢复。"
@@ -82,14 +84,17 @@ struct SummaryOverviewView: View {
       .animation(UIMotion.disclosure(reduceMotion), value: store.summaryListChange?.messageIds)
       .onChange(of: messageIDs) { _, ids in
         selected.formIntersection(ids)
+        expanded.formIntersection(ids)
         if ids.isEmpty { selecting = false }
       }
       .onChange(of: showingRemoved) { _, _ in selected = []; selecting = false }
       .onChange(of: store.accountId) { _, _ in
-        selected = []; selecting = false; showingRemoved = false
+        selected = []; expanded = []; selecting = false; showingRemoved = false
         store.unreadSummaryProgress = nil; store.summaryListError = nil
       }
-      .onChange(of: store.restoreRevision) { _, _ in selected = []; selecting = false; showingRemoved = false }
+      .onChange(of: store.restoreRevision) { _, _ in
+        selected = []; expanded = []; selecting = false; showingRemoved = false
+      }
   }
 
   private var toolbar: some View {
@@ -159,9 +164,61 @@ struct SummaryOverviewView: View {
           }.disabled(store.changingSummaryList)
         }.fixedSize()
       }
-      Divider().overlay(Palette.softBorder)
-      if let summary = message.summary { SummaryCard(store: store, message: message, summary: summary, embedded: true) }
-    }.padding(20).background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
+      if let summary = message.summary {
+        if expanded.contains(message.id) {
+          SummaryCard(
+            store: store, message: message, summary: summary, embedded: true,
+            keyInfoInitiallyExpanded: false, allowsCollapse: false)
+        } else {
+          Text(AITextStyle.inline(summary.overviewText)).font(UIType.body).lineSpacing(4)
+            .lineLimit(3).frame(maxWidth: 820, alignment: .leading)
+          let pending = summary.todos.filter { !$0.done }
+          if !pending.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+              ForEach(Array(pending.prefix(2))) { todo in
+                Button {
+                  store.toggleTodo(message: message, todo: todo)
+                } label: {
+                  HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "circle").foregroundStyle(Palette.muted)
+                    Text(todo.title).lineLimit(2)
+                    if !todo.due.isEmpty {
+                      Text(todo.due).foregroundStyle(Palette.amber).lineLimit(1)
+                    }
+                  }.font(UIType.caption).foregroundStyle(Palette.ink)
+                    .contentShape(Rectangle()).frame(minHeight: 24, alignment: .leading)
+                }.buttonStyle(ControlFeedback(corner: 4)).controlFocus(corner: 4)
+                  .accessibilityLabel(todo.title).accessibilityValue("待处理")
+              }
+              if pending.count > 2 {
+                Text("另有 \(pending.count - 2) 项待办").font(UIType.small).foregroundStyle(
+                  Palette.muted)
+              }
+            }
+          }
+        }
+        Button {
+          withAnimation(UIMotion.disclosure(reduceMotion)) {
+            if expanded.contains(message.id) {
+              expanded.remove(message.id)
+            } else {
+              expanded.insert(message.id)
+            }
+          }
+        } label: {
+          Label(
+            expanded.contains(message.id) ? "收起详情" : "展开详情",
+            systemImage: expanded.contains(message.id) ? "chevron.up" : "chevron.down"
+          )
+          .font(UIType.small).foregroundStyle(Palette.muted).frame(height: 28)
+          .contentShape(Rectangle())
+        }.buttonStyle(ControlFeedback(corner: 4)).controlFocus(corner: 4)
+          .accessibilityValue(expanded.contains(message.id) ? "已展开" : "已收起")
+      }
+    }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+      .overlay(alignment: .bottom) {
+        Rectangle().fill(Palette.softBorder).frame(height: 1).padding(.horizontal, 20)
+      }
       .overlay {
         if selecting && selected.contains(message.id) {
           RoundedRectangle(cornerRadius: UILayout.radius).stroke(Palette.blue.opacity(0.55), lineWidth: 1)
@@ -170,13 +227,4 @@ struct SummaryOverviewView: View {
       }
   }
 
-  private func metric(_ title: String, _ value: Int) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 9) {
-      Text("\(value)").font(.system(size: 22, weight: .semibold)).monospacedDigit()
-        .contentTransition(reduceMotion ? .identity : .numericText())
-      Text(title).font(UIType.caption).foregroundStyle(Palette.muted)
-      Spacer(minLength: 0)
-    }.frame(maxWidth: .infinity, alignment: .leading)
-      .animation(UIMotion.selection(reduceMotion), value: value)
-  }
 }

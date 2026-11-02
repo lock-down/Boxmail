@@ -29,6 +29,7 @@ struct SettingsSelectionMenu: NSViewRepresentable {
   func updateNSView(_ button: SelectionButton, context: Context) {
     button.model = model
     button.effort = effort
+    button.isEnabled = context.environment.isEnabled
     button.setAccessibilityLabel(effort.isEmpty ? "模型" : "模型与思考等级")
     button.setAccessibilityValue(effort.isEmpty ? model : model + "，" + effort)
     button.menu = context.coordinator.makeMenu(groups)
@@ -112,35 +113,32 @@ struct SettingsSelectionMenu: NSViewRepresentable {
     }
   }
 
-  @MainActor final class SelectionButton: NSPopUpButton {
+  @MainActor final class SelectionButton: SelectionControlButton {
     var model = ""
     var effort = ""
-    override var isFlipped: Bool { true }
-    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
 
     override func draw(_ dirtyRect: NSRect) {
-      let background = NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7)
-      NSColor(Palette.canvas).setFill()
-      background.fill()
-      if cell?.showsFirstResponder == true {
-        NSColor(Palette.blue).setFill()
-        NSBezierPath(rect: NSRect(x: 8, y: bounds.height - 1, width: max(0, bounds.width - 16), height: 1)).fill()
-      }
+      drawSelectionSurface()
       let paragraph = NSMutableParagraphStyle()
       paragraph.lineBreakMode = .byTruncatingMiddle
       let font = NSFont.systemFont(ofSize: 12)
       let y = (bounds.height - 16) / 2
       (model as NSString).draw(
-        in: NSRect(x: 10, y: y, width: bounds.width - (effort.isEmpty ? 36 : 92), height: 18),
-        withAttributes: [.font: font, .foregroundColor: NSColor(Palette.ink), .paragraphStyle: paragraph])
+        in: NSRect(x: 12, y: y, width: bounds.width - (effort.isEmpty ? 40 : 100), height: 18),
+        withAttributes: [
+          .font: font,
+          .foregroundColor: NSColor(Palette.ink).withAlphaComponent(isEnabled ? 1 : 0.4),
+          .paragraphStyle: paragraph,
+        ])
       paragraph.alignment = .right
       (effort as NSString).draw(
-        in: NSRect(x: bounds.width - 72, y: y, width: 42, height: 18),
-        withAttributes: [.font: font, .foregroundColor: NSColor(Palette.muted), .paragraphStyle: paragraph])
-      let arrow = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
-        .withSymbolConfiguration(.init(paletteColors: [NSColor(Palette.muted)]))
-      arrow?.draw(in: NSRect(x: bounds.width - 19, y: (bounds.height - 7) / 2, width: 9, height: 7),
-        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        in: NSRect(x: bounds.width - 76, y: y, width: 42, height: 18),
+        withAttributes: [
+          .font: font,
+          .foregroundColor: NSColor(Palette.muted).withAlphaComponent(isEnabled ? 1 : 0.4),
+          .paragraphStyle: paragraph,
+        ])
+      drawSelectionIndicator(x: bounds.width - 21)
     }
   }
 }

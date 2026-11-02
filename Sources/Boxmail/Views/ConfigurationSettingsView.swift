@@ -177,14 +177,12 @@ private struct ConfigurationImportReview: View {
           if let failure { WorkflowNotice(text: failure, icon: "exclamationmark.circle", color: Palette.amber) }
         }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
       }
-      Divider()
-      HStack(spacing: 12) {
-        if importing { ProgressView().controlSize(.small); Text("正在导入…").font(UIType.small).foregroundStyle(Palette.muted) }
-        Spacer()
-        ActionButton(title: "取消") { cancel() }.keyboardShortcut(.cancelAction).disabled(importing)
-        ActionButton(title: "导入配置", icon: "square.and.arrow.down", kind: .primary) { apply() }
-          .keyboardShortcut(.defaultAction).disabled(importing)
-      }.padding(.horizontal, 22).frame(height: 60).background(Palette.chrome)
+      SettingsActionBar(
+        primaryTitle: importing ? "正在导入…" : "导入配置", isWorking: importing,
+        cancel: cancel, primary: apply
+      ) {
+        EmptyView()
+      }
     }.frame(width: 560, height: 540).background(Palette.paper).tint(Palette.blue)
   }
 

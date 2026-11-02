@@ -278,18 +278,18 @@ struct MailRow: View {
     "\(message.sender)，\(message.subject.isEmpty ? "无主题" : message.subject)，\(accessibilityStatus)"
   }
   var body: some View {
-    HStack(alignment: .top, spacing: 8) {
+    HStack(alignment: .top, spacing: 6) {
       if let toggleGroup {
         Button(action: toggleGroup) {
           Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
             .rotationEffect(.degrees(expanded ? 90 : 0)).foregroundStyle(Palette.muted)
-            .frame(width: 20, height: 22).contentShape(Rectangle())
+            .frame(width: 16, height: 22).contentShape(Rectangle())
         }.buttonStyle(ControlFeedback(corner: 4)).controlFocus(corner: 4).padding(.top, -3)
           .help("\(expanded ? "折叠" : "展开") \(message.sender) 的 \(senderGroup?.count ?? 0) 封邮件")
           .accessibilityLabel("\(expanded ? "折叠" : "展开") \(message.sender) 的 \(senderGroup?.count ?? 0) 封邮件")
           .accessibilityValue(expanded ? "已展开" : "已折叠")
       } else if senderGroup != nil {
-        Color.clear.frame(width: 20, height: 1).accessibilityHidden(true)
+        Color.clear.frame(width: 16, height: 1).accessibilityHidden(true)
       }
       Circle().fill(unread ? Palette.blue : .clear).frame(width: 6, height: 6).padding(.top, 5)
         .accessibilityHidden(true)
@@ -298,7 +298,7 @@ struct MailRow: View {
           HStack(spacing: 6) {
             Text(message.sender).font(.system(size: 12, weight: unread ? .semibold : .regular)).lineLimit(1)
             if let group = senderGroup, group.count > 1 {
-              Text("\(group.count)").font(.system(size: 10, weight: .medium)).monospacedDigit()
+              Text("\(group.count)").font(.system(size: 11, weight: .medium)).monospacedDigit()
                 .foregroundStyle(Palette.muted).padding(.horizontal, 5).padding(.vertical, 1)
                 .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 4))
                 .help("共 \(group.count) 封，\(group.unreadCount) 封未读")

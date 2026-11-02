@@ -80,7 +80,9 @@ struct WorkflowTextInput: View {
       .frame(minHeight: lines > 1 ? 108 : SettingsFormLayout.controlHeight,
         maxHeight: lines > 1 ? nil : SettingsFormLayout.controlHeight,
         alignment: lines > 1 ? .topLeading : .leading)
-      .background(surface, in: RoundedRectangle(cornerRadius: 7))
+      .background(
+        surface, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
+      )
       .overlay(alignment: lines > 1 ? .topLeading : .leading) {
         if text.isEmpty {
           Text(placeholder).font(font).foregroundStyle(Palette.muted)
@@ -88,8 +90,9 @@ struct WorkflowTextInput: View {
             .allowsHitTesting(false).accessibilityHidden(true)
         }
       }
-      .overlay(alignment: .bottom) {
-        if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 8) }
+      .overlay {
+        RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
+          .stroke(focused ? Palette.blue : Palette.softBorder, lineWidth: 1)
       }.accessibilityLabel(label)
   }
 }
@@ -109,7 +112,7 @@ struct WorkflowSelection<Value: Hashable>: NSViewRepresentable {
     return button
   }
   func sizeThatFits(_ proposal: ProposedViewSize, nsView: WorkflowSelectionButton, context: Context) -> CGSize? {
-    CGSize(width: proposal.width ?? 160, height: 32)
+    CGSize(width: proposal.width ?? 160, height: SettingsFormLayout.controlHeight)
   }
   func updateNSView(_ button: WorkflowSelectionButton, context: Context) {
     let labels = options.map(\.1)
@@ -134,42 +137,29 @@ struct WorkflowSelection<Value: Hashable>: NSViewRepresentable {
   }
 }
 
-@MainActor final class WorkflowSelectionButton: NSPopUpButton {
+@MainActor final class WorkflowSelectionButton: SelectionControlButton {
   var compact = false
   var onSelect: ((Int) -> Void)?
-  override var isFlipped: Bool { true }
-  override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
-  override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: SettingsFormLayout.controlHeight) }
 
   @objc func selectValue() { onSelect?(indexOfSelectedItem) }
   override func draw(_ dirtyRect: NSRect) {
-    if !compact {
-      NSColor(Palette.canvas).setFill()
-      NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
-    }
-    if cell?.showsFirstResponder == true {
-      NSColor(Palette.blue).setFill()
-      NSBezierPath(rect: NSRect(x: 6, y: bounds.height - 1, width: max(0, bounds.width - 12), height: 1)).fill()
-    }
+    drawSelectionSurface(visible: !compact)
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingMiddle
     paragraph.alignment = .left
     let text = titleOfSelectedItem ?? "请选择"
     let font = NSFont.systemFont(ofSize: 12, weight: compact ? .medium : .regular)
     let textWidth = min(ceil((text as NSString).size(withAttributes: [.font: font]).width),
-      max(0, bounds.width - 32))
-    let inset: CGFloat = compact ? floor((bounds.width - textWidth - 16) / 2) : 10
+      max(0, bounds.width - 40))
+    let inset: CGFloat = compact ? floor((bounds.width - textWidth - 16) / 2) : 12
     (text as NSString).draw(in: NSRect(x: inset, y: (bounds.height - 16) / 2,
-      width: compact ? textWidth : max(0, bounds.width - inset - 22), height: 18), withAttributes: [
+        width: compact ? textWidth : max(0, bounds.width - inset - 28), height: 18),
+      withAttributes: [
         .font: font,
         .foregroundColor: NSColor(isHighlighted ? Palette.blue : Palette.ink).withAlphaComponent(isEnabled ? 1 : 0.4),
         .paragraphStyle: paragraph,
       ])
-    let arrow = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
-      .withSymbolConfiguration(.init(paletteColors: [NSColor(Palette.muted)]))
-    arrow?.draw(in: NSRect(x: compact ? inset + textWidth + 8 : bounds.width - 17,
-      y: (bounds.height - 7) / 2, width: 8, height: 7),
-      from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.4, respectFlipped: true, hints: nil)
+    drawSelectionIndicator(x: compact ? inset + textWidth + 8 : bounds.width - 21)
   }
 }
 

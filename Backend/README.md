@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.4，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。主状态的草稿统一返回轻量头部，完整编辑内容改由 `GET /drafts/:id` 读取，配置与恢复结果增加 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.5，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。主状态的草稿统一返回轻量头部，完整编辑内容改由 `GET /drafts/:id` 读取，配置与恢复结果增加 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -52,7 +52,7 @@ npm start
 | POST | `/messages/batch` | 1 至 1000 项 updates；每项含 id、changes 及可选 expected，事务更新并返回 changedCount 和可撤销的 undo |
 | POST | `/trash/empty` | `accountId`、`password`、`approved: true`；清空整个服务器及本机 Trash |
 | POST | `/accounts/test` | `account`、`password`；分别测试 IMAP / SMTP |
-| POST / DELETE | `/accounts`、`/accounts/:id` | 保存账号配置 / 移除本机账号及缓存，保留服务器邮件；发送中禁止移除，清理包含 recovery / relocation 附件并保留其他引用 |
+| POST / DELETE | `/accounts`、`/accounts/:id` | 保存账号配置和可选凭证引用，返回账号与设置 / 移除本机账号及缓存，保留服务器邮件；发送中禁止移除，清理包含 recovery / relocation 附件并保留其他引用 |
 | POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台立即返回并自动逐批补齐指定范围 |
 | POST | `/sync/cancel` | `accountId`；停止该账户当前同步会话，保留已下载邮件与断点，重复停止可安全返回 |
 | GET | `/sync-status` | 运行及排队账号、文件夹进度与阶段、本次结果；结果包含 queued / running / completed / paused / failed |
@@ -75,7 +75,7 @@ npm start
 | GET | `/contacts` | `accountId`、`q`；当前账户历史及草稿联系人 |
 | GET / POST | `/categories` | 读取目录 / 新增 `name` 和可选 `description` |
 | PATCH / DELETE | `/categories/:id` | 修改名称及说明 / 删除并将相关邮件归为未分类 |
-| POST | `/settings` | `ai`、`preferences`；允许部分更新偏好，未提交字段保留；保留已有凭证引用和独立模型缓存 |
+| POST | `/settings` | `ai`、`preferences`、可选 `credentialReferences`；允许部分更新偏好，未提交字段保留；合并本次 AI 凭证引用并保留其他引用和独立模型缓存 |
 | POST | `/configuration/export` | 返回真实账号、AI 和偏好，不含密钥、本机凭证引用或邮件数据 |
 | POST | `/configuration/inspect` | `configuration`；返回合并映射、当前修订值及端点或身份变化时的 `credentialsRequired` |
 | POST | `/configuration/import` | 配置、账号映射、修订值、凭证引用及 `approved: true`；事务提交账号、设置与引用，返回 `credentialsRequired` 重填清单 |
@@ -119,7 +119,7 @@ npm start
 
 发送成功后，隐藏的草稿记录保留状态及防重复发送回执，正文、格式化转发快照和附件引用由已发送邮件持有。删除草稿、移除账户及明确清空已删除时共用附件引用检查；旧发送回执的附件引用不阻止清理，活跃草稿、邮件及 relocation / recovery 引用继续保留。备份要求 forwardedHTML / forwardedText 成对为字符串，字段均缺省的旧草稿继续兼容。
 
-密钥由客户端从当前数据目录的 `.env`（或 `BOXMAIL_ENV_FILE` 指定文件）读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机凭证引用，对应 `.env` 的 `BOXMAIL_CONFIGURATION_<UUID>` 条目，普通设置保存和重启保留；导出移除引用，导入按邮箱合并，客户端仅为非空凭证先写新条目，再事务切换账号、设置和引用。`credential-bindings.js` 与备份恢复共用端点和身份比较，省略项不能把本机密钥送往新端点；inspect 与 import 返回 `credentialsRequired`，客户端显示服务器地址、凭证处理方式及重填清单。修订冲突及提交失败保持旧配置。
+密钥由客户端从当前数据目录的 `.env`（或 `BOXMAIL_ENV_FILE` 指定文件）读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机凭证引用，对应 `.env` 的 `BOXMAIL_CONFIGURATION_<UUID>` 条目，普通设置保存和重启保留。`POST /accounts` 可提交仅含 `mail-<当前账号 ID>` 的 `credentialReferences`，账号和引用在同一事务提交，响应包含 `id`、`ok`、`account` 和 `settings`；`POST /settings` 仅接受当前 AI 服务商目录所属的逻辑凭证。引用值必须为 `configuration-<UUID>`，拒绝未知对象、重复引用和格式错误，省略时兼容旧客户端。客户端先写独立条目再提交引用，失败不覆盖生效密钥；响应丢失后通过 `/state` 核对，无法确认时保留可能生效的条目。导出移除引用，导入按邮箱合并，客户端仅为非空凭证先写新条目，再事务切换账号、设置和引用。`credential-bindings.js` 与备份恢复共用端点和身份比较，省略项不能把本机密钥送往新端点；inspect 与 import 返回 `credentialsRequired`，客户端显示服务器地址、凭证处理方式及重填清单。修订冲突及提交失败保持旧配置。
 
 导入仅为非空凭证提供新的引用，省略项仅在端点、协议和邮箱身份一致时保留本机引用或逻辑键；变化时解除旧绑定，生成空的新引用并返回 `credentialsRequired`；拒绝不属于导入账号或服务商的引用。引用名称为：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；所有服务商的密钥由 Swift 客户端读写，不进入配置 HTTP 请求。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
 

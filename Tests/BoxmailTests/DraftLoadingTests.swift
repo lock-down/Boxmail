@@ -67,3 +67,46 @@ func staleDraftResponsesCannotOpenOrReplaceUnrelatedWork(change: String) async t
   #expect(store.error?.contains("原草稿已保留") == true)
   #expect(store.drafts == [full.compact])
 }
+
+@MainActor @Test func newAndSavedDraftRequestsCannotReplaceAnOpenComposer() {
+  let store = MailStore()
+  store.accounts = [MailAccount(id: "account", email: "me@example.test")]
+  store.accountId = "account"
+  let open = MailDraft(accountId: "account", body: "Unsaved current work")
+  let other = fullDraft()
+  store.drafts = [other]
+  store.composer = open
+  store.newDraft()
+  #expect(store.composer == open)
+  store.editDraft(other.id)
+  #expect(store.composer == open)
+}
+
+@MainActor @Test(arguments: ["new-draft", "restored", "settings"])
+func lateReplyDraftCannotReplaceNewWorkOrReopenAfterRestore(change: String) async throws {
+  let message = try JSONDecoder().decode(
+    MailMessage.self,
+    from: Data(
+      #"{"id":"message","accountId":"account","folder":"inbox","sender":"Sender","senderEmail":"sender@example.test","to":"me@example.test","cc":"","subject":"Original","body":"Body","preview":"Body","date":"2026-11-02T01:00:00Z","category":"","unread":false,"starred":false,"attachmentIds":[]}"#
+        .utf8))
+  let reply = fullDraft()
+  let stub = HTTPStub(
+    path: "/messages/message/reply-draft", data: try JSONEncoder().encode(reply), delayed: true)
+  defer { stub.close() }
+  let store = MailStore(backend: BackendService(session: stub.session))
+  store.accounts = [MailAccount(id: "account", email: "me@example.test")]
+  store.accountId = "account"
+  store.newDraft(reply: message)
+  try await stub.waitUntilStarted()
+  if change == "new-draft" { store.newDraft() }
+  if change == "restored" { store.restoreRevision += 1 }
+  if change == "settings" { store.showSettings = true }
+  let expected = store.composer
+  stub.respond()
+  for _ in 0..<500 {
+    if !store.busy.contains("compose-reply") { break }
+    try await Task.sleep(for: .milliseconds(2))
+  }
+  #expect(!store.busy.contains("compose-reply"))
+  #expect(store.composer == expected)
+}

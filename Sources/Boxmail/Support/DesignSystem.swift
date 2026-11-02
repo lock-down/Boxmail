@@ -19,6 +19,8 @@ enum UILayout {
   static let document: CGFloat = 920
   static let pageInset: CGFloat = 28
   static let radius: CGFloat = 12
+  static let controlRadius: CGFloat = 10
+  static let selectionRadius: CGFloat = 12
 }
 enum UIType {
   static let title = Font.system(size: 24, weight: .semibold)
@@ -55,7 +57,7 @@ struct ControlFeedback: ButtonStyle {
     var body: some View {
       configuration.label
         .overlay {
-          RoundedRectangle(cornerRadius: corner).fill(
+          RoundedRectangle(cornerRadius: corner, style: .continuous).fill(
             configuration.isPressed
               ? Palette.ink.opacity(filled ? 0.16 : 0.08)
               : hovered && enabled
@@ -130,14 +132,18 @@ struct FilterButton: View {
   let action: () -> Void
   @FocusState private var focused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  private var corner: CGFloat { compact ? UILayout.controlRadius : UILayout.selectionRadius }
   var body: some View {
     Button(action: action) {
       Text(title).font(.system(size: compact ? 11 : 12, weight: selected ? .semibold : .regular))
         .foregroundStyle(selected ? Palette.blue : Palette.muted)
         .padding(.horizontal, compact ? 9 : 12).frame(height: compact ? 28 : 32)
-        .background(selected ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 6))
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-    }.buttonStyle(ControlFeedback(selected: selected, corner: 6)).focused($focused)
+        .background(
+          selected ? Palette.blueSoft : .clear,
+          in: RoundedRectangle(cornerRadius: corner, style: .continuous)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+    }.buttonStyle(ControlFeedback(selected: selected, corner: corner)).focused($focused)
       .overlay(alignment: .bottom) {
         if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 9).allowsHitTesting(false) }
       }
@@ -170,6 +176,9 @@ struct EmptyState: View {
   var title: String
   var subtitle: String
   var icon = "tray"
+  var actionTitle: String? = nil
+  var actionDisabled = false
+  var action: (() -> Void)? = nil
   var body: some View {
     VStack(spacing: 12) {
       Image(systemName: icon).font(.system(size: 32, weight: .light)).foregroundStyle(Palette.muted)
@@ -177,6 +186,10 @@ struct EmptyState: View {
       Text(title).font(UIType.heading)
       Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(5)
         .multilineTextAlignment(.center).frame(maxWidth: 340)
+      if let actionTitle, let action {
+        ActionButton(title: actionTitle, kind: .primary, action: action)
+          .disabled(actionDisabled).padding(.top, 4)
+      }
     }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }

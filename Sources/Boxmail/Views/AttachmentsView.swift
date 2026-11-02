@@ -95,8 +95,30 @@ struct AttachmentsView: View {
           }
         }
         if filtered.isEmpty && !searching && queryError == nil {
-          EmptyState(title: "没有匹配的附件", subtitle: "同步邮箱后，邮件附件会在这里集中显示。", icon: "paperclip").frame(
-            height: 300)
+          EmptyState(
+            title: store.currentAccount == nil
+              ? "先添加邮箱" : store.accountAttachments.isEmpty ? "还没有附件" : "没有匹配的附件",
+            subtitle: store.currentAccount == nil
+              ? "添加邮箱并同步后，可以在这里查找和预览附件。"
+              : store.accountAttachments.isEmpty
+                ? "同步邮箱后，附件会集中显示在这里。"
+                : "当前搜索或文件类型没有结果，可以清除条件后查看全部附件。", icon: "paperclip",
+            actionTitle: store.currentAccount == nil
+              ? "添加邮箱"
+              : !store.accountAttachments.isEmpty
+                ? "清除筛选，查看全部" : store.currentAccount?.isDemo == true ? nil : "同步邮箱",
+            actionDisabled: store.accountAttachments.isEmpty && store.busy.contains("sync")
+          ) {
+            if store.currentAccount == nil {
+              store.settingsTab = "账号"
+              store.showSettings = true
+            } else if store.accountAttachments.isEmpty {
+              Task { await store.syncAll() }
+            } else {
+              query = ""
+              type = "全部"
+            }
+          }.frame(height: 300).padding(.bottom, 20)
         }
       }
     }.workspacePage().background(Palette.canvas)
@@ -130,7 +152,7 @@ struct AttachmentsView: View {
     } catch { if key == searchKey { queryError = error.localizedDescription } }
   }
   private var searchField: some View {
-    SearchField(placeholder: "搜索附件名称或内容", text: $query)
+    SearchField(placeholder: "在当前账户的附件中搜索", text: $query)
   }
   private var typeFilters: some View {
     FilterBar(values: ["全部", "PDF", "Word", "表格", "PPT", "TXT", "图片"], selection: $type, compact: true)

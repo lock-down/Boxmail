@@ -139,7 +139,7 @@ struct OrganizeView: View {
                 Text(mail.subject).font(.system(size: 12)).lineLimit(1).frame(
                   maxWidth: .infinity, alignment: .leading)
                 Tag(text: mail.category)
-                Text(displayTime(mail.date)).font(.system(size: 10)).foregroundStyle(Palette.muted)
+                Text(displayTime(mail.date)).font(UIType.small).foregroundStyle(Palette.muted)
                   .frame(width: 80, alignment: .trailing)
               }.foregroundStyle(Palette.ink).padding(16).contentShape(Rectangle())
             }.buttonStyle(ControlFeedback(corner: 0)).controlFocus(corner: 0)

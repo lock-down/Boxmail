@@ -7,10 +7,8 @@ enum SettingsFormLayout {
   static let menuWidth: CGFloat = 132
   static let portWidth: CGFloat = 72
   static let actionWidth: CGFloat = 112
-  static let modelSelectorWidth: CGFloat = 280
-  static let textWidth: CGFloat = 360
-  static let shortTextWidth: CGFloat = 280
-  static let formWidth: CGFloat = labelWidth + columnGap + textWidth + columnGap + actionWidth
+  static let fieldWidth: CGFloat = 280
+  static let formWidth: CGFloat = labelWidth + columnGap + fieldWidth + columnGap + actionWidth
 }
 
 struct SettingsFormLabel: View {
@@ -53,9 +51,14 @@ private struct SettingsInputSurface: ViewModifier {
   func body(content: Content) -> some View {
     content.textFieldStyle(.plain).font(UIType.caption).foregroundStyle(Palette.ink)
       .padding(.horizontal, 10).frame(height: SettingsFormLayout.controlHeight)
-      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7)).focused($focused)
-      .overlay(alignment: .bottom) {
-        if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 8) }
+      .background(
+        Palette.canvas,
+        in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
+      )
+      .focused($focused)
+      .overlay {
+        RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
+          .stroke(focused ? Palette.blue : Palette.softBorder, lineWidth: 1)
       }
   }
 }

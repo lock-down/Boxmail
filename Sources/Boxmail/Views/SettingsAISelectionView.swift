@@ -21,7 +21,7 @@ struct SettingsAISelectionView: View {
       groups: [
         .init(title: "模型", value: displayName(model), items: modelItems),
       ] + (showsEffort ? [.init(title: "思考等级", value: effortName, items: effortItems)] : []))
-      .frame(width: SettingsFormLayout.modelSelectorWidth, height: SettingsFormLayout.controlHeight)
+    .frame(width: SettingsFormLayout.fieldWidth, height: SettingsFormLayout.controlHeight)
       .help(showsEffort ? "选择模型与思考等级" : "选择模型")
       .sheet(isPresented: $editingModel) {
         SettingsCustomModelEditor(model: $model)
@@ -67,20 +67,27 @@ struct SettingsCustomModelEditor: View {
   private var trimmedDraft: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("自定义模型").font(.system(size: 12, weight: .semibold))
-      TextField("", text: $draft).settingsTextInput()
-        .inputPlaceholder("例如 deepseek-flash", visible: draft.isEmpty)
-        .focused($focused).accessibilityLabel("模型名称")
-      HStack {
-        Spacer()
-        ActionButton(title: "取消") { dismiss() }.keyboardShortcut(.cancelAction)
-        ActionButton(title: "使用模型", kind: .primary) {
+    VStack(spacing: 0) {
+      VStack(alignment: .leading, spacing: 12) {
+        Text("自定义模型").font(.system(size: 12, weight: .semibold))
+        TextField("", text: $draft).settingsTextInput()
+          .inputPlaceholder("例如 deepseek-flash", visible: draft.isEmpty)
+          .focused($focused).accessibilityLabel("模型名称")
+          .frame(width: SettingsFormLayout.fieldWidth)
+      }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
+      SettingsActionBar(
+        primaryTitle: "使用模型", primaryDisabled: trimmedDraft.isEmpty,
+        cancel: { dismiss() },
+        primary: {
           model = trimmedDraft
           dismiss()
-        }.keyboardShortcut(.defaultAction).disabled(trimmedDraft.isEmpty)
+        }
+      ) {
+        EmptyView()
       }
-    }.padding(14).frame(width: 340).font(UIType.caption)
+    }.frame(width: SettingsFormLayout.fieldWidth + 48).background(Palette.paper).font(
+      UIType.caption
+    )
       .onAppear { focused = true }.onExitCommand { dismiss() }
   }
 }

@@ -58,16 +58,22 @@ private struct AIModelEditorRow: View {
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack(spacing: 8) {
+      HStack(alignment: .top, spacing: 8) {
         Button { selectedModel = model.id.trimmingCharacters(in: .whitespacesAndNewlines) } label: {
           Image(systemName: !model.id.isEmpty && selectedModel == model.id ? "checkmark.circle.fill" : "circle")
             .foregroundStyle(!model.id.isEmpty && selectedModel == model.id ? Palette.accent : Palette.muted)
         }.buttonStyle(ControlFeedback(corner: 6)).frame(width: 28, height: 32)
           .controlFocus(corner: 6).help("使用此模型").accessibilityLabel("使用模型 \(model.id)")
           .disabled(model.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        WorkflowTextInput(label: "模型 ID", placeholder: "模型 ID", text: identifier, font: UIType.caption, surface: Palette.paper)
-        WorkflowTextInput(label: "模型显示名称", placeholder: "显示名称", text: name, font: UIType.caption, surface: Palette.paper)
-          .frame(width: 150)
+        VStack(alignment: .leading, spacing: 8) {
+          WorkflowTextInput(
+            label: "模型 ID", placeholder: "模型 ID", text: identifier, font: UIType.caption,
+            surface: Palette.paper)
+          WorkflowTextInput(
+            label: "模型显示名称", placeholder: "显示名称", text: name, font: UIType.caption,
+            surface: Palette.paper)
+        }.frame(width: SettingsFormLayout.fieldWidth)
+        Spacer(minLength: 0)
         IconButton(icon: expanded ? "chevron.up" : "chevron.down", help: expanded ? "收起模型参数" : "展开模型参数") {
           withAnimation(UIMotion.disclosure(reduceMotion)) { expanded.toggle() }
         }
@@ -94,7 +100,11 @@ private struct AIModelEditorRow: View {
             WorkflowSelection(title: "输出上限参数", selection: Binding(
               get: { model.compat?.maxTokensField ?? "max_completion_tokens" },
               set: { model.compat = .init(maxTokensField: $0, forceAdaptiveThinking: model.compat?.forceAdaptiveThinking) }),
-              options: [("max_completion_tokens", "max_completion_tokens"), ("max_tokens", "max_tokens")]).frame(width: 210)
+              options: [
+                ("max_completion_tokens", "max_completion_tokens"), ("max_tokens", "max_tokens"),
+              ]
+            )
+            .frame(width: SettingsFormLayout.fieldWidth)
             Spacer()
           }
         }

@@ -75,11 +75,11 @@ struct LocalDataSettingsView: View {
       } else if let pendingDirectory {
         Divider().overlay(Palette.softBorder)
         VStack(alignment: .leading, spacing: 8) {
-          Label(isScheduled ? "下次启动时迁移至" : "待应用的新位置", systemImage: "arrow.right")
+          Label(isScheduled ? "下次启动时迁移至" : "待保存的新位置", systemImage: "arrow.right")
             .font(UIType.caption).foregroundStyle(Palette.ink)
           Text(pendingDirectory.path).font(UIType.caption).textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
-          Text("应用后，重新打开 Boxmail 将复制现有数据并切换位置。原目录保留，迁移失败时继续使用原位置。")
+          Text("保存后，重新打开 Boxmail 将复制现有数据并切换位置。原目录保留，迁移失败时继续使用原位置。")
             .font(UIType.small).foregroundStyle(Palette.muted)
             .fixedSize(horizontal: false, vertical: true)
           ActionButton(title: "取消更改", icon: "xmark") {
@@ -88,7 +88,7 @@ struct LocalDataSettingsView: View {
           }
         }
       } else {
-        Text("选择本机或已挂载磁盘中的空文件夹。应用设置后，重新打开 Boxmail 完成迁移。")
+        Text("选择本机或已挂载磁盘中的空文件夹。保存设置后，重新打开 Boxmail 完成迁移。")
           .font(UIType.small).foregroundStyle(Palette.muted)
           .fixedSize(horizontal: false, vertical: true)
       }

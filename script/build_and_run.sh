@@ -6,7 +6,7 @@ BUNDLE_ID="com.boxmail.desktop"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 APP_VERSION="$(cat VERSION)"
-APP_BUILD="42"
+APP_BUILD="43"
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VERSION must contain a version such as 0.1.0" >&2
   exit 2
@@ -21,8 +21,9 @@ case "$MODE" in
     exit 2
   fi
   BUNDLE_ID="com.boxmail.desktop.review"
+  APP_NAME="Boxmail Review"
   APP_BUNDLE="$ROOT_DIR/artifacts/ui-review/Boxmail Review.app"
-  pkill -f "$APP_BUNDLE/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 || true
+  pkill -f "$APP_BUNDLE/Contents/MacOS/" >/dev/null 2>&1 || true
   ;;
 --package|package|--package-test|package-test)
   BUILD_CONFIGURATION="release"
@@ -49,7 +50,7 @@ SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
 if [[ ! -d Backend/node_modules ]]; then npm ci --prefix Backend --no-fund --no-audit; fi
 swift build --configuration "$BUILD_CONFIGURATION"
 BUILD_DIR="$(swift build --configuration "$BUILD_CONFIGURATION" --show-bin-path)"
-BUILD_BINARY="$BUILD_DIR/$APP_NAME"
+BUILD_BINARY="$BUILD_DIR/Boxmail"
 launch_app() {
   local -a launch_arguments=(-n "$APP_BUNDLE")
   if [[ -n "${BOXMAIL_DATA:-}" ]]; then
@@ -61,6 +62,9 @@ launch_app() {
   /usr/bin/open "${launch_arguments[@]}"
 }
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources/Runtime" "$APP_CONTENTS/Resources/Backend"
+if [[ "$MODE" == "--review" || "$MODE" == "review" ]]; then
+  rm -f "$APP_CONTENTS/MacOS/Boxmail"
+fi
 cp "$BUILD_BINARY" "$APP_CONTENTS/MacOS/$APP_NAME"
 cp "$BUILD_DIR/BoxmailPresentationRenderer" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
 NODE_BINARY="$(command -v node)"

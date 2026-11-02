@@ -30,7 +30,9 @@ struct AIModelReasoningEditor: View {
           HStack {
             Text("推理模式").font(UIType.caption).foregroundStyle(Palette.muted)
             WorkflowSelection(title: "Anthropic 推理模式", selection: mode,
-              options: [("budget", "思考预算"), ("adaptive", "自适应推理")]).frame(width: 180)
+              options: [("budget", "思考预算"), ("adaptive", "自适应推理")]
+            )
+            .frame(width: SettingsFormLayout.fieldWidth)
             Spacer()
           }
           Text(mode.wrappedValue == "adaptive" ? "由模型自动分配思考量，使用下方等级映射；请确认模型支持自适应推理。" : "预算模式按等级分配思考 token：Minimal 1024、Low 2048、Medium 8192、High 及以上 16384，并为回答保留空间。映射值用于自适应模式。")
@@ -46,7 +48,7 @@ struct AIModelReasoningEditor: View {
             Text(level.capitalized).font(UIType.caption).frame(width: 65, alignment: .leading)
             WorkflowTextInput(label: "\(level) 推理发送值", placeholder: level == "off" ? "不发送参数" : level,
               text: wireValue(level), font: UIType.caption, surface: Palette.paper).disabled(level == "off")
-              .frame(maxWidth: 260)
+              .frame(width: SettingsFormLayout.fieldWidth)
             IconButton(icon: "minus", help: "移除推理等级 \(level)") {
               var values = model.reasoningEfforts?.values ?? [:]
               values.removeValue(forKey: level); model.reasoningEfforts = .mapping(values)

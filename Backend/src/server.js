@@ -7,7 +7,9 @@ import {
   ServiceError,
   accountInput,
   aiConfig,
+  aiCredentialAccounts,
 } from './validation.js';
+import { credentialUpdates } from './credential-updates.js';
 import { testAccount, syncAccount, updateMessage, restoreMessage, unarchiveMessage, emptyTrash, sendDraft } from './mail.js';
 import { archiveRestoreFolder, trashRestoreFolder } from './mail-folders.js';
 import { runAgent, approveClassification, useReplyPreview, completion } from './agent.js';
@@ -307,10 +309,20 @@ export async function startServer({
       else if (req.method === 'POST' && route === '/accounts') {
         const a = accountInput(body.account);
         a.id = a.id || randomUUID();
+        if (typeof a.id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(a.id))
+          throw new ServiceError('账户标识无效');
         if (a.id === 'demo') throw new ServiceError('演示账号不能改为真实账号');
         const old = repo.get('account', a.id);
-        repo.put('account', { ...old, ...a, lastSync: old?.lastSync || null });
-        result = { id: a.id, ok: true };
+        const references = credentialUpdates(body.credentialReferences, [`mail-${a.id}`]);
+        result = repo.transaction(() => {
+          const account = repo.put('account', { ...old, ...a, lastSync: old?.lastSync || null });
+          const settings = repo.get('settings', 'settings');
+          if (Object.keys(references).length) {
+            settings.credentialReferences = { ...settings.credentialReferences, ...references };
+            repo.put('settings', settings);
+          }
+          return { id: a.id, ok: true, account, settings };
+        });
       } else if (req.method === 'DELETE' && route.startsWith('/accounts/')) {
         const id = route.split('/')[2];
         if (locks.has(id) || locks.has('agent') || organizer.busy(id) || attachmentBatch.busy(id)
@@ -430,7 +442,9 @@ export async function startServer({
           fontSize: Math.min(24, Math.max(12, Number(p.fontSize) || 14)),
           signature: textSlice(String(p.signature || ''), 0, 4000),
         };
-        result = repo.put('settings', { ...old, id: 'settings', ai, preferences });
+        const references = credentialUpdates(body.credentialReferences, aiCredentialAccounts(ai));
+        result = repo.put('settings', { ...old, id: 'settings', ai, preferences,
+          credentialReferences: { ...old.credentialReferences, ...references } });
       } else if (req.method === 'POST' && route === '/ai/test') {
         await completion(body.config, body.apiKey, 'compose', {
           request: '返回 subject 和 body，内容为连接成功',

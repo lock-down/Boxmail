@@ -30,9 +30,14 @@ struct SidebarView: View {
           Text("写邮件").font(.system(size: 13, weight: .semibold))
           Spacer(minLength: 0)
         }.foregroundStyle(Palette.blue).padding(.horizontal, 10).frame(height: 38)
-          .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 7))
-          .contentShape(RoundedRectangle(cornerRadius: 7))
-      }.buttonStyle(ControlFeedback(selected: true)).controlFocus()
+          .background(
+            Palette.blueSoft,
+            in: RoundedRectangle(cornerRadius: UILayout.selectionRadius, style: .continuous)
+          )
+          .contentShape(
+            RoundedRectangle(cornerRadius: UILayout.selectionRadius, style: .continuous))
+      }.buttonStyle(ControlFeedback(selected: true, corner: UILayout.selectionRadius))
+        .controlFocus(corner: UILayout.selectionRadius)
         .padding(.horizontal, 12).padding(.bottom, 16)
       OverlayScrollView {
         VStack(spacing: 4) {
@@ -78,10 +83,12 @@ struct SidebarView: View {
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(9)
                       .background(
                         account.id == store.accountId ? Palette.blueSoft : .clear,
-                        in: RoundedRectangle(cornerRadius: 7)
+                        in: RoundedRectangle(
+                          cornerRadius: UILayout.selectionRadius, style: .continuous)
                       )
                       .contentShape(Rectangle())
-                  }.buttonStyle(ControlFeedback()).controlFocus()
+                  }.buttonStyle(ControlFeedback(corner: UILayout.selectionRadius))
+                    .controlFocus(corner: UILayout.selectionRadius)
                     .accessibilityAddTraits(account.id == store.accountId ? .isSelected : [])
                 }
                 Divider()
@@ -156,7 +163,7 @@ struct SidebarView: View {
     }
   }
   private func row(_ destination: MailDestination) -> some View {
-    let selected = store.destination == destination
+    let selected = store.search.isEmpty && store.destination == destination
     return Button {
       store.navigate(destination)
     } label: {
@@ -176,8 +183,10 @@ struct SidebarView: View {
       }.foregroundStyle(selected ? Palette.blue : Palette.ink)
         .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 36)
         .contentShape(Rectangle()).background(
-          selected ? Palette.blueSoft : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-    }.buttonStyle(ControlFeedback(selected: selected)).controlFocus().accessibilityAddTraits(
+          selected ? Palette.blueSoft : Color.clear,
+          in: RoundedRectangle(cornerRadius: UILayout.selectionRadius, style: .continuous))
+    }.buttonStyle(ControlFeedback(selected: selected, corner: UILayout.selectionRadius))
+      .controlFocus(corner: UILayout.selectionRadius).accessibilityAddTraits(
       selected ? .isSelected : [])
       .animation(UIMotion.selection(reduceMotion), value: selected)
       .animation(UIMotion.selection(reduceMotion), value: count(destination))

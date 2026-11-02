@@ -245,14 +245,19 @@ import SwiftUI
     }
   }
   func editDraft(_ id: String) {
+    guard composer == nil else { return }
     guard let draft = drafts.first(where: { $0.id == id }), draft.status != "sending" else {
       error = "草稿已发送、移除或正在发送，请刷新后重试。"
       return
     }
-    if draft.bodyLoaded != false { composer = draft; return }
     let generation = UUID()
     let revision = restoreRevision
     draftOpenGeneration = generation
+    if draft.bodyLoaded != false {
+      busy.remove("draft-load")
+      composer = draft
+      return
+    }
     busy.insert("draft-load")
     Task {
       defer { if draftOpenGeneration == generation { busy.remove("draft-load") } }
@@ -311,11 +316,21 @@ import SwiftUI
     }
   }
   func newDraft(reply: MailMessage? = nil, forward: Bool = false, all: Bool = false) {
+    guard composer == nil, !showSettings, previewAttachment == nil,
+      reply == nil || !busy.contains("compose-reply")
+    else { return }
+    let generation = UUID(), revision = restoreRevision
+    draftOpenGeneration = generation
+    busy.remove("draft-load")
     if let reply {
       action("compose-reply") {
         let draft: MailDraft = try await self.backend.request(
           "/messages/\(reply.id)/reply-draft", method: "POST",
           body: ["all": all, "forward": forward])
+        guard self.composer == nil, !self.showSettings, self.previewAttachment == nil,
+          self.draftOpenGeneration == generation,
+          self.restoreRevision == revision
+        else { return }
         self.composer = draft
       }
     } else {

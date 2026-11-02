@@ -7,9 +7,21 @@ struct SummaryCard: View {
   let message: MailMessage
   let summary: MailSummary
   var embedded = false
+  var allowsCollapse = true
   @ViewState<Bool> private var collapsed = false
   @ViewState<Bool> private var showKeyInfo = true
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  init(
+    store: MailStore, message: MailMessage, summary: MailSummary, embedded: Bool = false,
+    keyInfoInitiallyExpanded: Bool = true, allowsCollapse: Bool = true
+  ) {
+    self.store = store
+    self.message = message
+    self.summary = summary
+    self.embedded = embedded
+    self.allowsCollapse = allowsCollapse
+    _showKeyInfo = ViewState(wrappedValue: keyInfoInitiallyExpanded)
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack(spacing: 7) {
@@ -28,7 +40,7 @@ struct SummaryCard: View {
         }
         if embedded && store.destination != .summary {
           IconButton(icon: "xmark", help: "收起 AI 面板") { store.mailAITab = nil }
-        } else {
+        } else if allowsCollapse {
           IconButton(icon: collapsed ? "chevron.down" : "chevron.up",
             help: collapsed ? "展开总结" : "折叠总结") { collapsed.toggle() }
         }

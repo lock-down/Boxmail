@@ -5,16 +5,34 @@ struct ContentView: View {
   @Bindable var store: MailStore
   @ViewState<Bool> private var activity = false
   @ViewState<Bool> private var searchFilters = false
+  @ViewState<Bool> private var showingNavigation = false
   @AppStorage("BoxmailGroupMailBySender") private var groupMailBySender = true
   var body: some View {
-    HStack(spacing: 0) {
-      SidebarView(store: store).frame(width: UILayout.sidebar)
-      Divider().overlay(Palette.softBorder)
-      VStack(spacing: 0) {
-        header
-        Divider().overlay(Palette.softBorder)
-        workspace
-        if store.mailChange != nil || store.mailActionError != nil { mailActionNotice }
+    GeometryReader { geometry in
+      HStack(spacing: 0) {
+        if geometry.size.width >= 1080 {
+          SidebarView(store: store).frame(width: UILayout.sidebar)
+          Divider().overlay(Palette.softBorder)
+        }
+        VStack(spacing: 0) {
+          header(compact: geometry.size.width < 1080, height: geometry.size.height)
+          Divider().overlay(Palette.softBorder)
+          if !store.search.isEmpty { searchContext }
+          workspace
+          if store.mailChange != nil || store.mailActionError != nil { mailActionNotice }
+        }
+      }
+      .sheet(isPresented: $store.showSettings) {
+        SettingsView(store: store).borderlessScrollers()
+          .frame(
+            width: min(1000, max(700, geometry.size.width - 24)),
+            height: min(750, max(500, geometry.size.height - 40)))
+      }
+      .sheet(item: $store.composer) { draft in
+        ComposerView(store: store, initial: draft).borderlessScrollers()
+          .frame(
+            width: min(1080, max(680, geometry.size.width - 24)),
+            height: min(720, max(500, geometry.size.height - 40)))
       }
     }.foregroundStyle(Palette.ink).tint(Palette.blue).background(Palette.canvas).ignoresSafeArea(
       .container, edges: .top
@@ -22,10 +40,10 @@ struct ContentView: View {
     .borderlessScrollers()
     .onAppear { store.changeSenderGrouping(groupMailBySender) }
     .onChange(of: store.groupMailBySender) { _, value in groupMailBySender = value }
-    .sheet(isPresented: $store.showSettings) { SettingsView(store: store).borderlessScrollers() }
-    .sheet(item: $store.composer) { draft in
-      ComposerView(store: store, initial: draft).borderlessScrollers()
-    }
+    .onChange(of: store.destination) { _, _ in showingNavigation = false }
+    .onChange(of: store.accountId) { _, _ in showingNavigation = false }
+    .onChange(of: store.composer?.id) { _, _ in showingNavigation = false }
+    .onChange(of: store.showSettings) { _, showing in if showing { showingNavigation = false } }
     .sheet(item: $store.previewAttachment) { attachment in
       AttachmentPreviewView(store: store, attachmentId: attachment.id).borderlessScrollers()
     }
@@ -66,16 +84,22 @@ struct ContentView: View {
   @ViewBuilder private var workspace: some View {
     if !store.ready {
       startupContent
-    } else if !store.search.isEmpty {
-      mailSplit
     } else {
       switch store.destination {
-      case .attachments: AttachmentsView(store: store)
-      case .organize: OrganizeView(store: store)
-      case .summary: SummaryOverviewView(store: store)
-      case .drafts: DraftsView(store: store)
+      case .attachments: searchableWorkspace { AttachmentsView(store: store) }
+      case .organize: searchableWorkspace { OrganizeView(store: store) }
+      case .summary: searchableWorkspace { SummaryOverviewView(store: store) }
+      case .drafts: searchableWorkspace { DraftsView(store: store) }
       default: mailSplit
       }
+    }
+  }
+  private func searchableWorkspace<Content: View>(@ViewBuilder content: () -> Content) -> some View
+  {
+    ZStack {
+      content().opacity(store.search.isEmpty ? 1 : 0)
+        .allowsHitTesting(store.search.isEmpty).accessibilityHidden(!store.search.isEmpty)
+      if !store.search.isEmpty { mailSplit }
     }
   }
   private var startupContent: some View {
@@ -106,7 +130,7 @@ struct ContentView: View {
   }
   private var mailSplit: some View {
     HSplitView {
-      MailListView(store: store).frame(minWidth: 294, idealWidth: 332, maxWidth: 380)
+      MailListView(store: store).frame(minWidth: 294, idealWidth: 380, maxWidth: 560)
       Group {
         if store.selectedMails.count > 1 {
           VStack(spacing: 14) {
@@ -141,17 +165,26 @@ struct ContentView: View {
             subtitle: store.currentAccount?.isDemo == true
               ? "你正在浏览演示数据。添加邮箱后可同步真实邮件。" : "同步邮箱，或从列表中选择邮件查看内容。")
         }
-      }.frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity).background(.white)
+      }.frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity).background(.white)
     }
   }
-  private var header: some View {
-    HStack(spacing: 16) {
+  private func header(compact: Bool, height: CGFloat) -> some View {
+    HStack(spacing: 10) {
+      if compact {
+        IconButton(icon: "sidebar.left", help: "显示邮箱与账户") { showingNavigation.toggle() }
+          .popover(isPresented: $showingNavigation, arrowEdge: .bottom) {
+            SidebarView(store: store).frame(
+              width: UILayout.sidebar, height: min(640, max(440, height - 64)))
+          }
+        IconButton(icon: "square.and.pencil", help: "写邮件（Command-N）") { store.newDraft() }
+      }
       Spacer(minLength: 0)
       HStack(spacing: 4) {
-        SearchField(placeholder: "搜索邮件、附件或输入条件", text: $store.search, focusRequest: store.searchFocusRequest)
+        SearchField(
+          placeholder: "搜索邮件（含附件内容）", text: $store.search, focusRequest: store.searchFocusRequest)
         IconButton(icon: "line.3.horizontal.decrease", help: "组合条件搜索") { searchFilters = true }
           .popover(isPresented: $searchFilters, arrowEdge: .bottom) { SearchFiltersView(store: store) }
-      }.frame(minWidth: 220, idealWidth: 420, maxWidth: 520)
+      }.frame(minWidth: 180, idealWidth: 420, maxWidth: 520)
       Spacer(minLength: 0)
       HStack(spacing: 6) {
         Button {
@@ -161,7 +194,12 @@ struct ContentView: View {
           HStack(spacing: 6) {
             Circle().fill(store.settings.ai.enabled ? Palette.success : Palette.muted)
               .frame(width: 5, height: 5)
-            Text(store.settings.ai.enabled ? "AI 已启用" : "AI 已关闭").font(.system(size: 11, weight: .medium))
+            if !compact {
+              Text(store.settings.ai.enabled ? "AI 已启用" : "AI 已关闭").font(
+                .system(size: 11, weight: .medium))
+            } else {
+              Text("AI").font(UIType.small)
+            }
           }.foregroundStyle(Palette.muted).padding(.horizontal, 9).frame(height: 32)
             .contentShape(RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(ControlFeedback()).controlFocus()
@@ -180,7 +218,19 @@ struct ContentView: View {
         IconButton(icon: "bell", help: "活动记录") { activity = true }
         IconButton(icon: "gearshape", help: "设置") { store.showSettings = true }
       }.padding(.trailing, 14)
-    }.padding(.leading, 16).frame(height: 48).background(Palette.chrome)
+    }.padding(.leading, compact ? 80 : 16).frame(height: 48).background(Palette.chrome)
+  }
+  private var searchContext: some View {
+    HStack(spacing: 12) {
+      ActionButton(title: "返回\(store.destination.title)", icon: "chevron.left") {
+        store.search = ""
+      }
+      Text("邮件搜索").font(UIType.caption).foregroundStyle(Palette.ink)
+      Text("仅搜索已下载的邮件与附件内容")
+        .font(UIType.small).foregroundStyle(Palette.muted)
+      Spacer(minLength: 0)
+    }.padding(.horizontal, 12).frame(height: 36).background(Palette.chrome)
+      .overlay(alignment: .bottom) { Rectangle().fill(Palette.softBorder).frame(height: 1) }
   }
   private var mailActionNotice: some View {
     HStack(spacing: 10) {

@@ -8,7 +8,7 @@ import SwiftUI
   @FocusedValue(\.mailTriage) private var triage: MailStore?
   var body: some Scene {
     WindowGroup("Boxmail", id: "main") {
-      ContentView(store: store).frame(minWidth: 1150, minHeight: 720).preferredColorScheme(.light)
+      ContentView(store: store).frame(minWidth: 720, minHeight: 600).preferredColorScheme(.light)
         .task {
           delegate.store = store
           if !store.ready { await store.load() }

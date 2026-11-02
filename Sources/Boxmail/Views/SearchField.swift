@@ -13,7 +13,10 @@ struct SearchField: View {
       TextField("", text: $text).textFieldStyle(.plain).font(UIType.caption)
         .focused($focused).accessibilityLabel(placeholder)
         .overlay(alignment: .leading) {
-          if text.isEmpty { Text(placeholder).font(UIType.caption).foregroundStyle(Palette.muted).allowsHitTesting(false).accessibilityHidden(true) }
+          if text.isEmpty {
+            Text(placeholder).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(1)
+              .allowsHitTesting(false).accessibilityHidden(true)
+          }
         }
       if !text.isEmpty {
         IconButton(icon: "xmark.circle.fill", help: "清除搜索", size: 24) { text = "" }
