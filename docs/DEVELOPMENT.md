@@ -19,6 +19,8 @@
 
 修改接口时同步检查 Swift 模型、后端路由和调用方；修改数据结构需设计迁移和旧数据兼容。应用版本与 SQLite 结构版本独立，当前 `user_version=2`，搜索索引为可重建派生数据。
 
+后端 AI SDK 精确锁定为 `@earendil-works/pi-ai@1.3.0`，其内部 `pi-telemetry` 同为 1.3.0；共用 `openai@7.19.0` 和 `@anthropic-ai/sdk@0.129.0`。升级依赖时同步提交 `Backend/package.json` 和 `Backend/package-lock.json`，已有检出在更新后执行 `npm ci --prefix Backend`。协议与模型参数约定见 [后端接口](../Backend/README.md#ai-请求与任务恢复)。
+
 ## 构建与测试
 
 在仓库根目录执行，依赖及工具链要求见 README。
@@ -28,9 +30,11 @@
 git diff --check
 ```
 
-`test.sh` 先构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
+构建、测试和后端启动均要求 Node.js 24.22.2 LTS 或更新的 LTS 版本，最低版本以 `Backend/package.json` 的 `engines.node` 为准，`Backend/src/check-node.js` 同时检查版本下限和 LTS 标记。构建在关闭 App 前完成检查，并按二进制内容更新内置 Node.js，避免文件时间导致旧运行时被保留。
 
-0.1.5（build 43）完整回归通过 387 项后端测试、158 项 Swift 测试（客户端 54 项、核心 104 项），无失败或跳过。本次增加账户与 AI 凭证的提交隔离、写入失败、响应丢失、账户提交后刷新失败，以及回复草稿迟到和恢复竞态回归。既有同步、备份、搜索、附件、Unicode 和大草稿回归继续保留；各版审查修复及验证范围统一记录在 [CHANGELOG](../CHANGELOG.md)。
+`test.sh` 检查运行时后构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
+
+0.1.5 安全性更新（build 44）使用 Node.js 26.13.0 LTS 完成 387 项后端测试、158 项 Swift 测试（客户端 54 项、核心 104 项），最终回归无失败或跳过。另验证运行时版本边界及旧 Node.js 在构建、测试和后端启动前被拒绝。既有凭证提交、草稿竞态、同步、备份、搜索、附件、Unicode 和大草稿回归继续保留；各版审查修复及验证范围统一记录在 [CHANGELOG](../CHANGELOG.md)。
 
 真实 HTTP/SQLite/Swift 回归包含六账户、12,001 封合成邮件及 4,135 个附件的加载、正文与 HTML 保留、设置保存和同目录重启。HTTP 夹具按会话隔离，正式测试继续覆盖凭证文件权限、手工修改、迁移、ZIP 排除密钥、WAL 强制退出、磁盘容量不足、事务回滚、网络期限与取消、JSON 主线程隔离及客户端旧响应竞态。大邮箱用例一次补齐 12073 封收件箱与 543 封已发送；AppKit/WebKit 用例检查定位、选择、分页、收件人滚动和转发预览。搜索派生索引在后台逐封处理，测试等待索引就绪，搜索请求本身不能触发全量 flush。发布时另验证正式包的图标、资源、源码、签名、首次启动及退出清理。
 

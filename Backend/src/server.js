@@ -1,3 +1,4 @@
+import './check-node.js';
 import { textSlice, unicodeJSON } from './unicode.js';
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';

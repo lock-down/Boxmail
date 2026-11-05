@@ -5,8 +5,10 @@ APP_NAME="Boxmail"
 BUNDLE_ID="com.boxmail.desktop"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+NODE_BINARY="$(command -v node)"
+"$NODE_BINARY" Backend/src/check-node.js
 APP_VERSION="$(cat VERSION)"
-APP_BUILD="43"
+APP_BUILD="44"
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VERSION must contain a version such as 0.1.0" >&2
   exit 2
@@ -67,8 +69,7 @@ if [[ "$MODE" == "--review" || "$MODE" == "review" ]]; then
 fi
 cp "$BUILD_BINARY" "$APP_CONTENTS/MacOS/$APP_NAME"
 cp "$BUILD_DIR/BoxmailPresentationRenderer" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
-NODE_BINARY="$(command -v node)"
-if [[ ! -f "$APP_CONTENTS/Resources/Runtime/node" || "$NODE_BINARY" -nt "$APP_CONTENTS/Resources/Runtime/node" ]]; then cp "$NODE_BINARY" "$APP_CONTENTS/Resources/Runtime/node"; fi
+if ! cmp -s "$NODE_BINARY" "$APP_CONTENTS/Resources/Runtime/node"; then cp "$NODE_BINARY" "$APP_CONTENTS/Resources/Runtime/node"; fi
 if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
   # Allowlist source and install production dependencies into an otherwise empty bundle.
   rsync -a --delete Backend/src/ "$APP_CONTENTS/Resources/Backend/src/"

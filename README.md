@@ -4,7 +4,7 @@
 
 Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，以 SQLite 保存本机数据，支持通过 BYOK 接入兼容 OpenAI Responses、Chat Completions 或 Anthropic Messages 的 AI 服务。
 
-当前发布版本为 **0.1.5（build 43）**，源码标签为 `v0.1.5`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.1.5)。本版调整紧凑窗口、设置与写信布局，统一保存操作，并修复凭证保存失败、草稿关闭与迟到响应可能覆盖编辑的问题。版本号以 [VERSION](VERSION) 为准，变化与验证范围见 [变更记录](CHANGELOG.md)。
+当前发布版本为 **0.1.5 安全性更新（build 44）**，源码标签为 `v0.1.5-repack.1`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.1.5-repack.1)。本次保持应用版本号，升级 pi-ai 至 1.3.0、内置 Node.js 至 26.13.0 LTS，并将最低运行时要求提高至 24.22.2 LTS。版本号以 [VERSION](VERSION) 为准，变化与验证范围见 [变更记录](CHANGELOG.md)。
 
 ## 功能
 
@@ -14,14 +14,14 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 - 紧凑邮件列表、原生连续及离散多选、批量归档／删除／标记／分类，以及最近一次手动操作的即时撤销；支持键盘切换邮件、搜索和批量处理。
 - 本机草稿、联系人补全、回复与转发、个人签名、附件选择与粘贴，发送前确认；草稿正文按需加载，HTML 与纯文本转发均独立保存原文快照。
 - 逐步显示的 AI 总结、原排版翻译、回复预览、写信、附件理解和分类整理；总结列表可单项或多选移除、清空及恢复，邮件内的 AI 结果保留。
-- 中文全文与组合条件搜索、本机草稿搜索、自定义分类，以及基于 pi-ai 的多服务商 BYOK、协议选择、模型能力及推理等级配置。
+- 中文全文与组合条件搜索、本机草稿搜索、自定义分类，以及基于 pi-ai 1.3.0 的多服务商 BYOK、协议选择、模型能力及推理等级配置。
 - 配置与密钥迁移、完整备份恢复、自定义数据目录及搜索索引重建；导入前展示邮箱主机与凭证处理方式，端点变化后提示重填凭证。
 
 阅读区直接显示 AI 总结、翻译和 AI 回复，附件理解位于正文附件区，已保存的总结统一从“摘要集合”进入。窄窗口从左上角打开邮箱导航，写信中的 AI、抄送与密送按需展开。设置统一使用“取消／保存”，邮箱账户单独保存；搜索显示范围与返回入口，返回附件页面后保留局部筛选。具体操作见使用指南。
 
 ## 开发运行
 
-开发需要 macOS、Swift 6.0 或更高版本、Node.js 24 或更高版本及 npm。在仓库根目录执行：
+开发需要 macOS、Swift 6.0 或更高版本、Node.js 24.22.2 LTS 或更新的 LTS 版本及 npm。构建、测试和后端启动时会检查 Node.js 版本，App 内置构建时通过检查的运行时。在仓库根目录执行：
 
 ```bash
 ./script/build_and_run.sh
@@ -47,7 +47,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 
 产物位于 `dist/`，文件名为 `Boxmail-v<版本>-macos-<架构>-clean.zip`，附 SHA-256 校验文件。包内包含 App、Node.js、生产依赖、使用说明和记录完整源码提交号的版本信息；新安装关闭演示数据，已有用户数据继续保留。
 
-项目声明最低 macOS 14；本次发布在 Apple Silicon、macOS 27.2、Swift 6.4.2、Node.js 24.22.1 环境验证。最低系统、Intel Mac 及其他设备尚未验证，当前使用本机临时签名，尚未完成 Developer ID 签名和公证。安装与首次配置见 [使用指南](docs/USER_GUIDE.md)。
+项目声明最低 macOS 14；本次发布在 Apple Silicon、macOS 27.2、Swift 6.4.2、Node.js 26.13.0 LTS 环境验证。最低系统、Intel Mac 及其他设备尚未验证，当前使用本机临时签名，尚未完成 Developer ID 签名和公证。安装与首次配置见 [使用指南](docs/USER_GUIDE.md)。
 
 ## 文档
 

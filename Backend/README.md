@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.5，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。主状态的草稿统一返回轻量头部，完整编辑内容改由 `GET /drafts/:id` 读取，配置与恢复结果增加 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.5 安全性更新（build 44），内置 Node.js 26.13.0 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。主状态的草稿统一返回轻量头部，完整编辑内容改由 `GET /drafts/:id` 读取，配置与恢复结果增加 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -155,7 +155,7 @@ npm start
 
 `ai` 的 `providerId` 指定当前连接，`providers` 保存最多 20 个服务商，各项包括 id、name、baseURL、apiProtocol、model、models 和 catalogConfigured。Provider ID 以小写字母开头，仅含小写字母、数字和连字符；客户端逻辑凭证为 `ai-provider-<id>`，对应 `.env` 的 `BOXMAIL_AI_PROVIDER_<id>_KEY`；默认 `ai-key` 对应 `BOXMAIL_AI_KEY`，导入后按 `credentialReferences` 读取生成的条目。旧版平面配置自动作为默认连接，baseURL / model / apiProtocol 仍返回当前连接的镜像字段。模型 ID 可不在目录中，catalogConfigured 标记用户已配置目录，保留显式空目录。
 
-`responses.js` 统一任务提示词、Files 附件生命周期与 JSON 结果校验。`ai-protocols.js` 使用 `@earendil-works/pi-ai@1.1.0` 的三个 lazy API 工厂及 `streamSimple`，由 pi-ai 调用 `openai@7.19.0`、`@anthropic-ai/sdk@0.129.0`；模型发现和 Files 上传、删除也使用同一版本的官方 SDK。依赖精确锁定并去重，不再维护自己的推理 HTTP 请求或 SSE 解析器。
+`responses.js` 统一任务提示词、Files 附件生命周期与 JSON 结果校验。`ai-protocols.js` 使用 `@earendil-works/pi-ai@1.3.0` 的三个 lazy API 工厂及 `streamSimple`，由 pi-ai 调用 `openai@7.19.0`、`@anthropic-ai/sdk@0.129.0`；模型发现和 Files 上传、删除也使用同一版本的官方 SDK。依赖精确锁定并去重，`pi-telemetry` 随 pi-ai 固定为 1.3.0，不再维护自己的推理 HTTP 请求或 SSE 解析器。
 
 | apiProtocol | 请求和完成条件 |
 | --- | --- |
