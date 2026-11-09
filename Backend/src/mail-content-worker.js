@@ -17,10 +17,11 @@ export async function parseMailContent(task, buffer) {
   if (task === 'mime') {
     const [{ simpleParser }, { mailBody }] = await Promise.all([import('mailparser'), import('./mail-body.js')]);
     const full = await simpleParser(buffer, { skipHtmlToText: true, skipTextToHtml: true });
-    const parsed = Object.fromEntries(['from', 'to', 'cc', 'replyTo', 'date', 'messageId', 'subject',
+    const parsed = Object.fromEntries(['from', 'to', 'cc', 'bcc', 'replyTo', 'date', 'messageId', 'subject',
       'inReplyTo', 'references'].map(key => [key, full[key]]));
     parsed.attachments = (full.attachments || []).map(({ filename, content, contentType }) =>
       ({ filename, content, contentType }));
+    parsed.draftToken = full.headers.get('x-boxmail-draft-token');
     return { parsed, content: mailBody(full) };
   }
   if (task === 'docx') {

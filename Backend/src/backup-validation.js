@@ -1,4 +1,5 @@
 import { accountInput, aiConfig, ServiceError } from './validation.js';
+import { richDocument } from './rich-text.js';
 
 const strings = (value, names) => names.every(name => typeof value[name] === 'string');
 const bools = (value, names) => names.every(name => typeof value[name] === 'boolean');
@@ -31,6 +32,20 @@ export function validateBackupRecords(records) {
       || !stringArray(value.attachmentIds)
       || (value.forwardedHTML != null || value.forwardedText != null)
         && !strings(value, ['forwardedHTML', 'forwardedText']))) fail();
+    if (kind === 'draft') {
+      if (value.bodyHTML != null && (typeof value.bodyHTML !== 'string' || value.bodyHTML.length > 8 * 1024 * 1024)) fail();
+      if (value.richText != null) { try { richDocument(value.richText); } catch { fail(); } }
+      for (const binding of [value.remoteDraft, value.remotePending, value.remotePending?.previous]) {
+        if (binding == null) continue;
+        if (!object(binding) || typeof binding.path !== 'string' || binding.path.includes('\0') || binding.path.length > 1000
+          || binding.uid != null && (!Number.isSafeInteger(binding.uid) || binding.uid < 1)
+          || binding.uidValidity != null && !/^\d+$/.test(binding.uidValidity)
+          || typeof binding.baseHash !== 'string' || !/^[a-f0-9]{64}$/.test(binding.baseHash)) fail();
+      }
+    }
+    if (kind === 'draftDeletion' && (!accountIDs.has(value.accountId) || typeof value.path !== 'string'
+      || (!Number.isSafeInteger(value.uid) || value.uid < 1 || !/^\d+$/.test(value.uidValidity || ''))
+        && (typeof value.token !== 'string' || value.token.length > 100))) fail();
     if (['message', 'draft'].includes(kind) && (!accountIDs.has(value.accountId)
       || value.attachmentIds.some(id => !attachmentIDs.has(id)))) fail();
     if (kind === 'attachment' && (!strings(value, ['messageId', 'name', 'contentType', 'path', 'text', 'parseError', 'date'])

@@ -18,7 +18,10 @@ export function progressText(task, result) {
   ].filter(Boolean).join('\n\n');
   if (task === 'classify') return (Array.isArray(result.items) ? result.items : [])
     .filter(p => p && text(p.category)).map(p => `${p.category}${text(p.reason) ? `：${p.reason}` : ''}`).join('\n\n');
-  if (['reply', 'compose'].includes(task)) return [text(result.subject), text(result.body)].filter(Boolean).join('\n\n');
+  if (task === 'conversationSummary') return [['progress', '进展'], ['openItems', '未决事项'], ['nextSteps', '下一步']]
+    .map(([key, title]) => Array.isArray(result[key]) ? `## ${title}\n\n${result[key].map(item => text(item?.text) && `- ${item.text}`).filter(Boolean).join('\n')}` : '')
+    .filter(Boolean).join('\n\n');
+  if (['reply', 'compose', 'conversationReply'].includes(task)) return [text(result.subject), text(result.body)].filter(Boolean).join('\n\n');
   return text(result.text);
 }
 

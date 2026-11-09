@@ -8,7 +8,7 @@ struct MailAIBar: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     HStack(spacing: 8) {
-      ForEach([MailAITab.summary, .translate, .reply]) { tab in
+      ForEach([MailAITab.summary, .translate, .reply, .conversation]) { tab in
         Button {
           if tab != .translate && store.mailAITab == tab { store.mailAITab = nil }
           else { store.showMailAI(tab, message: message) }
@@ -22,7 +22,8 @@ struct MailAIBar: View {
           .controlFocus(corner: 6)
           .accessibilityAddTraits(store.mailAITab == tab ? .isSelected : [])
           .help(tab == .summary ? "总结本封邮件或查看已有总结"
-            : tab == .translate ? "在原文与译文之间切换" : "为本封邮件起草回复")
+            : tab == .translate ? "在原文与译文之间切换"
+            : tab == .conversation ? "总结往来进展、未决事项，并根据上下文拟回复" : "为本封邮件起草回复")
       }
       Spacer(minLength: 0)
       if store.busy.contains("agent") && store.activeAIMessageId == message.id {
@@ -35,6 +36,7 @@ struct MailAIBar: View {
     switch tab {
     case .summary: return "AI 总结"
     case .translate: return store.isShowingTranslation(message) ? "显示原文" : message.translation == nil ? "翻译" : "显示译文"
+    case .conversation: return "会话 AI"
     default: return "AI 回复"
     }
   }
@@ -52,7 +54,8 @@ struct MailAssistantView: View {
         HStack(spacing: 8) {
           Image(systemName: tab.icon).foregroundStyle(Palette.accent)
             .symbolEffect(.pulse, options: .repeating, isActive: working && !reduceMotion)
-          Text("本封邮件 · \(tab.title)").font(.system(size: 13, weight: .semibold))
+          Text(tab == .conversation ? "往来邮件 · 会话 AI" : "本封邮件 · \(tab.title)")
+            .font(.system(size: 13, weight: .semibold))
           Spacer()
           IconButton(icon: "xmark", help: "收起 AI 面板") { store.mailAITab = nil }
         }
@@ -72,6 +75,7 @@ struct MailAssistantView: View {
       case .translate: EmptyView()
       case .attachment: MailAttachmentSection(store: store, message: message)
       case .reply: MailReplyView(store: store, message: message)
+      case .conversation: ConversationAIView(store: store, message: message)
       }
     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
       .background(tab == .summary ? Palette.blueSoft.opacity(0.55) : Palette.canvas, in: RoundedRectangle(cornerRadius: 10))

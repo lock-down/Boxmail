@@ -26,6 +26,9 @@ import { categoryCatalog, editCategory } from './categories.js';
 import { draftPreview, draftSearchMessage } from './draft-search.js';
 import { contactSuggestions } from './contacts.js';
 import { conversation } from './threads.js';
+import { savedRichBody } from './rich-text.js';
+import { draftRevision, presentDraft } from './draft-state.js';
+import { queueDraftDeletion } from './draft-sync.js';
 import { parseSearch } from './search-query.js';
 import { createBackup, inspectBackup, restoreBackup } from './backups.js';
 import { exportConfiguration, inspectConfiguration, importConfiguration } from './configuration.js';
@@ -296,7 +299,7 @@ export async function startServer({
         try { result = await mailEmptyTrash(repo, body.accountId, body.password, body.approved); }
         finally { locks.delete(body.accountId); clearingTrash.delete(body.accountId); }
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/reply-draft$/.test(route)) {
-        result = createReplyDraft(repo, route.split('/')[2], { all: body.all === true, forward: body.forward === true });
+        result = presentDraft(createReplyDraft(repo, route.split('/')[2], { all: body.all === true, forward: body.forward === true }));
       }
       else if (req.method === 'GET' && route === '/search')
         result = {
@@ -346,6 +349,7 @@ export async function startServer({
             'relocation',
             'sync',
             'recovery',
+            'draftDeletion',
           ])
             for (const v of repo.list(kind).filter((x) => x.accountId === id))
               repo.remove(kind, v.id);
@@ -472,7 +476,7 @@ export async function startServer({
         result = repo.get('job', route.split('/')[2]);
         if (!result) throw new ServiceError('任务不存在', 404);
       } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/draft$/.test(route)) {
-        result = useReplyPreview(repo, route.split('/')[2]);
+        result = presentDraft(useReplyPreview(repo, route.split('/')[2]));
       } else if (req.method === 'POST' && /^\/jobs\/[^/]+\/pause$/.test(route)) {
         const id = route.split('/')[2];
         result = await (repo.get('job', id)?.task === 'attachmentBatch' ? attachmentBatch : organizer).pause(id);
@@ -537,13 +541,15 @@ export async function startServer({
         const draft = repo.get('draft', route.split('/')[2]);
         if (!draft || draft.status === 'sent') throw new ServiceError('草稿不存在或已发送，请刷新后重试', 404);
         result = upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null);
-        result = { ...result, preview: draftPreview(result, repo.get('account', draft.accountId)), bodyLoaded: true };
+        result = { ...presentDraft(result), preview: draftPreview(result, repo.get('account', draft.accountId)), bodyLoaded: true };
       } else if (req.method === 'POST' && route === '/drafts') {
         const account = repo.get('account', body.accountId);
         if (!account)
           throw new ServiceError('请选择发送账户');
         const id = body.id || randomUUID();
         const old = repo.get('draft', id);
+        const editableOld = old && upgradeForwardDraft(old,
+          () => old.sourceMessageId ? repo.get('message', old.sourceMessageId) : null);
         if (body.bodyLoaded === false) throw new ServiceError('草稿正文尚未加载，请重新打开草稿后保存', 409);
         if (old && ['sent', 'sending', 'uncertain'].includes(old.status))
           throw new ServiceError('该草稿不能修改，请另存为新草稿', 409);
@@ -554,7 +560,7 @@ export async function startServer({
           cc: String(body.cc || ''),
           bcc: String(body.bcc || ''),
           subject: textSlice(String(body.subject || ''), 0, 2000),
-          body: String(body.body || ''),
+          ...savedRichBody(body, old),
           attachmentIds: (body.attachmentIds || []).filter((a) =>
             repo.get('attachment', a),
           ),
@@ -564,16 +570,24 @@ export async function startServer({
           updatedAt: new Date().toISOString(),
           sourceMessageId: body.sourceMessageId || null,
           ...savedForwardFields(body, old),
+          ...(old?.accountId === body.accountId && old.remoteDraft ? { remoteDraft: old.remoteDraft } : {}),
+          ...(old?.accountId === body.accountId && old.remotePending ? { remotePending: old.remotePending } : {}),
+          syncState: account.isDemo ? 'local' : 'pending',
+          ...(old?.conflictOf ? { conflictOf: old.conflictOf } : {}),
         };
         const saved = upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null);
+        if (old && body.revision != null && body.revision !== draftRevision(editableOld)
+          && draftRevision(saved) !== draftRevision(editableOld))
+          throw new ServiceError('草稿已在其他位置更新，当前编辑内容仍保留。请另存为新草稿或重新打开服务器版本。', 409);
         if (saved.body.length > 500000) throw new ServiceError('草稿正文超过 500,000 个字符，请缩短正文后保存；转发原文请保留在引用区域。');
-        result = { ...repo.put('draft', saved), preview: draftPreview(saved, account) };
+        result = { ...presentDraft(repo.put('draft', saved)), preview: draftPreview(saved, account) };
       } else if (req.method === 'DELETE' && route.startsWith('/drafts/')) {
         const id = route.split('/')[2];
         const draft = repo.get('draft', id);
         if (['sending', 'uncertain'].includes(draft?.status))
           throw new ServiceError('该草稿的发送结果待确认', 409);
         if (draft) {
+          queueDraftDeletion(repo, draft);
           const owned = repo.db.prepare("SELECT id FROM records WHERE kind='attachment' AND json_extract(data,'$.messageId')=?").all(id);
           repo.remove('draft', id);
           await removeUnusedAttachments(repo, [...(draft.attachmentIds || []), ...owned.map(file => file.id)]);

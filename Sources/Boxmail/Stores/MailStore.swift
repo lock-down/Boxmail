@@ -417,9 +417,13 @@ import SwiftUI
     }
   }
   func useReply(_ job: AgentJob) {
+    guard composer == nil, !showSettings, previewAttachment == nil else { return }
+    let revision = restoreRevision
     action("use-reply") {
       let draft: MailDraft = try await self.backend.request(
         "/jobs/\(job.id)/draft", method: "POST")
+      guard self.composer == nil, !self.showSettings, self.previewAttachment == nil,
+        revision == self.restoreRevision else { return }
       self.composer = draft
     }
   }

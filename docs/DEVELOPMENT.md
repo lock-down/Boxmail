@@ -1,6 +1,6 @@
 # 开发与维护
 
-项目启动及文档入口见 [README](../README.md)，操作行为见 [使用指南](USER_GUIDE.md)，路由和数据契约见 [后端接口](../Backend/README.md)。日常开发保持 SwiftUI、本机 Node.js 和 SQLite 的结构。
+本文对应 Boxmail 0.1.6（build 45）。项目启动及文档入口见 [README](../README.md)，操作行为见 [使用指南](USER_GUIDE.md)，路由和数据契约见 [后端接口](../Backend/README.md)。日常开发保持 SwiftUI、本机 Node.js 和 SQLite 的结构。
 
 ## 源码入口
 
@@ -34,7 +34,7 @@ git diff --check
 
 `test.sh` 检查运行时后构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-0.1.5 安全性更新（build 44）使用 Node.js 26.13.0 LTS 完成 387 项后端测试、158 项 Swift 测试（客户端 54 项、核心 104 项），最终回归无失败或跳过。另验证运行时版本边界及旧 Node.js 在构建、测试和后端启动前被拒绝。既有凭证提交、草稿竞态、同步、备份、搜索、附件、Unicode 和大草稿回归继续保留；各版审查修复及验证范围统一记录在 [CHANGELOG](../CHANGELOG.md)。
+0.1.6 使用 Node.js 26.13.0 LTS 完成 412 项后端测试、170 项 Swift 测试（客户端 60 项、核心 110 项），回归无失败或跳过。新增覆盖富文本往返、输入与撤销、草稿同步的冲突和迟到响应、会话依据及过期回复保护。既有运行时边界、凭证提交、同步、备份、搜索、附件、Unicode 和大草稿回归继续保留；各版审查修复及验证范围统一记录在 [CHANGELOG](../CHANGELOG.md)。
 
 真实 HTTP/SQLite/Swift 回归包含六账户、12,001 封合成邮件及 4,135 个附件的加载、正文与 HTML 保留、设置保存和同目录重启。HTTP 夹具按会话隔离，正式测试继续覆盖凭证文件权限、手工修改、迁移、ZIP 排除密钥、WAL 强制退出、磁盘容量不足、事务回滚、网络期限与取消、JSON 主线程隔离及客户端旧响应竞态。大邮箱用例一次补齐 12073 封收件箱与 543 封已发送；AppKit/WebKit 用例检查定位、选择、分页、收件人滚动和转发预览。搜索派生索引在后台逐封处理，测试等待索引就绪，搜索请求本身不能触发全量 flush。发布时另验证正式包的图标、资源、源码、签名、首次启动及退出清理。
 
@@ -98,6 +98,20 @@ App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进
 
 主状态 `/state` 的 `drafts` 始终为轻量头部：body 清空、转发大字段省略、bodyLoaded=false，预览仅投影有限字符。阅读通过 `/messages/draft:<id>` 取得合并原文；写信编辑通过 `GET /drafts/<id>` 取得原始可编辑正文和独立转发快照。所有草稿入口共用按需加载，迟到响应受请求代次和 restoreRevision 保护；`POST /drafts` 拒绝 bodyLoaded=false，避免将空头部保存为正文。20 MB 转发草稿的主状态响应有大小上限回归。
 
+### 富文本、服务器草稿与会话 AI
+
+0.1.6 实现 A3、A4、A5。新增字段使用现有 JSON 记录存储，SQLite `user_version` 仍为 2，旧草稿及备份缺省字段继续兼容。
+
+- 富文本由 `RichTextDocument` 的段落与文字片段表达，原生 `RichTextEditor` 通过 TextKit 编辑；后端 `rich-text.js` 校验后派生 `bodyHTML` 和纯文本 `body`。编辑器不导入可执行 HTML 或外部资源，保留选区、撤销和中文组合输入。`bodyHTML`、`richText` 与转发快照均从草稿头部及有界搜索投影中剔除。
+- 草稿随 `syncAccount` 同步，也可限定 `folder=drafts`；复用账户锁、逐条 IMAP 期限、取消和独立 MIME 解析进程。旧版本中只读缓存的服务器草稿迁为可编辑草稿，保留正文和附件。`draft-sync.js` 在 APPEND 前保存随机 MIME token 与内容指纹，重连后核对结果；正文版本与远端 UID / UIDVALIDITY 分开，另以 IMAP 端点及登录身份指纹限制远端绑定与清理，配置改变后保留本机副本待确认。上传返回时重新读取当前草稿，避免覆盖同时发生的编辑、删除和账户切换。
+- `GET /drafts/:id` 及创建回复的响应提供内容修订值 `revision`；客户端保存时回传，旧修订的不同内容返回 409，相同内容重试可安全确认。远端更新保留本机冲突副本，远端删除不直接删除或重新上传本机草稿。删除和发送产生持久化 `draftDeletion` 清理记录；只在匹配的草稿文件夹和 UIDVALIDITY 下、且支持 UIDPLUS 时清理指定 UID。
+- 富文本正文上限仍为 500,000 字符，链接与文字的累计输入另有 4 MB 上限；服务器草稿 MIME 编码后最多 25 MB，超限留在本机。Boxmail 同步的转发 MIME 使用独立的编辑区与引用区标记，其他安装读取时仍保持快照分离；外部客户端移除标记后按其保存的正文导入。
+- `conversation-ai.js` 复用 A1 的同账户引用链，正文按最新优先分配输入预算，再按时间顺序提供模型；最多 50 封、每封 16,000 字符、总计 120,000 字符，并明确部分上下文。输出逐项校验来源 ID，保存会话指纹及来源内容指纹；回复采用时再次核对，关联最新往来。结果仅保存为 Job，单封摘要和已编辑草稿不被覆盖。
+
+相关回归为 `Backend/test/rich-text.test.js`、`draft-sync.test.js`、`conversation-ai.test.js`，以及 Swift 的 `RichTextTests`、`RichTextEditorTests` 与草稿加载保护。原生隔离验收已核对格式编辑、保存重开、宽窄布局和依据邮件跳转；实际 IMAP 服务商、其他邮件客户端、真实 AI 服务及 VoiceOver 全流程仍需单独验证。
+
+本次发布的编译、回归与原生验收边界统一记录在变更记录中。
+
 ### 邮件字符与数据解码
 
 0.1.4 兼容附件 `contentType` 为 false、空值或无效 MIME 的旧缓存；`mailparser` 对空 `Content-Type:` 会实际返回 false，默认参数只覆盖 undefined，不能修正这类值。`attachment-metadata.js` 统一未知 MIME 类型，Repository 启动只投影检查 MIME 元数据，再分批事务修正异常记录。新写入、完整及紧凑读取、元数据接口和转发副本使用同一规则。
@@ -155,6 +169,8 @@ Swift 仅对这项可缺省的描述字段提供回退，附件身份、大小�
 `Backend/src/service-lifecycle.js` 在数据库初始化前安装退出处理，检查父进程并通过 stdout 管道检测 App 消失。已有旧服务占锁时，客户端仅回收同用户、同一运行时路径、stdin 指向同一锁文件且父进程已为 1 的孤立后端；其他活跃 App 和无关 Node 进程继续保留。就绪检查使用 `/health`，完整状态另按需读取。
 
 ### 界面约定
+
+完整的颜色、字体、尺寸、共用组件、交互状态、动效与界面验收要求见 [UI 规范](DESIGN.md)。本节保留操作语义和实现约定；修改共用界面规则时同步更新规范与对应源码。
 
 - 系统字体、SF Symbols、蓝色强调；次要操作采用无描边图标文字，键盘焦点用细下划线，写邮件入口及选中筛选使用浅蓝底。
 - 设置按常用、账号、AI 助手、高级和开发者分组；宽度不足 900 pt 时用顶部分类标签替代左导航。五类共用“取消／保存”底栏，保存成功后关闭，失败保留当前输入和错误。账号编辑拥有独立保存／取消窗口，移除操作位于更多菜单。模型连接细节与目录按需展开，任务提示词独立切换。设置和写信面板尺寸跟随主窗口可用空间。
@@ -223,7 +239,7 @@ codesign --verify --deep --strict dist/Boxmail.app
 
 ## 文档与本地产物
 
-产品文档以项目入口、使用指南、开发说明、后端接口、开发路线和变更记录为主；`docs/agents/` 保留协作约定，`docs/diagnostics/` 中的历史故障证据注明适用版本。操作与限制更新到对应指南，审查修复结论及验证范围合并到 CHANGELOG，避免另存过时的源码行号、重复发布状态和一次性验收报告。发件人聚合与开发者设置的稳定界面约定已合并到本文，移除引用过期截图、固定窗口尺寸和旧测试数量的两份 `.impeccable/surfaces/` 文档。
+产品文档以项目入口、使用指南、UI 规范、开发说明、后端接口、开发路线和变更记录为主；`docs/diagnostics/` 中的历史故障证据注明适用版本。操作与限制更新到对应指南，审查修复结论及验证范围合并到 CHANGELOG，避免另存过时的源码行号、重复发布状态和一次性验收报告。发件人聚合与开发者设置的稳定界面约定已合并到本文，已移除的协作文档和界面快照不再作为当前约定来源。
 
 `.build/`、`dist/`、`Backend/node_modules/`、`artifacts/`、`.scratch/`、`.impeccable/critique/`、数据库、日志、环境变量及签名配置均不提交 Git；Impeccable 的项目配置保留在 `.impeccable/config.json`。临时测试 App、构建副本、探针和合成数据完成验证后可清理；正式回归及其附件样例保留。历史发布日志和截图可留在 `artifacts/release-*/` 等本机目录，不作为运行依赖。
 

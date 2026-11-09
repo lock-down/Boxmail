@@ -41,7 +41,7 @@ export function draftSearchPage(repo, { query = '', accountId, folder, filter, o
   const drafts = db.prepare(`SELECT json_remove(json_set(data,
     '$.body',substr(coalesce(json_extract(data,'$.body'),''),1,?),
     '$.forwardedText',substr(coalesce(json_extract(data,'$.forwardedText'),''),1,?),
-    '$.forwardedHTML',''),'$.sourceMessageId') AS data FROM records WHERE kind='draft'
+    '$.forwardedHTML',''),'$.sourceMessageId','$.bodyHTML','$.richText','$.remoteDraft','$.remotePending') AS data FROM records WHERE kind='draft'
     AND coalesce(json_extract(data,'$.status'),'draft')!='sent'`);
   try {
     for (const row of drafts.iterate(DRAFT_SEARCH_LIMIT, DRAFT_SEARCH_LIMIT)) {

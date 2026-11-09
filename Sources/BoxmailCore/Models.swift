@@ -140,6 +140,9 @@ public struct MailDraft: Codable, Identifiable, Hashable {
   public var preview: String?
   public var bodyLoaded: Bool?
   public var forwardedHTML, forwardedText: String?
+  public var bodyHTML: String?
+  public var richText: RichTextDocument?
+  public var revision, syncState, syncError, conflictOf: String?
   public var attachmentIds: [String]
   public var inReplyTo, sourceMessageId: String?
   public var references: [String]?
@@ -149,8 +152,16 @@ public struct MailDraft: Codable, Identifiable, Hashable {
     header.body = ""
     header.forwardedHTML = nil
     header.forwardedText = nil
+    header.bodyHTML = nil
+    header.richText = nil
     header.bodyLoaded = false
     return header
+  }
+  public func hasSameContent(as other: MailDraft) -> Bool {
+    id == other.id && accountId == other.accountId && to == other.to && cc == other.cc
+      && bcc == other.bcc && subject == other.subject && body == other.body && richText == other.richText
+      && forwardedHTML == other.forwardedHTML && forwardedText == other.forwardedText
+      && attachmentIds == other.attachmentIds && inReplyTo == other.inReplyTo && references == other.references
   }
   public init(accountId: String, to: String = "", subject: String = "", body: String = "") {
     id = UUID().uuidString
@@ -197,7 +208,7 @@ public struct OrganizeProgress: Codable {
   public var total, completed, failed, batchSize, batch: Int
 }
 public enum MailAITab: String, CaseIterable, Identifiable {
-  case summary, translate, attachment, reply
+  case summary, translate, attachment, reply, conversation
   public var id: String { rawValue }
   public var title: String {
     switch self {
@@ -205,6 +216,7 @@ public enum MailAITab: String, CaseIterable, Identifiable {
     case .translate: return "翻译"
     case .attachment: return "附件理解"
     case .reply: return "AI 回复"
+    case .conversation: return "会话 AI"
     }
   }
   public var icon: String {
@@ -213,12 +225,26 @@ public enum MailAITab: String, CaseIterable, Identifiable {
     case .translate: return "character.bubble"
     case .attachment: return "doc.text.magnifyingglass"
     case .reply: return "arrowshape.turn.up.left"
+    case .conversation: return "bubble.left.and.bubble.right"
     }
   }
 }
 public struct AgentResult: Codable {
   public var subject, body, draftId, text: String?
   public var items: [Classification]?
+  public var progress, openItems, conversationNextSteps: [ConversationFinding]?
+  public var conversationId, contextFingerprint, replyMessageId: String?
+  public var sourceIds: [String]?
+  public var sourceMessages: [ConversationSource]?
+  public var partial: Bool?
+  public var total: Int?
+}
+public struct ConversationFinding: Codable, Hashable {
+  public var text: String
+  public var messageIds: [String]
+}
+public struct ConversationSource: Codable, Identifiable, Hashable {
+  public var id, sender, subject, date: String
 }
 public struct Classification: Codable, Identifiable { public var id, category, reason: String }
 public struct AuditEvent: Codable, Identifiable { public var id, time, type, detail: String }

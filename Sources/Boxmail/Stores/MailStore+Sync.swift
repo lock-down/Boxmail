@@ -29,9 +29,9 @@ extension MailStore {
     return "正在同步 \(downloaded)/\(total) 封"
   }
 
-  func syncAll(silent: Bool = false, folder: String? = nil) async {
+  func syncAll(silent: Bool = false, folder: String? = nil, accountID: String? = nil) async {
     guard !busy.contains("sync") else { return }
-    let real = accounts.filter { !$0.isDemo && (folder == nil || $0.id == accountId) }
+    let real = accounts.filter { !$0.isDemo && (folder == nil || $0.id == (accountID ?? accountId)) }
     guard !real.isEmpty else {
       if !silent {
         showSettings = true

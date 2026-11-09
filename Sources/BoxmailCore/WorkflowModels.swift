@@ -21,6 +21,7 @@ public struct MailConversation: Codable {
   public var total: Int
   public var nextOffset: Int?
   public var partial: Bool
+  public var fingerprint: String?
 }
 public struct SearchIndexStatus: Codable {
   public var indexed, cached, pending, version: Int

@@ -229,6 +229,7 @@ struct SettingsView: View {
               ("summary", "邮件总结"), ("reply", "自动回复"), ("classify", "智能整理"), ("attachment", "附件解析"),
               ("compose", "AI 写信"),
               ("translate", "邮件翻译"),
+              ("conversationSummary", "会话总结"), ("conversationReply", "会话回复"),
             ], id: \.0
           ) { item in
             FilterButton(title: item.1, selected: promptTab == item.0, compact: true) {

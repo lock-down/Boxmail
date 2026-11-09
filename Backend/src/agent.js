@@ -9,6 +9,7 @@ import { summaryResult } from './summary.js';
 import { categoryCatalog } from './categories.js';
 import { progressText } from './ai-progress.js';
 import { translationDocument } from './translation.js';
+import { conversationContext, conversationResult, requireFreshConversation } from './conversation-ai.js';
 export { completion } from './responses.js';
 
 export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
@@ -17,13 +18,20 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
   if (message && input.accountId && message.accountId !== input.accountId)
     throw new ServiceError('邮件不属于当前账户', 400);
   const task = input.task;
+  const threadContext = ['conversationSummary', 'conversationReply'].includes(task) && message
+    ? conversationContext(repo, message.id) : null;
   const translation = task === 'translate' && message ? translationDocument(message) : null;
   const preset = task === 'reply' && typeof input.replyPreset === 'string'
     ? Object.hasOwn(REPLY_PRESETS, input.replyPreset) && REPLY_PRESETS[input.replyPreset] : null;
   if (task === 'reply' && input.replyPreset != null && !preset)
     throw new ServiceError('未知回复选项');
   let context;
-  if (['summary', 'reply', 'translate'].includes(task)) {
+  if (['conversationSummary', 'conversationReply'].includes(task)) {
+    if (!threadContext) throw new ServiceError('请选择会话中的邮件');
+    context = { messages: threadContext.sources.map(({ contentHash, ...source }) => source),
+      total: threadContext.total, partial: threadContext.partial, cachedOnly: true,
+      replyMessageId: threadContext.replyMessageId, request: input.prompt || '' };
+  } else if (['summary', 'reply', 'translate'].includes(task)) {
     if (!message) throw new ServiceError('请选择邮件');
     context = {
       sender: message.sender,
@@ -81,7 +89,8 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
     messageId: input.messageId || (task === 'attachment' ? repo.get('attachment', input.attachmentId)?.messageId : null) || null,
     attachmentId: input.attachmentId || null,
     ...(input.parentJobId ? { parentJobId: input.parentJobId } : {}),
-    ...(task === 'reply' ? { replyPreset: input.replyPreset || null, preview: input.preview === true } : {}),
+    ...(task === 'reply' || task === 'conversationReply' ? { replyPreset: input.replyPreset || null,
+      preview: task === 'conversationReply' || input.preview === true } : {}),
     createdAt: new Date().toISOString(),
     result: null,
     error: null,
@@ -122,7 +131,9 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
         },
         ...(task === 'classify' ? { categories: categoryCatalog(repo) } : {}) });
     input.signal?.throwIfAborted();
-    if (task === 'summary') {
+    if (threadContext) {
+      job.result = conversationResult(result, threadContext, task);
+    } else if (task === 'summary') {
       const summary = summaryResult(result, message);
       const current = repo.get('message', message.id);
       if (!current)
@@ -191,17 +202,19 @@ function replyDraft(message, result, account) {
 
 export function useReplyPreview(repo, id) {
   const job = repo.get('job', id);
-  if (!job || job.task !== 'reply' || !job.preview || job.status !== 'completed'
+  if (!job || !['reply', 'conversationReply'].includes(job.task) || !job.preview || job.status !== 'completed'
     || typeof job.result?.body !== 'string' || !job.result.body.trim())
     throw new ServiceError('该回复预览尚不可使用', 409);
   return repo.transaction(() => {
+    if (job.task === 'conversationReply') requireFreshConversation(repo, job);
     if (job.result.draftId) {
       const existing = repo.get('draft', job.result.draftId);
       if (!existing || existing.status !== 'draft') throw new ServiceError('该草稿已删除或已进入发送流程，请重新生成', 409);
       return existing;
     }
-    const message = repo.get('message', job.messageId);
+    const message = repo.get('message', job.result.replyMessageId || job.messageId);
     if (!message) throw new ServiceError('原邮件不存在，请重新打开邮件生成回复', 404);
+    if (message.accountId !== job.accountId) throw new ServiceError('回复邮件不属于当前账户，请重新生成。', 409);
     const draft = replyDraft(message, job.result, repo.get('account', message.accountId));
     repo.put('draft', draft);
     job.result.draftId = draft.id;

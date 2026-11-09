@@ -98,7 +98,7 @@ export class Repository {
   }
   draftHeaders() {
     const accounts = new Map(this.list('account').map(account => [account.id, account]));
-    const rows = this.db.prepare(`SELECT json_set(json_remove(data,'$.forwardedText','$.forwardedHTML','$.preview'),
+    const rows = this.db.prepare(`SELECT json_set(json_remove(data,'$.forwardedText','$.forwardedHTML','$.bodyHTML','$.richText','$.remoteDraft','$.remotePending','$.preview'),
       '$.body','','$.bodyLoaded',json('false')) AS data,
       substr(coalesce(json_extract(data,'$.body'),''),1,8192) AS previewBody,
       substr(coalesce(json_extract(data,'$.forwardedText'),''),1,8192) AS previewForwarded

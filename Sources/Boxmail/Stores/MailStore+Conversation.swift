@@ -2,6 +2,16 @@ import BoxmailCore
 import Foundation
 
 extension MailStore {
+  func latestConversationJob(task: String, message: MailMessage) -> AgentJob? {
+    let members = Set((conversation?.messages.map(\.id) ?? []) + [message.id])
+    return jobs.first { job in
+      guard job.task == task, job.status == "completed", job.accountId == message.accountId else { return false }
+      return job.messageId == message.id
+        || (job.result?.conversationId != nil && job.result?.conversationId == conversation?.id)
+        || job.result?.sourceMessages?.contains(where: { members.contains($0.id) }) == true
+    }
+  }
+
   func loadConversation(reset: Bool = true) async {
     guard let id = selectedMessageId else { return }
     let generation = detailGeneration

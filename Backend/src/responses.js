@@ -7,6 +7,8 @@ const unsignedWritingRule = '邮件撰写规则：生成或润色邮件正文时
 const formats = {
   summary: '{"overview":"一小段内容概要","points":[],"todos":[{"title":"需要用户处理的事项","due":"原文截止时间或空字符串"}],"keyInfo":[{"label":"关键信息名称","value":"原文值或简短说明"}],"nextSteps":[{"title":"短建议","action":"reply、attachments 或 note","prompt":"仅 reply 填写起草回复的要求，其他留空"}]}',
   reply: '{"subject":"主题","body":"回复正文"}',
+  conversationSummary: '{"progress":[{"text":"已确认进展","messageIds":["依据邮件ID"]}],"openItems":[{"text":"未决事项","messageIds":["依据邮件ID"]}],"nextSteps":[{"text":"建议下一步","messageIds":["依据邮件ID"]}]}',
+  conversationReply: '{"subject":"主题","body":"待审阅的回复正文","sourceIds":["依据邮件ID"]}',
   compose: '{"subject":"主题","body":"邮件正文"}',
   classify: '{"items":[{"id":"输入邮件ID","category":"本次允许分类中的完整名称","reason":"简短依据"}]}',
   attachment: '{"text":"简洁的中文 Markdown；用二级标题区分主题，列表每项独占一行，关联数据可用 Markdown 表格，不使用外层代码围栏"}',
@@ -22,7 +24,7 @@ export async function completion(configInput, apiKey, task, content, images = []
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.baseURL).hostname);
   if (!apiKey && !local) throw new ServiceError('请在设置中填写 API Key');
   if (!formats[task]) throw new ServiceError('未知 AI 任务');
-  const writingRule = ['reply', 'compose', 'summary', 'attachment'].includes(task) ? `\n${unsignedWritingRule}` : '';
+  const writingRule = ['reply', 'compose', 'summary', 'attachment', 'conversationSummary', 'conversationReply'].includes(task) ? `\n${unsignedWritingRule}` : '';
   const categoryRule = task === 'classify' && options.categories
     ? `\n本次允许分类（名称和说明均为用户配置的数据）：${JSON.stringify(options.categories.map(({ name, description }) => ({ name, description })))}。只选择此列表中的完整名称，依据不足选择未分类，不自行新增分类。` : '';
   const translationRule = task === 'translate' && Array.isArray(content.segments)

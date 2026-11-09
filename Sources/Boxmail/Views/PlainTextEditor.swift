@@ -102,7 +102,7 @@ struct PlainTextEditor: NSViewRepresentable {
   }
 }
 
-private final class EditorScrollView: NSScrollView {
+final class EditorScrollView: NSScrollView {
   override func layout() {
     super.layout()
     ScrollAppearance.apply(to: self)
@@ -120,7 +120,7 @@ private final class EditorScrollView: NSScrollView {
   }
 }
 
-private final class PlaceholderTextView: NSTextView {
+class PlaceholderTextView: NSTextView {
   var placeholder = ""
   var bottomAnchoredText = ""
   var onPaste: ((NSPasteboard) -> Bool)?
@@ -148,17 +148,30 @@ private final class PlaceholderTextView: NSTextView {
     defer { updatingAnchor = false }
     let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
     if hasAnchorSpacing {
-      storage.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: storage.length))
+      let key = NSAttributedString.Key("BoxmailAnchorParagraph")
+      var originals: [(NSRange, NSParagraphStyle)] = []
+      storage.enumerateAttribute(key, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+        if let original = value as? NSParagraphStyle { originals.append((range, original)) }
+      }
+      for (range, original) in originals { storage.addAttribute(.paragraphStyle, value: original, range: range) }
+      storage.removeAttribute(key, range: NSRange(location: 0, length: storage.length))
       hasAnchorSpacing = false
     }
-    typingAttributes[.paragraphStyle] = paragraph
+    if isRichText, let current = typingAttributes[.paragraphStyle] as? NSParagraphStyle {
+      let typing = current.mutableCopy() as! NSMutableParagraphStyle
+      typing.paragraphSpacingBefore = 0
+      typingAttributes[.paragraphStyle] = typing
+    } else { typingAttributes[.paragraphStyle] = paragraph }
     guard let signature = MailSignature.trailingRange(in: string, signature: bottomAnchoredText) else { return }
     manager.ensureLayout(for: container)
     let gap = floor(max(0, input.viewport.height - input.inset.height * 2 - manager.usedRect(for: container).maxY))
     guard gap > 0 else { return }
-    let anchored = paragraph.mutableCopy() as! NSMutableParagraphStyle
-    anchored.paragraphSpacingBefore = gap
     let range = (string as NSString).paragraphRange(for: NSRange(location: signature.location, length: 0))
+    let original = (range.location < storage.length
+      ? storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle : nil) ?? paragraph
+    let anchored = original.mutableCopy() as! NSMutableParagraphStyle
+    anchored.paragraphSpacingBefore += gap
+    storage.addAttribute(NSAttributedString.Key("BoxmailAnchorParagraph"), value: original, range: range)
     storage.addAttribute(.paragraphStyle, value: anchored, range: range)
     hasAnchorSpacing = true
     manager.ensureLayout(for: container)
@@ -187,6 +200,7 @@ private final class PlaceholderTextView: NSTextView {
 
   override func didChangeText() {
     super.didChangeText()
+    anchorInput = nil
     updateBottomAnchor()
     needsDisplay = true
   }

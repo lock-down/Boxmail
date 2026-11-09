@@ -45,9 +45,11 @@ export function savedForwardFields(input, previous = {}) {
 
 export function draftContent(draft) {
   const text = [draft.body, draft.forwardedText].filter(value => typeof value === 'string' && value.length).join('\n\n');
-  if (!draft.forwardedHTML) return { text };
-  const introduction = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${escape(draft.body)}</div>`;
-  return { text, html: introduction + draft.forwardedHTML };
+  if (!draft.bodyHTML && !draft.forwardedHTML) return { text };
+  const introduction = draft.bodyHTML || `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${escape(draft.body)}</div>`;
+  const quote = draft.forwardedHTML || (draft.forwardedText
+    ? `<div style="white-space:pre-wrap">${escape(draft.forwardedText)}</div>` : '');
+  return { text, html: introduction + quote };
 }
 
 // Email clients commonly block data URLs. Send local images as MIME CID parts;

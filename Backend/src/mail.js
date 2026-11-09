@@ -16,6 +16,7 @@ import { draftContent, inlineForwardImages } from './forward-content.js';
 import { MailContentWorker } from './mail-content-worker.js';
 import { accountReference, errorDiagnostic } from './diagnostics.js';
 import { pruneMailRecovery } from './mail-recovery.js';
+import { syncRemoteDrafts, queueDraftDeletion } from './draft-sync.js';
 
 // Status changes re-read the stored draft, so a slow send never writes back the snapshot it
 // started with and clobbers fields saved in the meantime.
@@ -26,6 +27,8 @@ function updateDraft(repo, draft, changes) {
     saved.attachmentIds = [];
     delete saved.forwardedHTML;
     delete saved.forwardedText;
+    delete saved.bodyHTML;
+    delete saved.richText;
   }
   repo.put('draft', saved);
 }
@@ -145,9 +148,24 @@ export async function syncAccount(
     const mutations = await applyMailMutations(repo, account, client, { signal, timeoutMs: operationTimeoutMs,
       paths: new Set(folders.map(f => f.path)) });
     if (mutations.reconnect) { client?.close(); client = null; }
+    if ((!requestedFolder || requestedFolder === 'drafts')
+      && (account.folders.drafts || repo.activeDrafts(account.id).some(draft => typeof draft.body === 'string') || requestedFolder === 'drafts')) {
+      try {
+        if (!client) { client = clientFactory(account, password); await perform(() => client.connect()); }
+        if (!account.folders.drafts) {
+          await perform(() => client.mailboxCreate(mailFolderNames.drafts));
+          account.folders.drafts = mailFolderNames.drafts;
+        }
+        await syncRemoteDrafts(repo, account, client, { signal, timeoutMs: operationTimeoutMs, contentWorker });
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        failures.push(`草稿箱：${error instanceof ServiceError ? error.message : '服务器草稿同步未完成，本机内容已保留。'}`);
+        client?.close?.(); client = null;
+      }
+    }
     if (requestedFolder && !account.folders[requestedFolder])
       throw new ServiceError(`服务器未提供${names[requestedFolder] || '该'}文件夹，请检查网页版邮箱及收取范围。`, 502);
-    for (const folder of Object.keys(names).filter(f => account.folders[f] && (!requestedFolder || requestedFolder === f))) {
+    for (const folder of Object.keys(names).filter(f => f !== 'drafts' && account.folders[f] && (!requestedFolder || requestedFolder === f))) {
       const remotePath = account.folders[folder];
       signal?.throwIfAborted();
       const syncId = createHash('sha256').update(`${account.id}:${remotePath}`).digest('hex');
@@ -703,6 +721,7 @@ export async function sendDraft(
     const sentId = `sent-${draft.id}`;
     repo.transaction(() => {
       updateDraft(repo, draft, { status: 'sent', sentAt: new Date().toISOString() });
+      queueDraftDeletion(repo, draft);
       repo.put('message', {
         id: sentId,
         accountId: account.id,

@@ -24,6 +24,11 @@ struct ComposerView: View {
   @ViewState<Bool> private var showingAssistant = false
   @ViewState<Bool> private var showingCC = false
   @ViewState<Bool> private var showingBCC = false
+  @ViewState<RichTextController> private var richEditor = RichTextController()
+  @ViewState<Bool> private var showingLink = false
+  @ViewState<String> private var link = "https://"
+  @ViewState<String?> private var linkError = nil
+  @ViewState<Bool> private var syncingDraft = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   init(store: MailStore, initial: MailDraft) {
     self.store = store
@@ -143,13 +148,13 @@ struct ComposerView: View {
             writingAssistant.frame(width: 300)
           }
         }.disabled(sending || draft.status == "uncertain")
-      }.disabled(sending || closing)
+      }.disabled(sending || closing || syncingDraft)
     }.frame(minWidth: 680, minHeight: 480).background(.white).tint(Palette.blue)
       .interactiveDismissDisabled()
       .onChange(of: subjectFocused) { _, focused in
         if focused { focusedAddress = "主题" } else if focusedAddress == "主题" { focusedAddress = nil }
       }
-      .onChange(of: draft) { _, _ in scheduleSave() }
+      .onChange(of: draft) { old, new in if !old.hasSameContent(as: new) { scheduleSave() } }
       .onDisappear { autosave?.cancel() }
       .alert(
         "操作未完成",
@@ -218,6 +223,8 @@ struct ComposerView: View {
               if let body = generated.body {
                 draft.body = MailSignature.replacingContent(
                   with: body, in: draft.body, signature: store.settings.preferences.signature)
+                draft.richText = nil
+                draft.bodyHTML = nil
               }
             }
           }.transition(UIMotion.reveal(reduceMotion))
@@ -248,9 +255,81 @@ struct ComposerView: View {
     }.menuStyle(.borderlessButton).fixedSize().help("显示抄送或密送字段")
   }
   private func bodyEditor(label: String, placeholder: String = "") -> some View {
-    PlainTextEditor(text: $draft.body, placeholder: placeholder, fontSize: 14, lineSpacing: 5,
-      inset: NSSize(width: 24, height: 18), accessibilityLabel: label,
-      bottomAnchoredText: store.settings.preferences.signature, onPaste: pasteAttachments)
+    VStack(spacing: 0) {
+      HStack(spacing: 4) {
+        IconButton(icon: "bold", help: "粗体（Command-B）", color: richEditor.bold ? Palette.blue : Palette.muted,
+          active: richEditor.bold) { richEditor.toggleBold() }
+          .background(richEditor.bold ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 7))
+          .accessibilityAddTraits(richEditor.bold ? .isSelected : [])
+        IconButton(icon: "list.bullet", help: "项目符号列表", color: richEditor.list == "bullet" ? Palette.blue : Palette.muted,
+          active: richEditor.list == "bullet") {
+          richEditor.toggleList("bullet")
+        }.background(richEditor.list == "bullet" ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 7))
+          .accessibilityAddTraits(richEditor.list == "bullet" ? .isSelected : [])
+        IconButton(icon: "list.number", help: "编号列表", color: richEditor.list == "numbered" ? Palette.blue : Palette.muted,
+          active: richEditor.list == "numbered") {
+          richEditor.toggleList("numbered")
+        }.background(richEditor.list == "numbered" ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 7))
+          .accessibilityAddTraits(richEditor.list == "numbered" ? .isSelected : [])
+        IconButton(icon: "link", help: "添加链接（Command-K）") { showingLink = true }
+          .popover(isPresented: $showingLink) {
+            VStack(alignment: .leading, spacing: 12) {
+              Text("添加链接").font(UIType.section)
+              TextField("https://example.com", text: $link).settingsTextInput()
+                .accessibilityLabel("链接地址").onSubmit { insertLink() }
+              if let linkError { Text(linkError).font(UIType.small).foregroundStyle(Palette.amber) }
+              HStack {
+                ActionButton(title: "取消") { showingLink = false }
+                Spacer()
+                ActionButton(title: "插入链接", icon: "link", kind: .primary) { insertLink() }
+              }
+            }.padding(16).frame(width: 320)
+          }
+        Spacer(minLength: 0)
+        if store.accounts.first(where: { $0.id == draft.accountId })?.isDemo == false {
+          ActionButton(title: syncingDraft ? "正在同步…" : "同步草稿", icon: "arrow.triangle.2.circlepath") {
+            syncDraft()
+          }.disabled(store.busy.contains("sync"))
+        }
+        if saveError != nil {
+          ActionButton(title: "另存为新草稿", icon: "doc.on.doc") { saveCopy() }
+        }
+      }.padding(.horizontal, 16).frame(height: 36).background(Palette.chrome)
+      RichTextEditor(text: $draft.body, document: $draft.richText, controller: richEditor,
+        placeholder: placeholder, accessibilityLabel: label, signature: store.settings.preferences.signature,
+        onPaste: pasteAttachments, onLink: { showingLink = true })
+    }
+  }
+  private func insertLink() {
+    guard richEditor.applyLink(link.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+      linkError = "请输入完整的 HTTP、HTTPS 或 mailto 链接。"
+      return
+    }
+    linkError = nil; showingLink = false
+  }
+  private func saveCopy() {
+    guard !saving, !sending, !closing else { return }
+    autosave?.cancel()
+    draft.id = UUID().uuidString
+    draft.revision = nil; draft.syncState = "local"; draft.syncError = nil; draft.conflictOf = nil
+    Task { do { try await persist() } catch { saveError = error.localizedDescription } }
+  }
+  private func syncDraft() {
+    guard !syncingDraft, !saving, !sending, !closing else { return }
+    autosave?.cancel(); syncingDraft = true
+    Task {
+      defer { syncingDraft = false }
+      do {
+        try await persist()
+        await store.syncAll(folder: "drafts", accountID: draft.accountId)
+        let current: MailDraft = try await store.backend.request("/drafts/\(draft.id)")
+        if draft.hasSameContent(as: current) {
+          draft.revision = current.revision; draft.syncState = current.syncState; draft.syncError = current.syncError
+        } else {
+          saveError = "服务器草稿已更新，当前编辑内容仍保留，可另存为新草稿。"
+        }
+      } catch { saveError = error.localizedDescription }
+    }
   }
   private func recipientField(_ title: String, text: Binding<String>, others: [String]) -> some View {
     HStack {
@@ -296,8 +375,13 @@ struct ComposerView: View {
     let snapshot = draft
     let result: MailDraft = try await BackendService.shared.request(
       "/drafts", method: "POST", body: try jsonObject(snapshot))
-    saved = snapshot == draft
+    saved = snapshot.hasSameContent(as: draft)
     saveError = nil
+    if draft.id == snapshot.id {
+      draft.revision = result.revision
+      draft.syncState = result.syncState
+      draft.syncError = result.syncError
+    }
     if let index = store.drafts.firstIndex(where: { $0.id == result.id }) {
       store.drafts[index] = result.compact
     } else {

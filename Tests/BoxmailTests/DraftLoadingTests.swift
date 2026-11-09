@@ -110,3 +110,26 @@ func lateReplyDraftCannotReplaceNewWorkOrReopenAfterRestore(change: String) asyn
   #expect(!store.busy.contains("compose-reply"))
   #expect(store.composer == expected)
 }
+
+@MainActor @Test(arguments: ["new-draft", "restored", "settings"])
+func adoptingAnAIReplyCannotReplaceNewWorkAfterItsRequestStarts(change: String) async throws {
+  let job = try JSONDecoder().decode(AgentJob.self,
+    from: Data(#"{"id":"preview","task":"conversationReply","status":"completed","createdAt":"2026-11-09T00:00:00Z","preview":true}"#.utf8))
+  let stub = HTTPStub(path: "/jobs/preview/draft", data: try JSONEncoder().encode(fullDraft()), delayed: true)
+  defer { stub.close() }
+  let store = MailStore(backend: BackendService(session: stub.session))
+  store.accounts = [MailAccount(id: "account", email: "me@example.test")]; store.accountId = "account"
+  store.useReply(job)
+  try await stub.waitUntilStarted()
+  if change == "new-draft" { store.newDraft() }
+  if change == "restored" { store.restoreRevision += 1 }
+  if change == "settings" { store.showSettings = true }
+  let expected = store.composer
+  stub.respond()
+  for _ in 0..<500 {
+    if !store.busy.contains("use-reply") { break }
+    try await Task.sleep(for: .milliseconds(2))
+  }
+  #expect(!store.busy.contains("use-reply"))
+  #expect(store.composer == expected)
+}

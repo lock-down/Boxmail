@@ -7,7 +7,8 @@ import Testing
   var config = AIConfig()
   #expect(config.model == "deepseek-flash")
   #expect(config.effort == "high")
-  #expect(config.prompts.count == 6)
+  #expect(Set(config.prompts.keys) == Set(["summary", "reply", "compose", "classify", "attachment", "translate",
+    "conversationSummary", "conversationReply"]))
   #expect(config.prompts.values.allSatisfy { !$0.isEmpty })
   config.effort = "max"
   config.prompts["reply"] = "使用正式语气"

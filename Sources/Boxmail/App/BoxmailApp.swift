@@ -63,6 +63,7 @@ import SwiftUI
         Button("理解当前邮件附件") { openAI(.attachment) }
           .disabled(store.selectedMailForCommands?.attachmentIds.isEmpty != false)
         Button("AI 回复当前邮件") { openAI(.reply) }.disabled(store.selectedMailForCommands == nil)
+        Button("分析当前会话") { openAI(.conversation) }.disabled(store.selectedMailForCommands == nil)
         Divider()
         Button("智能整理收件箱") { store.navigate(.organize) }
       }

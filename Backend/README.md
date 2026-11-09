@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.5 安全性更新（build 44），内置 Node.js 26.13.0 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。主状态的草稿统一返回轻量头部，完整编辑内容改由 `GET /drafts/:id` 读取，配置与恢复结果增加 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.6（build 45），内置 Node.js 26.13.0 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。新增富文本草稿、服务器草稿同步及会话 AI，主状态仍仅返回草稿轻量头部，完整编辑内容由 `GET /drafts/:id` 读取，配置与恢复结果含 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -45,7 +45,7 @@ npm start
 | GET | `/state` | 主状态；草稿始终为轻量头部，body 清空、转发字段省略、bodyLoaded=false；`compact=1` 同时返回轻量邮件与附件，`previews=0` 仅复用已有邮件预览；summary / translate / attachment 任务省略重复 result |
 | GET | `/messages` | `accountId`、`folder`、`filter`、`q`、`limit`、`offset`；默认每页 100，limit 1 至 200，返回总数与 nextOffset；`groupBy=sender` 按发件人分页，`senderGroup` 分页读取组内邮件 |
 | GET | `/messages/:id` | 完整邮件及 `bodyLoaded: true`，也支持草稿搜索结果 |
-| GET | `/messages/:id/thread` | 同账户引用链、原邮件头、总数、分页及未缓存提示 |
+| GET | `/messages/:id/thread` | 同账户引用链、原邮件头、总数、分页、未缓存提示及会话 `fingerprint` |
 | POST | `/messages/:id/reply-draft` | `all`、`forward`，按原账户生成草稿和引用头 |
 | PATCH | `/messages/:id` | 事务更新 `unread`、`starred`、`folder` 或本机 `category`；任一字段失败时整体回滚，包括待同步操作 |
 | POST | `/messages/:id/restore`、`/messages/:id/unarchive` | 返回删除或归档前的文件夹 |
@@ -56,8 +56,8 @@ npm start
 | POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台立即返回并自动逐批补齐指定范围 |
 | POST | `/sync/cancel` | `accountId`；停止该账户当前同步会话，保留已下载邮件与断点，重复停止可安全返回 |
 | GET | `/sync-status` | 运行及排队账号、文件夹进度与阶段、本次结果；结果包含 queued / running / completed / paused / failed |
-| GET | `/drafts/:id` | 完整可编辑正文及独立转发快照，附 `bodyLoaded: true` 和签名过滤后的 `preview`；不存在或已发送返回 404 |
-| POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除本机草稿；bodyLoaded=false 拒绝保存并返回 409，保存响应附 `preview`；删除后清理未被其他记录引用的附件 |
+| GET | `/drafts/:id` | 完整正文、可选 `richText` / `bodyHTML`、独立转发快照、内容 `revision`、`syncState` / `syncError`，附 `bodyLoaded: true` 和 `preview`；不存在或已发送返回 404 |
+| POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除草稿；富文本派生 HTML 与纯文本；`bodyLoaded=false` 或过期 revision 的不同内容返回 409，相同内容可重试；删除后清理无引用附件并排队清理远端草稿 |
 | POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；发送中或结果不明返回 409，已发送的重复请求返回 `alreadySent: true` |
 | POST | `/attachments` | `name`、Base64 `content`，可带关联 ID 和 `contentType` |
 | GET | `/attachments/:id` | 名称及 Base64 原始字节 |
@@ -84,6 +84,10 @@ npm start
 | POST | `/backups/restore` | `path`、检查得到的 `sha256`、`approved: true`；恢复前保存完整备份，结果含 `credentialsRequired` |
 
 ### AI 与任务
+
+`POST /agent` 新增 `conversationSummary` 和 `conversationReply`，参数使用会话中任一 `messageId` 及原账户；复用现有服务商配置、SSE 和 Job 持久化。总结结果含 `progress`、`openItems`、`conversationNextSteps`，每项为 `{text,messageIds}`；回复结果含 `subject`、`body`、`sourceIds`。两类结果还包含 `conversationId`、`contextFingerprint`、`sourceMessages`、`replyMessageId`、`partial` 和 `total`。来源只能引用本次模型输入中的同账户邮件；会话回复始终是预览，通过现有 `/jobs/:id/draft` 采用，指纹过期返回 409，不改写已使用草稿。
+
+会话输入最多 50 封，每封正文最多 16,000 字符，正文合计最多 120,000 字符；附件最多列出每封前 20 个名称。更多历史、未缓存内容及截断均作为部分上下文处理，不代为读取所有附件。
 
 | 方法 | 路径 | 参数与行为 |
 | --- | --- | --- |
@@ -145,7 +149,7 @@ npm start
 
 `mail-preview.js` 从完整缓存正文生成只排除签名的显示文本，保留引用历史。列表、紧凑快照、会话及草稿使用同一规则，HTML 只移除明确的签名容器，纯文本识别签名分隔符、企业联系信息及设备落款。Repository 按邮件 ID 在内存缓存短预览，实际邮件写入和删除使其失效，事务回滚或数据库句柄替换后清空。读取预览不重写邮件，不触发全文索引更新，也不要求重新同步。搜索在上述长度范围内匹配含签名的原文，正文片段在显示前按同一规则过滤；只有签名命中时回退到普通预览。完整正文与 HTML 不改动。
 
-`/state` 的完整与轻量快照均只返回草稿头部（`bodyLoaded:false`、`body:""`，省略 forwardedText / forwardedHTML），并附加有限字符生成的 `preview`；与草稿搜索及保存响应共用规则；空字符串表示没有可显示的正文，客户端显示“尚未撰写正文”，不回退到含签名的 `body`。该字段按需生成，不写入数据库，也不采纳客户端提交的预览；阅读详情仍走 `/messages/draft:<id>`；编辑通过 `GET /drafts/<id>` 按需取得完整原始字段及 `bodyLoaded:true`。`POST /drafts` 拒绝 `bodyLoaded:false`，完整 body 和转发快照继续用于编辑、保存和发送。
+`/state` 的完整与轻量快照均只返回草稿头部（`bodyLoaded:false`、`body:""`，省略 forwardedText / forwardedHTML、richText / bodyHTML 及远端同步意图），并附加有限字符生成的 `preview`；与草稿搜索及保存响应共用规则；空字符串表示没有可显示的正文，客户端显示“尚未撰写正文”，不回退到含签名的 `body`。该字段按需生成，不写入数据库，也不采纳客户端提交的预览；阅读详情仍走 `/messages/draft:<id>`；编辑通过 `GET /drafts/<id>` 按需取得完整原始字段及 `bodyLoaded:true`。`POST /drafts` 拒绝 `bodyLoaded:false`，完整 body 和转发快照继续用于编辑、保存和发送。
 
 备份为 SQLite 快照、附件及逐项 SHA-256 清单。恢复核验路径、未知文件、完整性、必要字段和引用，并复用 `aiConfig` 做语义校验；恢复前备份失败即停止；事务失败回滚并清理暂存，成功后重建派生索引并清空邮件预览缓存，原 ID 被复用时也从恢复后的正文生成预览。维护期拒绝并发写入，容量边界见使用指南。附件从校验暂存区复制到数据目录，支持跨本地磁盘；提交失败清理本次附件及 before-restore 备份，保留真实文件系统错误。恢复不采用归档中的凭证引用，只按本机相同端点与身份重绑，其余映射到空的新引用并返回 `credentialsRequired`，待用户重填。启动遇到非法 AI 设置时停用 AI、恢复默认参数并解除默认密钥绑定。
 
