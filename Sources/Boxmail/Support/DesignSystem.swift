@@ -21,6 +21,10 @@ enum UILayout {
   static let radius: CGFloat = 12
   static let controlRadius: CGFloat = 10
   static let selectionRadius: CGFloat = 12
+  static let iconControl: CGFloat = 32
+  static let iconSize: CGFloat = 14
+  static let iconRadius: CGFloat = 7
+  static let iconGap: CGFloat = 4
 }
 enum UIType {
   static let title = Font.system(size: 24, weight: .semibold)
@@ -88,18 +92,18 @@ struct IconButton: View {
   let icon: String
   let help: String
   var color: Color = Palette.muted
-  var size: CGFloat = 32
+  var size: CGFloat = UILayout.iconControl
   var active = false
   let action: () -> Void
   @FocusState private var focused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     Button(action: action) {
-      Image(systemName: icon).font(.system(size: 14, weight: .regular)).foregroundStyle(color)
+      Image(systemName: icon).font(.system(size: UILayout.iconSize, weight: .regular)).foregroundStyle(color)
         .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
         .symbolEffect(.bounce, value: active && !reduceMotion)
         .symbolEffectsRemoved(reduceMotion)
-        .frame(width: size, height: size).contentShape(RoundedRectangle(cornerRadius: 7))
+        .frame(width: size, height: size).contentShape(RoundedRectangle(cornerRadius: UILayout.iconRadius))
         .animation(UIMotion.feedback(reduceMotion), value: icon)
     }.buttonStyle(ControlFeedback()).focused($focused)
       .overlay(alignment: .bottom) {
@@ -114,11 +118,11 @@ struct IconMenu<Content: View>: View {
   @ViewBuilder var content: () -> Content
   var body: some View {
     Menu(content: content) {
-      Label(help, systemImage: icon).labelStyle(.iconOnly).font(.system(size: 14, weight: .regular))
-        .foregroundStyle(Palette.muted).frame(width: 32, height: 32)
-        .contentShape(RoundedRectangle(cornerRadius: 7))
+      Label(help, systemImage: icon).labelStyle(.iconOnly).font(.system(size: UILayout.iconSize, weight: .regular))
+        .foregroundStyle(Palette.muted).frame(width: UILayout.iconControl, height: UILayout.iconControl)
+        .contentShape(RoundedRectangle(cornerRadius: UILayout.iconRadius))
     }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-      .frame(width: 32, height: 32).help(help).accessibilityLabel(help)
+      .frame(width: UILayout.iconControl, height: UILayout.iconControl).help(help).accessibilityLabel(help)
   }
 }
 func menuTitle(_ value: String, limit: Int = 34) -> String {

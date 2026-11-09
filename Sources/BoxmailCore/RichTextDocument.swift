@@ -6,11 +6,18 @@ public struct RichTextRun: Codable, Hashable {
   public var bold = false
   public var italic = false
   public var link: String?
-  public init(text: String, bold: Bool = false, italic: Bool = false, link: String? = nil) {
+  public var fontSize: Double?
+  public var color: String?
+  public init(
+    text: String, bold: Bool = false, italic: Bool = false, link: String? = nil,
+    fontSize: Double? = nil, color: String? = nil
+  ) {
     self.text = text
     self.bold = bold
     self.italic = italic
     self.link = link
+    self.fontSize = RichTextStyle.normalizedFontSize(fontSize)
+    self.color = RichTextStyle.normalizedColor(color)
   }
 }
 
@@ -56,7 +63,9 @@ public struct RichTextDocument: Codable, Hashable {
 public enum RichTextCodec {
   public static let listKind = NSAttributedString.Key("BoxmailListKind")
 
-  public static func attributed(_ document: RichTextDocument, fontSize: CGFloat = 14)
+  public static func attributed(
+    _ document: RichTextDocument, fontSize: CGFloat = CGFloat(RichTextStyle.defaultFontSize)
+  )
     -> NSAttributedString
   {
     let result = NSMutableAttributedString()
@@ -67,25 +76,36 @@ public enum RichTextCodec {
       let paragraph = NSMutableParagraphStyle()
       paragraph.lineSpacing = 5
       let prefix = block.kind == "bullet" ? "• " : block.kind == "numbered" ? "\(ordinal). " : ""
-      if !prefix.isEmpty { paragraph.headIndent = 20 }
       let base: [NSAttributedString.Key: Any] = [
         .font: NSFont.systemFont(ofSize: fontSize),
+        .foregroundColor: RichTextStyle.nsColor(nil),
         .paragraphStyle: paragraph, listKind: block.kind,
       ]
       if index > 0 {
         result.append(NSAttributedString(string: "\n", attributes: previousAttributes))
       }
-      previousAttributes = base
-      result.append(NSAttributedString(string: prefix, attributes: base))
+      var markerAttributes = base
+      if block.runs.isEmpty {
+        markerAttributes[.font] = previousAttributes[.font] ?? base[.font]
+        markerAttributes[.foregroundColor] =
+          previousAttributes[.foregroundColor] ?? base[.foregroundColor]
+      }
+      result.append(NSAttributedString(string: prefix, attributes: markerAttributes))
+      previousAttributes = markerAttributes
       for run in block.runs {
         var attributes = base
-        var font = NSFont.systemFont(ofSize: fontSize, weight: run.bold ? .bold : .regular)
+        var font = NSFont.systemFont(
+          ofSize: RichTextStyle.normalizedFontSize(run.fontSize).map { CGFloat($0) } ?? fontSize,
+          weight: run.bold ? .bold : .regular)
         if run.italic { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
         attributes[.font] = font
+        attributes[.foregroundColor] = RichTextStyle.nsColor(run.color)
         if let link = run.link.flatMap(RichTextDocument.safeLink) { attributes[.link] = link }
         result.append(NSAttributedString(string: run.text, attributes: attributes))
+        previousAttributes = attributes
       }
     }
+    RichTextListLayout.normalize(result)
     return result
   }
 
@@ -110,16 +130,7 @@ public enum RichTextCodec {
         ? text.attribute(listKind, at: location, effectiveRange: nil) as? String ?? "paragraph"
         : "paragraph"
       let content = source.substring(with: paragraphRange)
-      let prefixLength: Int
-      if kind == "bullet", content.hasPrefix("• ") {
-        prefixLength = 2
-      } else if kind == "numbered",
-        let range = content.range(of: #"^\d+\. "#, options: .regularExpression)
-      {
-        prefixLength = content[range].utf16.count
-      } else {
-        prefixLength = 0
-      }
+      let prefixLength = RichTextListLayout.prefixLength(in: content, kind: kind)
       var runs: [RichTextRun] = []
       let range = NSRange(
         location: location + prefixLength, length: paragraphRange.length - prefixLength)
@@ -129,9 +140,12 @@ public enum RichTextCodec {
         let run = RichTextRun(
           text: source.substring(with: range), bold: traits.contains(.bold),
           italic: traits.contains(.italic),
-          link: link.flatMap { RichTextDocument.safeLink($0)?.absoluteString })
+          link: link.flatMap { RichTextDocument.safeLink($0)?.absoluteString },
+          fontSize: (attributes[.font] as? NSFont).map { Double($0.pointSize) },
+          color: (attributes[.foregroundColor] as? NSColor).flatMap(RichTextStyle.hexColor))
         if let last = runs.last,
           last.bold == run.bold && last.italic == run.italic && last.link == run.link
+            && last.fontSize == run.fontSize && last.color == run.color
         {
           runs[runs.count - 1].text += run.text
         } else {

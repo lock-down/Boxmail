@@ -1,6 +1,6 @@
 # 本机后端与 API
 
-后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.6（build 45），内置 Node.js 26.13.0 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。新增富文本草稿、服务器草稿同步及会话 AI，主状态仍仅返回草稿轻量头部，完整编辑内容由 `GET /drafts/:id` 读取，配置与恢复结果含 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.7（build 46），内置 Node.js 26.13.0 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。富文本字号、颜色与列表标记按语义正文派生，继续保留服务器草稿同步及会话 AI，主状态仍仅返回草稿轻量头部，完整编辑内容由 `GET /drafts/:id` 读取，配置与恢复结果含 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -64,6 +64,10 @@ npm start
 | GET | `/attachments/:id/metadata` | 按需读取提取文本和理解结果 |
 | GET | `/attachments/:id/preview` | 本机生成的 XLSX 静态 HTML；其他格式由客户端预览 |
 | GET | `/attachments/search` | `accountId`、`q`；在完整附件文本和分析中搜索，返回匹配 ID |
+
+富文本 `richText.blocks[].runs[]` 的可选 `fontSize` 使用 8 至 72 pt，最多两位小数；可选 `color` 使用不透明 sRGB `#RRGGBB`，默认 14 pt / `#232D3D` 省略。与粗体、斜体及链接属性一起规范化，派生 HTML 仅输出白名单字号和颜色。服务器草稿导入支持继承的 pt / px 字号、十六进制及 RGB 颜色和常见旧式 font 标签，不保留任意 CSS；列表标记样式写入 `li`，片段明确自身默认样式以保留混合字号，旧草稿无需迁移。
+
+收件人空框焦点切换的闪烁修复位于 macOS 客户端，不改变 `/contacts` 的账户范围和候选来源，也不增加接口或数据库迁移。
 
 ### 搜索、配置与维护
 

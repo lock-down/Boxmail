@@ -8,7 +8,7 @@ cd "$ROOT_DIR"
 NODE_BINARY="$(command -v node)"
 "$NODE_BINARY" Backend/src/check-node.js
 APP_VERSION="$(cat VERSION)"
-APP_BUILD="45"
+APP_BUILD="46"
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VERSION must contain a version such as 0.1.0" >&2
   exit 2

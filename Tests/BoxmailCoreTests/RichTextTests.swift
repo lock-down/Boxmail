@@ -35,6 +35,56 @@ import Testing
     #expect(!document.plainText.contains("\n\n\n"))
   }
 
+  @Test func reopenedListMarkersMatchItemFontSizesAndIndentForDoubleDigitNumbers() throws {
+    let document = RichTextDocument(
+      blocks: (1...12).map { index in
+        .init(kind: "numbered", runs: [.init(text: "第\(index)项正文", fontSize: 28, color: "#B42318")])
+      } + [
+        .init(kind: "numbered", runs: []),
+        .init(kind: "bullet", runs: [.init(text: "项目符号", fontSize: 36)]),
+        .init(kind: "bullet", runs: []),
+      ])
+    let restored = try JSONDecoder().decode(
+      RichTextDocument.self, from: JSONEncoder().encode(document))
+    let text = RichTextCodec.attributed(restored)
+    var location = 0
+    for index in document.blocks.indices {
+      let range = (text.string as NSString).paragraphRange(
+        for: NSRange(location: location, length: 0))
+      let markerFont = try #require(
+        text.attribute(.font, at: location, effectiveRange: nil) as? NSFont)
+      #expect(markerFont.pointSize == (index < 13 ? 28 : 36))
+      let style = try #require(
+        text.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle)
+      let prefix = index < 13 ? "\(index + 1). " : "• "
+      #expect(
+        style.headIndent >= (prefix as NSString).size(withAttributes: [.font: markerFont]).width)
+      location = NSMaxRange(range)
+    }
+    #expect(RichTextCodec.document(text) == document)
+  }
+
+  @Test func pointSizesAndOpaqueColorsRoundTripWithOtherInlineStylesAndLegacyDocuments() throws {
+    let document = RichTextDocument(blocks: [
+      .init(
+        kind: "bullet",
+        runs: [
+          .init(text: "重点", bold: true, italic: true, fontSize: 24, color: "#b42318"),
+          .init(text: "链接", link: "https://example.test", fontSize: 12.75, color: "#3567af"),
+          .init(text: "默认"),
+        ])
+    ])
+    #expect(RichTextCodec.document(RichTextCodec.attributed(document)) == document)
+    let data = try JSONEncoder().encode(document)
+    #expect(try JSONDecoder().decode(RichTextDocument.self, from: data) == document)
+    let legacy = Data(
+      #"{"blocks":[{"kind":"paragraph","runs":[{"text":"旧正文","bold":true,"italic":false}]}]}"#.utf8)
+    let decoded = try JSONDecoder().decode(RichTextDocument.self, from: legacy)
+    #expect(decoded.blocks[0].runs[0].fontSize == nil && decoded.blocks[0].runs[0].color == nil)
+    #expect(RichTextCodec.document(RichTextCodec.attributed(decoded)) == decoded)
+    #expect(RichTextRun(text: "默认", fontSize: 14, color: "#232d3d") == RichTextRun(text: "默认"))
+  }
+
   @Test func compactDraftsKeepIdentityAndSyncStateWithoutLoadingRichBodies() throws {
     var draft = MailDraft(accountId: "a1", body: "正文")
     draft.richText = .init(blocks: [.init(runs: [.init(text: "正文", bold: true)])])

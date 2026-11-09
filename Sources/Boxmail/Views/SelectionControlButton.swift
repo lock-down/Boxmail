@@ -64,4 +64,17 @@ import SwiftUI
       from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.4, respectFlipped: true,
       hints: nil)
   }
+
+  func drawIconSurface() {
+    let path = NSBezierPath(
+      roundedRect: bounds, xRadius: UILayout.iconRadius, yRadius: UILayout.iconRadius)
+    NSColor(Palette.ink).withAlphaComponent(
+      isEnabled ? (isHighlighted ? 0.08 : pointerInside ? 0.045 : 0) : 0
+    ).setFill()
+    path.fill()
+    if cell?.showsFirstResponder == true {
+      NSColor(Palette.blue).setFill()
+      NSRect(x: (bounds.width - 12) / 2, y: bounds.height - 4, width: 12, height: 1).fill()
+    }
+  }
 }

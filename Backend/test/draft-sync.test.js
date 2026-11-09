@@ -76,6 +76,25 @@ test('remote drafts import as editable documents and remote replacement invalida
   assert.equal(state.appends, 0);
 });
 
+test('point size and color survive server draft upload and import on another installation', async t => {
+  const { repo, state, sync } = await fixture(t);
+  const styled = richContent({ blocks: [{ kind: 'bullet', runs: [
+    { text: '重点', bold: true, fontSize: 24, color: '#B42318' },
+    { text: '链接', link: 'https://example.test', fontSize: 12, color: '#3567AF' },
+  ] }] });
+  repo.put('draft', { ...localDraft(), ...styled });
+  await sync();
+  const uploaded = await simpleParser([...state.messages.values()][0]);
+  assert.match(uploaded.html, /font-size:24pt;color:#B42318/);
+  repo.remove('draft', 'local');
+  await sync();
+  const imported = repo.activeDrafts('a1');
+  assert.equal(imported.length, 1);
+  assert.deepEqual(imported[0].richText, styled.richText);
+  assert.equal(imported[0].body, styled.body);
+  assert.equal(state.appends, 1);
+});
+
 test('simultaneous local and remote edits retain both versions and require an explicit decision for the local copy', async t => {
   const { repo, state, sync, add } = await fixture(t);
   const first = add(await mime('共同基线')); await sync();

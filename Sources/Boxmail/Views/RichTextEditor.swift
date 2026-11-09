@@ -1,105 +1,6 @@
 import AppKit
 import BoxmailCore
-import Observation
 import SwiftUI
-
-@Observable @MainActor final class RichTextController {
-  @ObservationIgnored weak var textView: RichComposerTextView?
-  var bold = false
-  var list = "paragraph"
-
-  func updateSelection() {
-    guard let view = textView else { return }
-    let attributes =
-      view.selectedRange().length > 0 && view.selectedRange().location < view.textStorage!.length
-      ? view.textStorage!.attributes(at: view.selectedRange().location, effectiveRange: nil)
-      : view.typingAttributes
-    bold = (attributes[.font] as? NSFont)?.fontDescriptor.symbolicTraits.contains(.bold) == true
-    list = attributes[RichTextCodec.listKind] as? String ?? "paragraph"
-  }
-
-  func toggleBold() {
-    guard let view = textView, view.isEditable, !view.hasMarkedText(),
-      let storage = view.textStorage
-    else { return }
-    view.window?.makeFirstResponder(view)
-    let selection = view.selectedRange()
-    if selection.length == 0 {
-      let font = view.typingAttributes[.font] as? NSFont ?? .systemFont(ofSize: 14)
-      view.typingAttributes[.font] = NSFontManager.shared.convert(
-        font,
-        toHaveTrait: bold ? .unboldFontMask : .boldFontMask)
-      updateSelection()
-    } else {
-      let value = NSMutableAttributedString(attributedString: storage)
-      value.enumerateAttribute(.font, in: selection) { font, range, _ in
-        value.addAttribute(
-          .font,
-          value: NSFontManager.shared.convert(
-            font as? NSFont ?? .systemFont(ofSize: 14),
-            toHaveTrait: bold ? .unboldFontMask : .boldFontMask), range: range)
-      }
-      replace(value, selection: selection, name: "粗体")
-    }
-  }
-
-  func toggleList(_ kind: String) {
-    guard let view = textView, view.isEditable, !view.hasMarkedText(),
-      let storage = view.textStorage
-    else { return }
-    let selection = view.selectedRange()
-    let source = view.string as NSString
-    let range = source.paragraphRange(for: selection)
-    let before = source.substring(to: range.location).filter { $0 == "\n" }.count
-    let count = max(
-      1,
-      source.substring(with: range).split(separator: "\n", omittingEmptySubsequences: false).count
-        - (NSMaxRange(range) < source.length || source.substring(with: range).hasSuffix("\n")
-          ? 1 : 0))
-    var document = RichTextCodec.document(storage)
-    for index in before..<min(document.blocks.count, before + count) {
-      document.blocks[index].kind = list == kind ? "paragraph" : kind
-    }
-    replace(RichTextCodec.attributed(document), selection: selection, name: "列表")
-  }
-
-  @discardableResult func applyLink(_ value: String) -> Bool {
-    guard let link = RichTextDocument.safeLink(value), let view = textView, view.isEditable,
-      !view.hasMarkedText(), let storage = view.textStorage
-    else { return false }
-    var range = view.selectedRange()
-    let result = NSMutableAttributedString(attributedString: storage)
-    if range.length == 0 {
-      let inserted = NSAttributedString(string: value, attributes: view.typingAttributes)
-      result.insert(inserted, at: range.location)
-      range.length = inserted.length
-    }
-    result.addAttribute(.link, value: link, range: range)
-    replace(result, selection: range, name: "添加链接")
-    return true
-  }
-
-  func replace(_ value: NSAttributedString, selection: NSRange, name: String) {
-    guard let view = textView, view.isEditable, let storage = view.textStorage else { return }
-    let old = NSAttributedString(attributedString: storage)
-    let previousSelection = view.selectedRange()
-    guard
-      view.shouldChangeText(
-        in: NSRange(location: 0, length: storage.length), replacementString: value.string)
-    else { return }
-    view.undoManager?.registerUndo(withTarget: self) { controller in
-      controller.replace(old, selection: previousSelection, name: name)
-    }
-    view.undoManager?.setActionName(name)
-    storage.setAttributedString(value)
-    let location = min(selection.location, storage.length)
-    view.setSelectedRange(
-      NSRange(location: location, length: min(selection.length, storage.length - location)))
-    view.didChangeText()
-    view.window?.makeFirstResponder(view)
-    updateSelection()
-  }
-}
 
 struct RichTextEditor: NSViewRepresentable {
   @Binding var text: String
@@ -131,13 +32,13 @@ struct RichTextEditor: NSViewRepresentable {
     view.textContainer?.containerSize = NSSize(
       width: scroll.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
     view.textContainer?.lineFragmentPadding = 0
-    view.font = .systemFont(ofSize: 14)
+    view.font = .systemFont(ofSize: RichTextStyle.defaultFontSize)
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineSpacing = 5
     view.defaultParagraphStyle = paragraph
     view.typingAttributes = [
-      .font: NSFont.systemFont(ofSize: 14), .paragraphStyle: paragraph,
-      .foregroundColor: NSColor(Palette.ink),
+      .font: NSFont.systemFont(ofSize: RichTextStyle.defaultFontSize), .paragraphStyle: paragraph,
+      .foregroundColor: RichTextStyle.nsColor(nil),
     ]
     view.textStorage?.setAttributedString(RichTextCodec.attributed(document ?? .init(text: text)))
     view.delegate = context.coordinator
@@ -172,9 +73,8 @@ struct RichTextEditor: NSViewRepresentable {
     view.bottomAnchoredText = signature
     view.textContainerInset = NSSize(width: 24, height: 18)
     view.insertionPointColor = NSColor(Palette.blue)
-    view.textColor = NSColor(Palette.ink)
     view.linkTextAttributes = [
-      .foregroundColor: NSColor(Palette.blue), .underlineStyle: NSUnderlineStyle.single.rawValue,
+      .underlineStyle: NSUnderlineStyle.single.rawValue
     ]
     view.selectedTextAttributes = [
       .backgroundColor: NSColor(Palette.blueSoft), .foregroundColor: NSColor(Palette.ink),
@@ -211,6 +111,10 @@ struct RichTextEditor: NSViewRepresentable {
 final class RichComposerTextView: PlaceholderTextView {
   weak var controller: RichTextController?
   var onLink: (() -> Void)?
+  override func didChangeText() {
+    if !hasMarkedText(), let storage = textStorage { RichTextListLayout.normalize(storage) }
+    super.didChangeText()
+  }
   override func keyDown(with event: NSEvent) {
     if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
       if event.charactersIgnoringModifiers == "b" {

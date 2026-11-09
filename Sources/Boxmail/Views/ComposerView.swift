@@ -26,8 +26,6 @@ struct ComposerView: View {
   @ViewState<Bool> private var showingBCC = false
   @ViewState<RichTextController> private var richEditor = RichTextController()
   @ViewState<Bool> private var showingLink = false
-  @ViewState<String> private var link = "https://"
-  @ViewState<String?> private var linkError = nil
   @ViewState<Bool> private var syncingDraft = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   init(store: MailStore, initial: MailDraft) {
@@ -257,34 +255,7 @@ struct ComposerView: View {
   private func bodyEditor(label: String, placeholder: String = "") -> some View {
     VStack(spacing: 0) {
       HStack(spacing: 4) {
-        IconButton(icon: "bold", help: "粗体（Command-B）", color: richEditor.bold ? Palette.blue : Palette.muted,
-          active: richEditor.bold) { richEditor.toggleBold() }
-          .background(richEditor.bold ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 7))
-          .accessibilityAddTraits(richEditor.bold ? .isSelected : [])
-        IconButton(icon: "list.bullet", help: "项目符号列表", color: richEditor.list == "bullet" ? Palette.blue : Palette.muted,
-          active: richEditor.list == "bullet") {
-          richEditor.toggleList("bullet")
-        }.background(richEditor.list == "bullet" ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 7))
-          .accessibilityAddTraits(richEditor.list == "bullet" ? .isSelected : [])
-        IconButton(icon: "list.number", help: "编号列表", color: richEditor.list == "numbered" ? Palette.blue : Palette.muted,
-          active: richEditor.list == "numbered") {
-          richEditor.toggleList("numbered")
-        }.background(richEditor.list == "numbered" ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 7))
-          .accessibilityAddTraits(richEditor.list == "numbered" ? .isSelected : [])
-        IconButton(icon: "link", help: "添加链接（Command-K）") { showingLink = true }
-          .popover(isPresented: $showingLink) {
-            VStack(alignment: .leading, spacing: 12) {
-              Text("添加链接").font(UIType.section)
-              TextField("https://example.com", text: $link).settingsTextInput()
-                .accessibilityLabel("链接地址").onSubmit { insertLink() }
-              if let linkError { Text(linkError).font(UIType.small).foregroundStyle(Palette.amber) }
-              HStack {
-                ActionButton(title: "取消") { showingLink = false }
-                Spacer()
-                ActionButton(title: "插入链接", icon: "link", kind: .primary) { insertLink() }
-              }
-            }.padding(16).frame(width: 320)
-          }
+        RichTextFormatBar(controller: richEditor, showingLink: $showingLink)
         Spacer(minLength: 0)
         if store.accounts.first(where: { $0.id == draft.accountId })?.isDemo == false {
           ActionButton(title: syncingDraft ? "正在同步…" : "同步草稿", icon: "arrow.triangle.2.circlepath") {
@@ -299,13 +270,6 @@ struct ComposerView: View {
         placeholder: placeholder, accessibilityLabel: label, signature: store.settings.preferences.signature,
         onPaste: pasteAttachments, onLink: { showingLink = true })
     }
-  }
-  private func insertLink() {
-    guard richEditor.applyLink(link.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-      linkError = "请输入完整的 HTTP、HTTPS 或 mailto 链接。"
-      return
-    }
-    linkError = nil; showingLink = false
   }
   private func saveCopy() {
     guard !saving, !sending, !closing else { return }

@@ -107,7 +107,9 @@ private struct RecipientTextInput: NSViewRepresentable {
   }
   func updateNSView(_ field: RecipientTextField, context: Context) {
     context.coordinator.parent = self
-    field.isEnabled = enabled
+    // AppKit observes this setter for AutoFill, even when the value is unchanged.
+    // Reassigning it on focus updates can reopen an empty system completion panel.
+    if field.isEnabled != enabled { field.isEnabled = enabled }
     if field.stringValue != text, (field.currentEditor() as? NSTextView)?.hasMarkedText() != true {
       context.coordinator.updating = true
       defer { context.coordinator.updating = false }

@@ -1,5 +1,6 @@
 import { Parser } from 'htmlparser2';
 import { ServiceError } from './validation.js';
+import { textStyle, styleAttribute, styleFromHTML, resolvedTextStyle } from './rich-text-style.js';
 
 const escape = value => value.replace(/[&<>"']/g,
   character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
@@ -26,11 +27,12 @@ export function richDocument(input) {
       serialized += run.text.length + (run.link?.length || 0);
       if (serialized > 4 * 1024 * 1024) throw new ServiceError('富文本链接与正文总长度超过支持范围，请简化正文');
       return { text: run.text, bold: run.bold === true, italic: run.italic === true,
-        ...(run.link ? { link: run.link } : {}) };
+        ...(run.link ? { link: run.link } : {}), ...textStyle(run) };
     }).reduce((normalized, run) => {
       if (!run.text) return normalized;
       const previous = normalized.at(-1);
-      if (previous && previous.bold === run.bold && previous.italic === run.italic && previous.link === run.link)
+      if (previous && previous.bold === run.bold && previous.italic === run.italic && previous.link === run.link
+        && previous.fontSize === run.fontSize && previous.color === run.color)
         previous.text += run.text;
       else normalized.push(run);
       return normalized;
@@ -42,6 +44,7 @@ export function richDocument(input) {
 export function richContent(input) {
   const richText = richDocument(input);
   let list = '', ordinal = 0;
+  let previousStyle = resolvedTextStyle({});
   const html = [], text = [];
   for (const block of richText.blocks) {
     const nextList = block.kind === 'bullet' ? 'ul' : block.kind === 'numbered' ? 'ol' : '';
@@ -50,15 +53,19 @@ export function richContent(input) {
       if (nextList) html.push(`<${nextList}>`);
       list = nextList; ordinal = 0;
     }
+    const markerStyle = block.runs.length ? resolvedTextStyle(block.runs[0]) : previousStyle;
     const inline = block.runs.map(run => {
       let value = escape(run.text);
       if (run.bold) value = `<strong>${value}</strong>`;
       if (run.italic) value = `<em>${value}</em>`;
-      if (run.link) value = `<a href="${escape(run.link)}">${value}</a>`;
+      const style = styleAttribute(list ? resolvedTextStyle(run) : run);
+      if (run.link) value = `<a href="${escape(run.link)}"${style}>${value}</a>`;
+      else if (style) value = `<span${style}>${value}</span>`;
       return value;
     }).join('');
-    html.push(list ? `<li>${inline || '<br />'}</li>` : `<p>${inline || '<br />'}</p>`);
+    html.push(list ? `<li${styleAttribute(markerStyle)}>${inline || '<br />'}</li>` : `<p>${inline || '<br />'}</p>`);
     text.push((list === 'ul' ? '• ' : list === 'ol' ? `${++ordinal}. ` : '') + block.runs.map(run => run.text).join(''));
+    previousStyle = block.runs.length ? resolvedTextStyle(block.runs.at(-1)) : markerStyle;
   }
   if (list) html.push(`</${list}>`);
   return { richText, body: text.join('\n'), bodyHTML: html.join('') };
@@ -80,7 +87,8 @@ export function richFromHTML(html) {
       stack.push({ name, hidden, bold: previous.bold || ['b', 'strong'].includes(name)
           || /font-weight\s*:\s*(?:bold|[6-9]00)/i.test(attributes.style || ''),
         italic: previous.italic || ['i', 'em'].includes(name) || /font-style\s*:\s*italic/i.test(attributes.style || ''),
-        link: name === 'a' ? safeLink(attributes.href) : previous.link });
+        link: name === 'a' ? safeLink(attributes.href) : previous.link,
+        ...styleFromHTML(name, attributes, previous) });
       if (suppressed) return;
       if (['ul', 'ol'].includes(name)) { flush(); lists.push(name === 'ul' ? 'bullet' : 'numbered'); }
       if (['p', 'div', 'li', 'blockquote', 'tr'].includes(name)) { flush(); begin(); }
@@ -91,7 +99,8 @@ export function richFromHTML(html) {
       const state = stack.at(-1) || {};
       for (const [index, part] of value.replace(/\r\n?/g, '\n').split('\n').entries()) {
         if (index) flush();
-        begin().runs.push({ text: part, bold: !!state.bold, italic: !!state.italic, ...(state.link ? { link: state.link } : {}) });
+        begin().runs.push({ text: part, bold: !!state.bold, italic: !!state.italic,
+          ...(state.link ? { link: state.link } : {}), fontSize: state.fontSize, color: state.color });
       }
     },
     onclosetag(name) {
