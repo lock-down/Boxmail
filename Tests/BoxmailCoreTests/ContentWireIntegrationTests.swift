@@ -86,9 +86,20 @@ func twelveThousandMessagesWithLegacyUnicodeKeepStartupBodiesAndSavedSettingsAft
     let attachment: MailAttachment = try await backend.request("/attachments/file-04134/metadata")
     #expect(attachment.text == "Original extracted text" && attachment.analysis == "Saved AI analysis")
     #expect(attachment.size == 49)
+    let attachmentPage: AttachmentPage = try await backend.request(
+      "/attachments?accountId=a0&limit=50")
+    #expect(attachmentPage.items.count == 50)
+    #expect(attachmentPage.items.allSatisfy { $0.attachment.path.isEmpty })
+    let organizationPage: OrganizationPage = try await backend.request(
+      "/organization/messages?accountId=a0&limit=50")
+    #expect(organizationPage.items.count == 50)
+    #expect(organizationPage.items.allSatisfy { $0.body.isEmpty && $0.bodyLoaded == false && $0.accountId == "a0" })
+    #expect(organizationPage.categoryCounts.reduce(0) { $0 + $1.count } == organizationPage.accountTotal)
     struct Download: Decodable { var content: String }
     let download: Download = try await backend.request("/attachments/file-04134")
-    #expect(Data(base64Encoded: download.content) == Data("Original attachment bytes survive metadata repair".utf8))
+    #expect(
+      Data(base64Encoded: download.content)
+        == Data("Original attachment bytes survive metadata repair".utf8))
     let full: MailMessage = try await backend.request("/messages/legacy")
     let originalBody =
       String(repeating: "a", count: 139) + String(UnicodeScalar(0x20bb7)!) + " original body tail"

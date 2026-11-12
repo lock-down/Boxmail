@@ -6,6 +6,8 @@ struct ContentView: View {
   @ViewState<Bool> private var activity = false
   @ViewState<Bool> private var searchFilters = false
   @ViewState<Bool> private var showingNavigation = false
+  @ViewState<Bool> private var usedStartupPage = false
+  @ViewState private var windowZoom = WindowZoomController()
   @AppStorage("BoxmailGroupMailBySender") private var groupMailBySender = true
   var body: some View {
     GeometryReader { geometry in
@@ -50,6 +52,12 @@ struct ContentView: View {
     .sheet(isPresented: $activity) { ActivityView(store: store).borderlessScrollers() }
     .task(id: store.ready ? store.mailQueryKey : "") {
       guard store.ready else { return }
+      if !usedStartupPage {
+        usedStartupPage = true
+        // Startup already awaited the first page. Later navigation still needs
+        // a fresh query even when returning to a previously loaded folder.
+        if store.pageKey == store.mailQueryKey { return }
+      }
       do {
         try await Task.sleep(for: .milliseconds(180))
         try Task.checkCancellation()
@@ -178,14 +186,16 @@ struct ContentView: View {
           }
         IconButton(icon: "square.and.pencil", help: "写邮件（Command-N）") { store.newDraft() }
       }
-      Spacer(minLength: 0)
+      WindowTitlebarRegion(zoom: windowZoom)
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity).layoutPriority(-1)
       HStack(spacing: 4) {
         SearchField(
           placeholder: "搜索邮件（含附件内容）", text: $store.search, focusRequest: store.searchFocusRequest)
         IconButton(icon: "line.3.horizontal.decrease", help: "组合条件搜索") { searchFilters = true }
           .popover(isPresented: $searchFilters, arrowEdge: .bottom) { SearchFiltersView(store: store) }
       }.frame(minWidth: 180, idealWidth: 420, maxWidth: 520)
-      Spacer(minLength: 0)
+      WindowTitlebarRegion(zoom: windowZoom)
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity).layoutPriority(-1)
       HStack(spacing: 6) {
         Button {
           store.settingsTab = "AI 助手"

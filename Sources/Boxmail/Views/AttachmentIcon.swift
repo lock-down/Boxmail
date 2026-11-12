@@ -11,6 +11,7 @@ struct AttachmentIcon: View {
     case .spreadsheet: return "tablecells"
     case .presentation: return "rectangle.on.rectangle"
     case .word, .text: return "doc.text"
+    case .archive: return "doc.zipper"
     case .other: return "doc"
     }
   }
@@ -21,6 +22,7 @@ struct AttachmentIcon: View {
     case .word: return Palette.blue
     case .presentation: return Color(hex: 0xA87416)
     case .image: return Color(hex: 0x7962AF)
+    case .archive: return Palette.muted
     case .text, .other: return Palette.muted
     }
   }

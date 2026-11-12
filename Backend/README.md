@@ -1,6 +1,8 @@
 # 本机后端与 API
 
-后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.7（build 46），内置 Node.js 26.13.0 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。富文本字号、颜色与列表标记按语义正文派生，继续保留服务器草稿同步及会话 AI，主状态仍仅返回草稿轻量头部，完整编辑内容由 `GET /drafts/:id` 读取，配置与恢复结果含 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.8（build 47），内置 Node.js 26.13.0 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。富文本字号、颜色与列表标记按语义正文派生，继续保留服务器草稿同步及会话 AI，主状态仍仅返回草稿轻量头部，完整编辑内容由 `GET /drafts/:id` 读取，配置与恢复结果含 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+
+0.1.8 包含 ZIP 资料包、附件及智能整理分页接口，以及草稿同步和备份恢复修复。它们沿用现有 JSON 记录存储，SQLite 结构版本保持为 2。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -19,17 +21,21 @@ npm start
 
 服务启动后输出端口，按 Ctrl+C 关闭，联调数据保留。完整回归从仓库根目录执行 `./script/test.sh`；直接 `npm test` 在缺少原生渲染组件时会跳过 PPT 渲染测试。合成样例及依赖说明统一见开发说明。
 
+ZIP 与工作区分页回归位于 `test/archive.test.js`、`test/attachment-page.test.js` 和 `test/organization-page.test.js`。当前测试数量、历史发布基线及客户端验证范围统一见[变更记录](../CHANGELOG.md)。
+
 | 环境变量 | 用途 |
 | --- | --- |
 | `BOXMAIL_DATA` | 必填，数据库和附件目录 |
 | `BOXMAIL_TOKEN` | 必填，至少 24 字符的会话令牌；客户端每次启动生成 |
 | `BOXMAIL_PORT` | 监听端口，省略或为 0 时由系统分配 |
-| `BOXMAIL_DEMO` | 默认初始化演示数据，设为 0 关闭 |
+| `BOXMAIL_DEMO` | 独立启动后端时默认初始化演示数据，设为 0 关闭；当前日常开发版和发布包显式关闭，隔离验收模式启用 |
 | `BOXMAIL_PRESENTATION_RENDERER` | 独立联调时指定 PPT 原生组件路径；App 使用内置组件 |
 | `BOXMAIL_PARENT_PID` | App 指定的父进程；退出或消失后关闭服务 |
 | `BOXMAIL_LIFETIME_PIPE` | App 内部设为 1，通过 stdout 管道检测 App 消失，避免父 PID 被复用后留下服务；独立启动无需设置 |
 
 `.env` 由桌面客户端直接解析，不自动载入后端进程环境；独立启动后端仍需在同步、发送和 AI 请求体中传入凭证。
+
+关闭演示数据初始化不会清理已有示例记录。上述独立启动示例用于隔离联调，不应指向日常 App 的数据目录。
 
 服务仅监听 `127.0.0.1`。每个请求携带 `X-Boxmail-Token`，带 `Origin` 的请求拒绝访问。请求体为 JSON 对象，上限 40 MB；成功返回 JSON，错误返回 `{"error":"错误说明"}` 和 HTTP 状态码，附件字节以 Base64 返回。
 
@@ -42,8 +48,9 @@ npm start
 | 方法 | 路径 | 参数与行为 |
 | --- | --- | --- |
 | GET | `/health` | 经会话令牌认证的就绪检查，不读取全量邮件状态 |
-| GET | `/state` | 主状态；草稿始终为轻量头部，body 清空、转发字段省略、bodyLoaded=false；`compact=1` 同时返回轻量邮件与附件，`previews=0` 仅复用已有邮件预览；summary / translate / attachment 任务省略重复 result |
+| GET | `/state` | 主状态；草稿始终为轻量头部；`compact=1` 返回全部轻量邮件和附件，预览默认仅复用缓存，`previews=1` 才显式生成；非 compact 邮件上限 200，附件仍为轻量头部；summary / translate / attachment 任务在 compact 状态省略重复 result |
 | GET | `/messages` | `accountId`、`folder`、`filter`、`q`、`limit`、`offset`；默认每页 100，limit 1 至 200，返回总数与 nextOffset；`groupBy=sender` 按发件人分页，`senderGroup` 分页读取组内邮件 |
+| GET | `/organization/messages` | 当前账户收件箱分类分页；`accountId`、`category`、`offset`、`limit`，返回当前页及完整分类计数 |
 | GET | `/messages/:id` | 完整邮件及 `bodyLoaded: true`，也支持草稿搜索结果 |
 | GET | `/messages/:id/thread` | 同账户引用链、原邮件头、总数、分页、未缓存提示及会话 `fingerprint` |
 | POST | `/messages/:id/reply-draft` | `all`、`forward`，按原账户生成草稿和引用头 |
@@ -57,23 +64,38 @@ npm start
 | POST | `/sync/cancel` | `accountId`；停止该账户当前同步会话，保留已下载邮件与断点，重复停止可安全返回 |
 | GET | `/sync-status` | 运行及排队账号、文件夹进度与阶段、本次结果；结果包含 queued / running / completed / paused / failed |
 | GET | `/drafts/:id` | 完整正文、可选 `richText` / `bodyHTML`、独立转发快照、内容 `revision`、`syncState` / `syncError`，附 `bodyLoaded: true` 和 `preview`；不存在或已发送返回 404 |
-| POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除草稿；富文本派生 HTML 与纯文本；`bodyLoaded=false` 或过期 revision 的不同内容返回 409，相同内容可重试；删除后清理无引用附件并排队清理远端草稿 |
+| POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除草稿；验证账户归属与安全 ID，响应省略内部同步绑定；富文本派生 HTML 与纯文本；`bodyLoaded=false` 或过期 revision 的不同内容返回 409，相同内容可重试；删除后清理无引用附件并排队清理远端草稿 |
 | POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；发送中或结果不明返回 409，已发送的重复请求返回 `alreadySent: true` |
 | POST | `/attachments` | `name`、Base64 `content`，可带关联 ID 和 `contentType` |
+| GET | `/attachments` | 当前账户的附件分页；`accountId`、`q`、`type`、`sort`、`direction`、`offset`、`limit` |
 | GET | `/attachments/:id` | 名称及 Base64 原始字节 |
 | GET | `/attachments/:id/metadata` | 按需读取提取文本和理解结果 |
 | GET | `/attachments/:id/preview` | 本机生成的 XLSX 静态 HTML；其他格式由客户端预览 |
-| GET | `/attachments/search` | `accountId`、`q`；在完整附件文本和分析中搜索，返回匹配 ID |
+| GET | `/attachments/search` | `accountId`、`q`；搜索已保存的附件文本、整体分析与 ZIP 清单路径，返回匹配 ID，不扫描逐文件理解结果 |
+| GET | `/attachments/:id/archive` | 按需准备并返回 ZIP 目录、逐文件状态和整体整理，计入维护写入互斥 |
+| GET | `/attachments/:id/archive/:entryId` | 返回允许读取的包内文件名称、MIME 和 Base64 字节，计入维护写入互斥 |
+
+附件分页默认 `offset=0`、`limit=50`，最多 100 条；偏移必须为非负安全整数，页大小必须为 1 至 100 的安全整数。`type` 为 `all`、`pdf`、`word`、`spreadsheet`、`presentation`、`image`、`text`、`archive` 或 `other`，扩展名优先于 MIME。`sort` 为 `date`、`name` 或 `size`，`direction` 为 `asc` 或 `desc`，默认按原邮件日期降序；原邮件日期为空时使用附件日期，同值按数字自然排序的名称和稳定 ID 排序。无效分页、类型、排序或方向返回 400。
+
+服务端先对整个账户筛选、搜索与排序，再分页。`q` 最多取 4000 字符，按字面子串匹配名称、已保存的提取文本、整体分析和 ZIP 清单路径，不使用邮件高级查询语法，不触发文件提取或模型请求。ZIP 逐文件理解结果不参与附件搜索，随归档详情按需读取。返回 `items`、`total`、`offset`、`limit`、`accountTotal`、`analyzedTotal`：`total` 是筛选后的匹配总数，后两项分别为当前账户未经筛选的附件总数和已有非空分析的附件数。
+
+每项仅含轻量 `attachment` 和 `source`（原邮件 ID、主题、发件人与日期）。`attachment.text` 为空，使用 `hasExtractedText`、`hasAnalysis`、`hasPartialAnalysis` 表示已有内容及 ZIP 部分理解状态，省略完整分析、ZIP 清单、绝对文件路径及原邮件正文。缺少账户时返回空页，没有所属邮件的附件不进入列表，越界偏移回退到当前末页。旧搜索 ID 接口继续兼容。主状态 `/state?compact=1&previews=0` 仍返回全部轻量附件头部，分页接口限制列表请求及表格当前页，不替代主状态的邮件引用和计数用途。
 
 富文本 `richText.blocks[].runs[]` 的可选 `fontSize` 使用 8 至 72 pt，最多两位小数；可选 `color` 使用不透明 sRGB `#RRGGBB`，默认 14 pt / `#232D3D` 省略。与粗体、斜体及链接属性一起规范化，派生 HTML 仅输出白名单字号和颜色。服务器草稿导入支持继承的 pt / px 字号、十六进制及 RGB 颜色和常见旧式 font 标签，不保留任意 CSS；列表标记样式写入 `li`，片段明确自身默认样式以保留混合字号，旧草稿无需迁移。
 
 收件人空框焦点切换的闪烁修复位于 macOS 客户端，不改变 `/contacts` 的账户范围和候选来源，也不增加接口或数据库迁移。
 
+### 智能整理邮件分页
+
+`GET /organization/messages?accountId=<id>&category=<分类名称>&offset=0&limit=50` 返回当前账户收件箱的 `items`、`total`、`offset`、`limit`、`accountTotal`、`categoryCounts`（name／count 数组）。不传 category 时查看全部收件邮件，空分类归入“未分类”，空账户返回空页。limit 为 1 至 100，客户端固定 50；非负整数偏移超出结果时调整至末页，空结果 offset 为 0。
+
+`organization-page.js` 先通过 `message_scope` 索引筛选、计数并取得当前页 ID，按日期倒序、ID 升序稳定分页，再投影当前页邮件头部；分类计数覆盖账户完整收件箱。`items` 的 `body`／`preview` 为空，`bodyLoaded=false`，不返回 HTML、总结、译文或附件详情。此接口用于分类邮件浏览，不改变 AI 任务的处理数量与整批确认语义。
+
 ### 搜索、配置与维护
 
 | 方法 | 路径 | 参数与行为 |
 | --- | --- | --- |
-| GET | `/search` | `q`、可选 `accountId`；邮件及附件搜索 |
+| GET | `/search` | `q`、可选 `accountId`、非负安全整数 `offset`；返回最多 200 封邮件头部及 total / nextOffset，完整正文走详情 |
 | GET | `/search/parse` | `q`；解析查询或返回具体错误 |
 | GET / POST | `/search/index`、`/search/rebuild` | 查看索引状态 / 无活动任务时重建 |
 | GET | `/contacts` | `accountId`、`q`；当前账户历史及草稿联系人 |
@@ -86,6 +108,14 @@ npm start
 | POST | `/backups/create` | 本机绝对 `path`；生成并复核 ZIP |
 | POST | `/backups/inspect` | `path`；校验并返回摘要和 SHA-256 |
 | POST | `/backups/restore` | `path`、检查得到的 `sha256`、`approved: true`；恢复前保存完整备份，结果含 `credentialsRequired` |
+
+### ZIP 资料包
+
+`GET /attachments/:id/archive` 按需读取并返回父 ZIP 的目录、逐文件状态与整体整理；`GET /attachments/:id/archive/:entryId` 返回允许读取的包内文件，格式同普通附件下载。两者都需要本机会话令牌，目录准备计入维护互斥，父附件移除后不会重新登记。ZIP 使用原有附件批量理解入口，可通过 Job 暂停、继续及重试；普通 `/agent` 的 attachment 任务也会识别 ZIP。
+
+ZIP 读取和流式解压在隔离解析进程中执行，限制为 100 个文件、2048 个目录条目、单文件和原包 25 MB、可处理解压内容总计 100 MB。逐文件检查加密、符号链接、嵌套包、大小和 CRC；不执行文件，也不使用文件提供的路径写盘。包内详细结果独立保存为 `archive` 记录，附件记录只保留状态、数量和路径搜索投影；旧记录在启动和恢复时事务迁移，详情响应继续提供可选 `archive` 对象，compact 与分页不携带逐文件分析；整体结果继续写入 `analysis`，供邮件上下文复用。汇总的 entryIds 必须引用当前清单中有效文件，事实与行动只允许引用理解完成的文件。新增依赖 yauzl 精确锁定为 3.4.0。
+
+目录缓存按路径、设备、inode、大小和 mtime／ctime 核对，无变化时不重读与哈希原包；取包内文件及理解仍读取原始字节。名称先按 Unicode 扩展字段、UTF-8 及 GBK／CP437 回退解码，再校验安全路径，不保证识别所有旧编码。新写入、旧内嵌缓存迁移和读取均验证清单；附件投影与归档详情在同一事务提交，缺失或损坏详情不能阻断再次启动，原件缺失返回 404。
 
 ### AI 与任务
 
@@ -121,9 +151,13 @@ npm start
 
 深嵌套 HTML 通过流式深度检查降级；永久 MIME 解析失败保留邮件头及原始 EML，不重复解析。工作簿预览及 PPT 转换和页面解析全部在 ParserProcess 内执行，复用 512 MB RSS 上限、超时和取消；工作簿单元格渲染内容上限 32,768 字符，总输出 8 MB。
 
-客户端启动使用 `compact=1&previews=0`，全局元数据不触发正文读取；列表页、邮件详情及会话当前页提供签名过滤预览。原 `compact=1` 契约保留。Word、表格及 AI SDK 在首次使用时加载，未发送草稿在 SQL 查询阶段筛选；已有格式化转发与普通回复不读取来源正文，完整旧转发仍按需恢复。
+客户端启动使用 `compact=1&previews=0`，全局元数据不触发正文读取；列表页、邮件详情及会话当前页提供签名过滤预览。邮件列表的 `to`、`cc`、`bcc`、`replyTo` 展示字符串统一由 `message-header.js` 限制为 2,048 字符；发件人聚合复用该投影，完整详情保持原值，回复收件人不能取自展示片段。`compact=1` 默认也不生成预览，显式 `previews=1` 可请求有界预览。Word、表格及 AI SDK 在首次使用时加载，未发送草稿在 SQL 查询阶段筛选；已有格式化转发与普通回复不读取来源正文，完整旧转发仍按需恢复。
 
-附件理解支持 `attachmentIds` 子集，每批最多 100 项（含重试），状态持久化仅提交变化条目和计数，保留原 job 接口。纯文本转发也使用 forwardedText 快照，普通草稿正文超过 500,000 字符时明确拒绝保存。
+附件理解支持 `attachmentIds` 子集及 `force` 重试，每批最多 100 项（含重试）；仅处理指定项目，但保留原批次全部项目、总数及未完成进度。状态持久化仅提交变化条目和计数，保留原 job 接口，附件 ID 对账后项目引用继续有效。纯文本转发也使用 forwardedText 快照，普通草稿正文超过 500,000 字符时明确拒绝保存。
+
+草稿同步使用独立 `DraftSyncIndex` 维护轻量匹配字段，跟随 Repository 保存、删除与回滚更新，避免逐封全量读取本机草稿。上传前重新核对草稿存在、状态和账户，跳过并发删除项；未变内容恢复 synced 并清除旧错误。单封解析、超限或本机附件错误记为警告并继续其他草稿，连接、身份和安全清理错误仍中断当前连接。`DraftReadFailures` 按服务器身份、UIDVALIDITY、UID 和大小保存最多 100 条失败，60 秒后重试；无法读取的服务器替换版本保留本机内容和远端绑定。
+
+删除意图在 UIDVALIDITY 变化后可按 token／Message-ID 重新核对，连续三轮无法匹配后提示人工处理，记录继续保留并进入备份。清理要求 UIDPLUS、目标 UID 和 UIDVALIDITY 一致；并发删除未确认时重新 FETCH 并核对身份，确认目标已不存在才完成清理，否则保留意图。草稿内容失败不计入普通邮件的部分缓存状态。
 
 发送成功后，隐藏的草稿记录保留状态及防重复发送回执，正文、格式化转发快照和附件引用由已发送邮件持有。删除草稿、移除账户及明确清空已删除时共用附件引用检查；旧发送回执的附件引用不阻止清理，活跃草稿、邮件及 relocation / recovery 引用继续保留。备份要求 forwardedHTML / forwardedText 成对为字符串，字段均缺省的旧草稿继续兼容。
 
@@ -156,6 +190,8 @@ npm start
 `/state` 的完整与轻量快照均只返回草稿头部（`bodyLoaded:false`、`body:""`，省略 forwardedText / forwardedHTML、richText / bodyHTML 及远端同步意图），并附加有限字符生成的 `preview`；与草稿搜索及保存响应共用规则；空字符串表示没有可显示的正文，客户端显示“尚未撰写正文”，不回退到含签名的 `body`。该字段按需生成，不写入数据库，也不采纳客户端提交的预览；阅读详情仍走 `/messages/draft:<id>`；编辑通过 `GET /drafts/<id>` 按需取得完整原始字段及 `bodyLoaded:true`。`POST /drafts` 拒绝 `bodyLoaded:false`，完整 body 和转发快照继续用于编辑、保存和发送。
 
 备份为 SQLite 快照、附件及逐项 SHA-256 清单。恢复核验路径、未知文件、完整性、必要字段和引用，并复用 `aiConfig` 做语义校验；恢复前备份失败即停止；事务失败回滚并清理暂存，成功后重建派生索引并清空邮件预览缓存，原 ID 被复用时也从恢复后的正文生成预览。维护期拒绝并发写入，容量边界见使用指南。附件从校验暂存区复制到数据目录，支持跨本地磁盘；提交失败清理本次附件及 before-restore 备份，保留真实文件系统错误。恢复不采用归档中的凭证引用，只按本机相同端点与身份重绑，其余映射到空的新引用并返回 `credentialsRequired`，待用户重填。启动遇到非法 AI 设置时停用 AI、恢复默认参数并解除默认密钥绑定。
+
+备份从只读 SQLite 快照查询记录计数及附件 id／name／path，不水合全部附件和归档详情，文件清单与数据库来自同一快照。校验为每份附件重新派生或移除 `archiveInfo`，丢弃的仅是损坏或孤立的派生缓存，保留原邮件、附件和有效分析；恢复前重新派生草稿富文本纯文及 HTML，并清洗独立转发 HTML。
 
 完整备份包含 `translationHTML`、`summaryHidden` 及完整总结、待办、服务商和模型参数。可选译文字段仅允许字符串或空值，收录字段仅允许布尔或空值；旧备份缺省值仍兼容。恢复会重定位附件路径，运行中的整理或附件批量任务暂停，单封 AI 任务失败、发送中草稿转为待确认；实时 AI 输出不持久化，客户端清空旧的显示、列表撤销和多选状态。
 
@@ -231,7 +267,7 @@ PDF 文本提取和 PDF / PPT 页面栅格化通过 `pdf-processing.js` 在独�
 
 `mail-content-worker.js` 保留原调用接口，通过 `parser-process.js` 和 `parser-runner.js` 复用独立子进程处理 MIME、正文清理及同步附件提取。单项默认 60 秒，V8 old-space 预算 192 MB；完成后 RSS 达到上限一半（默认 256 MB）或已复用 500 项时，在下一项任务前回收并重建进程，避免旧附件驻留内存挤占下一封正文；`parser-owner-watch.js` 每 100 毫秒检查整个解析进程的 RSS，默认超过 512 MB 时终止进程组，也覆盖原生图像缓冲区。所有者失联时，独立管道守护逻辑即使遇到解析主循环阻塞也能清理进程。子进程不继承应用令牌、API 密钥和 Node 预加载环境。
 
-附件解析失败保留原文件并继续同步，MIME 失败进入会话内有限延后重试。文件与记录沿用原有事务规则。诊断只记录解析格式、输入大小、耗时、退出信号和静态错误分类，不保存原始 stderr。客户端也分类后端致命输出，识别服务退出并清理旧运行状态，再次同步可重新连接当前数据目录；既有待迁移计划仍等到下次 App 启动。后端资源计数仅覆盖后端进程，不包含独立解析子进程。定位证据和限制见 [build 35 崩溃记录](../docs/diagnostics/2026-10-28-parser-crash.md)。
+附件解析失败保留原文件并继续同步，MIME 失败进入会话内有限延后重试。文件与记录沿用原有事务规则。诊断只记录解析格式、输入大小、耗时、退出信号和静态错误分类，不保存原始 stderr。客户端也分类后端致命输出，识别服务退出并清理旧运行状态，再次同步可重新连接当前数据目录；既有待迁移计划仍等到下次 App 启动。后端资源计数仅覆盖后端进程，不包含独立解析子进程。历史修复与验证范围见[变更记录](../CHANGELOG.md)。
 
 `diagnostics.js` 写入 `logs/backend.jsonl` 及两份轮转文件，每份约 1 MB，异步队列有上限。记录账户匿名标识、阶段和计数、经过归一化的 API 路由、错误类型、状态码和耗时；不记录查询参数、请求体、原始错误内容、凭证或邮件内容。模型调用和模型目录失败也记录诊断。每 30 秒保存 RSS、CPU 时间和事件循环延迟，进程退出时刷新待写记录。
 

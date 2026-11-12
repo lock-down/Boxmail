@@ -1,5 +1,8 @@
+import { mailBody } from './mail-body.js';
+import { archiveProjection } from './attachment-archive-store.js';
 import { accountInput, aiConfig, ServiceError } from './validation.js';
-import { richDocument } from './rich-text.js';
+import { validateArchiveDocument } from './archive-summary.js';
+import { richContent, richFromHTML } from './rich-text.js';
 
 const strings = (value, names) => names.every(name => typeof value[name] === 'string');
 const bools = (value, names) => names.every(name => typeof value[name] === 'boolean');
@@ -34,7 +37,11 @@ export function validateBackupRecords(records) {
         && !strings(value, ['forwardedHTML', 'forwardedText']))) fail();
     if (kind === 'draft') {
       if (value.bodyHTML != null && (typeof value.bodyHTML !== 'string' || value.bodyHTML.length > 8 * 1024 * 1024)) fail();
-      if (value.richText != null) { try { richDocument(value.richText); } catch { fail(); } }
+      try {
+        if (value.richText != null) Object.assign(value, richContent(value.richText));
+        else if (value.bodyHTML != null) Object.assign(value, richFromHTML(value.bodyHTML));
+        if (value.forwardedHTML != null) value.forwardedHTML = mailBody({ html: value.forwardedHTML }).html;
+      } catch { fail(); }
       for (const binding of [value.remoteDraft, value.remotePending, value.remotePending?.previous]) {
         if (binding == null) continue;
         if (!object(binding) || typeof binding.path !== 'string' || binding.path.includes('\0') || binding.path.length > 1000
@@ -50,6 +57,15 @@ export function validateBackupRecords(records) {
       || value.attachmentIds.some(id => !attachmentIDs.has(id)))) fail();
     if (kind === 'attachment' && (!strings(value, ['messageId', 'name', 'contentType', 'path', 'text', 'parseError', 'date'])
       || !integers(value, ['size']) || value.size < 0)) fail();
+    if (kind === 'attachment' && value.archive != null) {
+      try { validateArchiveDocument(value.archive); } catch { delete value.archive; delete value.archiveInfo; }
+    }
+    if (kind === 'archive') {
+      try { validateArchiveDocument(value); } catch {
+        for (const key of Object.keys(value)) if (key !== 'id') delete value[key];
+        value.discarded = true;
+      }
+    }
     if (['relocation', 'recovery'].includes(kind) && (!object(value.original) || !mailShape(value.original)
       || !accountIDs.has(value.original.accountId) || value.original.attachmentIds.some(id => !attachmentIDs.has(id)))) fail();
     if (kind === 'job') {
@@ -75,6 +91,14 @@ export function validateBackupRecords(records) {
         || p.fontSize < 12 || p.fontSize > 24 || p.signature.length > 4000 || !p.language.trim()) fail();
     }
   }
+  const archives = new Map(values.filter(row => row.kind === 'archive').map(row => [row.value.id,row.value]));
+  for (const row of values) if (row.kind === 'attachment') {
+    const archive = archives.get(row.value.id);
+    if (archive?.entries) row.value.archiveInfo = archiveProjection(archive);
+    else if (row.value.archive) row.value.archiveInfo = archiveProjection(row.value.archive);
+    else delete row.value.archiveInfo;
+  }
+  values.forEach((row,index) => { records[index].data = JSON.stringify(row.value); });
   if (!values.some(row => row.kind === 'settings' && row.value.id === 'settings')) fail();
 }
 

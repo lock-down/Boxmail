@@ -20,7 +20,7 @@ cat > "$PACKAGE_DIR/版本信息.txt" <<INFO
 Boxmail $APP_VERSION (build $APP_BUILD)
 架构：$PACKAGE_ARCH
 最低系统：macOS 14.0
-构建类型：Release，全新安装测试包
+构建类型：Release，发布安装包
 演示数据：关闭
 源码标识：$SOURCE_ID
 源码提交：$SOURCE_COMMIT
@@ -30,5 +30,5 @@ INFO
 rm -f "$ARCHIVE"
 ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ARCHIVE"
 (cd "$ROOT_DIR/dist" && shasum -a 256 "$PACKAGE_NAME.zip" > "$PACKAGE_NAME.zip.sha256")
-echo "测试包：$ARCHIVE"
+echo "发布包：$ARCHIVE"
 echo "校验文件：$ARCHIVE.sha256"

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// A private, byte-for-byte copy owned by one preview session.
-public struct AttachmentPreviewFile {
+public struct AttachmentPreviewFile: Sendable {
   public let directory: URL
   public let url: URL
 

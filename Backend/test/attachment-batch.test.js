@@ -99,7 +99,7 @@ test('a failed file does not stop later files, and retry sends only failures', a
 test('unsupported, missing and foreign files never reach AI; account scope is enforced', async t => {
   const calls = [];
   const { repo, manager, files } = await fixture(t, async (repo, input) => { calls.push(input.attachmentId); succeed(repo, input); }, 3);
-  repo.put('attachment', { ...files[1], name: '归档.zip', text: '', contentType: 'application/zip' });
+  repo.put('attachment', { ...files[1], name: '归档.bin', text: '', contentType: 'application/octet-stream' });
   repo.put('attachment', { ...files[2], messageId: 'other-mail' });
   repo.put('message', { ...repo.get('message', 'm1'), attachmentIds: [...files.map(file => file.id), 'missing', files[0].id] });
   assert.throws(() => manager.start({ messageId: 'm1', accountId: 'a2', config }), /不属于当前账户/);
@@ -284,4 +284,37 @@ test('pausing the real agent aborts its HTTP request without saving an incomplet
   assert.equal(paused.attachmentItems[0].status, 'pending');
   assert.equal(repo.get('attachment', files[0].id).analysis, null);
   assert.equal(repo.list('job').find(child => child.parentJobId === job.id).status, 'failed');
+});
+
+test('retry honors an explicit subset and force while leaving other attachment results unchanged',async t=>{
+  const calls=[];
+  const {repo,manager,files}=await fixture(t,async(repo,input)=>{calls.push(input);succeed(repo,input);},3);
+  const job=manager.start({messageId:'m1',config});await manager.workers.get(job.id).promise;
+  repo.put('job',{...repo.get('job',job.id),status:'partial'});
+  const untouched=repo.get('attachment',files[0].id);
+  calls.length=0;
+  manager.start({config,attachmentIds:[files[1].id],force:true},job.id);
+  await manager.workers.get(job.id).promise;
+  assert.deepEqual(calls.map(input=>input.attachmentId),[files[1].id]);assert.equal(calls[0].force,true);
+  assert.deepEqual(repo.get('attachment',files[0].id),untouched);
+  assert.deepEqual(repo.get('job',job.id).attachmentItems.map(item=>item.id),files.map(file=>file.id));
+  assert.equal(repo.get('job',job.id).progress.total,3);
+});
+
+test('subset retry preserves unfinished original items and reports the full mail progress', async t => {
+  const calls = [];
+  const { repo, manager, files } = await fixture(t, async (repo, input) => { calls.push(input.attachmentId); succeed(repo, input); }, 3);
+  repo.put('job', { id: 'paused', accountId: 'a1', messageId: 'm1', task: 'attachmentBatch', status: 'paused',
+    attachmentItems: files.map((file, index) => ({ id: file.id, name: file.name, status: index === 0 ? 'completed' : 'pending' })) });
+  manager.start({ config, attachmentIds: [files[1].id] }, 'paused');
+  await manager.workers.get('paused').promise;
+  const partial = repo.get('job', 'paused');
+  assert.deepEqual(calls, [files[1].id]);
+  assert.deepEqual(partial.attachmentItems.map(item => item.status), ['completed', 'completed', 'pending']);
+  assert.equal(partial.progress.completed, 2); assert.equal(partial.progress.total, 3);
+  assert.equal(partial.status, 'partial');
+  manager.start({ config }, 'paused'); await manager.workers.get('paused').promise;
+  assert.deepEqual(calls, [files[1].id, files[2].id]);
+  assert.equal(repo.get('job', 'paused').status, 'completed');
+  assert.equal(repo.get('job', 'paused').progress.completed, 3);
 });

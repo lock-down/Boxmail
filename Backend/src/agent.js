@@ -1,3 +1,5 @@
+import { isArchive } from './archive-reader.js';
+import { runArchiveAnalysis } from './archive-analysis.js';
 import { randomUUID } from 'node:crypto';
 import { ServiceError } from './validation.js';
 import { completion } from './responses.js';
@@ -13,6 +15,8 @@ import { conversationContext, conversationResult, requireFreshConversation } fro
 export { completion } from './responses.js';
 
 export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
+  if (input.task === 'attachment' && isArchive(repo.get('attachment', input.attachmentId) || { name: '' }))
+    return runArchiveAnalysis(repo, input, { jobId });
   const message = input.messageId ? repo.get('message', input.messageId) : null;
   if (input.messageId && !message) throw new ServiceError('邮件不存在', 404);
   if (message && input.accountId && message.accountId !== input.accountId)
@@ -48,14 +52,8 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
     };
     if (translation) context = { subject: message.subject, segments: translation.segments };
   } else if (task === 'classify') {
-    context = repo
-      .list('message')
-      .filter(
-        (m) =>
-          m.folder === 'inbox' &&
-          (!input.accountId || m.accountId === input.accountId),
-      )
-      .slice(0, 80)
+    context = repo.messageCandidates({accountId:input.accountId,folder:'inbox',limit:80})
+      .map(header => repo.get('message',header.id))
       .map((m) => ({
         id: m.id,
         subject: m.subject,

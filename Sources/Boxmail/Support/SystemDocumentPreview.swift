@@ -1,12 +1,13 @@
-import Foundation
 import BoxmailCore
+import Foundation
 
 /// Keep the system's Office rendering and local image assets, while owning the
 /// surrounding page and scrollbar layout instead of embedding Quick Look's remote UI.
 @MainActor enum SystemDocumentPreview {
   static func prepare(_ file: AttachmentPreviewFile) async throws -> URL? {
     let output = file.directory.appendingPathComponent("DocumentPreview", isDirectory: true)
-    try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true,
+    try FileManager.default.createDirectory(
+      at: output, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/qlmanage")
@@ -20,36 +21,49 @@ import BoxmailCore
     defer { timeout.cancel() }
     try Task.checkCancellation()
     try await withTaskCancellationHandler {
-      try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, Error>) in
         process.terminationHandler = { process in
-          if process.terminationStatus == 0 { continuation.resume() }
-          else { continuation.resume(throwing: failure()) }
+          if process.terminationStatus == 0 {
+            continuation.resume()
+          } else {
+            continuation.resume(throwing: failure())
+          }
         }
-        do { try process.run() }
-        catch { continuation.resume(throwing: error) }
+        do { try process.run() } catch { continuation.resume(throwing: error) }
       }
       try Task.checkCancellation()
     } onCancel: {
       Task { @MainActor in if process.isRunning { process.terminate() } }
     }
-    let previews = try FileManager.default.contentsOfDirectory(at: output, includingPropertiesForKeys: nil)
-    guard let folder = previews.first(where: { $0.pathExtension == "qlpreview" }) else { return nil }
-    let url = folder.appendingPathComponent("Preview.html")
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    let html = try String(contentsOf: url, encoding: .utf8)
-    guard let head = html.range(of: "<head>", options: .caseInsensitive) else { throw failure() }
-    var styled = html
-    styled.insert(contentsOf: chrome, at: head.upperBound)
-    try styled.write(to: url, atomically: true, encoding: .utf8)
-    return url
+    return try await Task.detached(priority: .userInitiated) {
+      try Task.checkCancellation()
+      let previews = try FileManager.default.contentsOfDirectory(
+        at: output, includingPropertiesForKeys: nil)
+      guard let folder = previews.first(where: { $0.pathExtension == "qlpreview" }) else {
+        return nil
+      }
+      let url = folder.appendingPathComponent("Preview.html")
+      guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+      let html = try String(contentsOf: url, encoding: .utf8)
+      guard let head = html.range(of: "<head>", options: .caseInsensitive) else { throw failure() }
+      var styled = html
+      styled.insert(contentsOf: chrome, at: head.upperBound)
+      try styled.write(to: url, atomically: true, encoding: .utf8)
+      return url
+    }.value
   }
 
   private nonisolated static func failure() -> NSError {
-    NSError(domain: "BoxmailDocumentPreview", code: 1, userInfo: [NSLocalizedDescriptionKey:
-      "系统未能生成文档预览，请重试或使用“打开原文件”查看。"])
+    NSError(
+      domain: "BoxmailDocumentPreview", code: 1,
+      userInfo: [
+        NSLocalizedDescriptionKey:
+          "系统未能生成文档预览，请重试或使用“打开原文件”查看。"
+      ])
   }
 
-  private static let chrome = """
+  private nonisolated static let chrome = """
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; style-src 'unsafe-inline'; font-src file: data:; base-uri 'none'; form-action 'none'">
     <style id="boxmail-preview-chrome">
     html { min-height: 100%; background: white; }

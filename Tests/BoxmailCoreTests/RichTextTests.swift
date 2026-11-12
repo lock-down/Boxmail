@@ -5,6 +5,21 @@ import Testing
 @testable import BoxmailCore
 
 @Suite(.serialized) @MainActor struct RichTextTests {
+  @Test func styleSpansCrossParagraphBoundariesWithoutLosingEmptyBlocksOrUnicode() {
+    let text = NSMutableAttributedString(
+      string: "首段𠀀\n\n第三段\n",
+      attributes: [
+        .font: NSFont.boldSystemFont(ofSize: 18), .foregroundColor: NSColor.systemBlue,
+      ])
+    let first = RichTextCodec.document(text)
+    #expect(first.blocks.map { $0.runs.map(\.text).joined() } == ["首段𠀀", "", "第三段", ""])
+    #expect(first.blocks[0].runs[0].bold && first.blocks[2].runs[0].fontSize == 18)
+    text.addAttribute(.link, value: "https://example.test", range: NSRange(location: 2, length: 5))
+    let linked = RichTextCodec.document(text)
+    #expect(linked.plainText == text.string)
+    #expect(RichTextCodec.document(RichTextCodec.attributed(linked)) == linked)
+  }
+
   @Test func semanticDocumentsRoundTripWithoutLosingUnicodeListsOrLinks() throws {
     let document = RichTextDocument(blocks: [
       .init(runs: [

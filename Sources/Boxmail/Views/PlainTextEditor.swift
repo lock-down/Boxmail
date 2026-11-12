@@ -126,7 +126,6 @@ class PlaceholderTextView: NSTextView {
   var onPaste: ((NSPasteboard) -> Bool)?
   private var anchorInput: AnchorInput?
   private var updatingAnchor = false
-  private var hasAnchorSpacing = false
 
   private struct AnchorInput: Equatable {
     let text, signature: String
@@ -147,15 +146,15 @@ class PlaceholderTextView: NSTextView {
     updatingAnchor = true
     defer { updatingAnchor = false }
     let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
-    if hasAnchorSpacing {
-      let key = NSAttributedString.Key("BoxmailAnchorParagraph")
-      var originals: [(NSRange, NSParagraphStyle)] = []
-      storage.enumerateAttribute(key, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-        if let original = value as? NSParagraphStyle { originals.append((range, original)) }
-      }
-      for (range, original) in originals { storage.addAttribute(.paragraphStyle, value: original, range: range) }
+    // Undo can restore layout attributes independently of the cached anchor state.
+    let key = NSAttributedString.Key("BoxmailAnchorParagraph")
+    var originals: [(NSRange, NSParagraphStyle)] = []
+    storage.enumerateAttribute(key, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+      if let original = value as? NSParagraphStyle { originals.append((range, original)) }
+    }
+    for (range, original) in originals { storage.addAttribute(.paragraphStyle, value: original, range: range) }
+    if !originals.isEmpty {
       storage.removeAttribute(key, range: NSRange(location: 0, length: storage.length))
-      hasAnchorSpacing = false
     }
     if isRichText, let current = typingAttributes[.paragraphStyle] as? NSParagraphStyle {
       let typing = current.mutableCopy() as! NSMutableParagraphStyle
@@ -173,8 +172,40 @@ class PlaceholderTextView: NSTextView {
     anchored.paragraphSpacingBefore += gap
     storage.addAttribute(NSAttributedString.Key("BoxmailAnchorParagraph"), value: original, range: range)
     storage.addAttribute(.paragraphStyle, value: anchored, range: range)
-    hasAnchorSpacing = true
     manager.ensureLayout(for: container)
+  }
+
+  override func characterIndexForInsertion(at point: NSPoint) -> Int {
+    let index = super.characterIndexForInsertion(at: point)
+    return bodyInsertionIndex(inAnchorGapAt: point, proposedIndex: index) ?? index
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    guard !hasMarkedText() else { super.mouseDown(with: event); return }
+    super.mouseDown(with: event)
+    // Native mouse tracking bypasses the public insertion-point helper. Correct a plain
+    // caret click after tracking; nonempty selections, Shift selection and drags stay native.
+    guard !hasMarkedText(), isSelectable, event.clickCount == 1,
+      !event.modifierFlags.contains(.shift), selectedRange().length == 0 else { return }
+    let point = convert(event.locationInWindow, from: nil)
+    let nativeIndex = super.characterIndexForInsertion(at: point)
+    if let index = bodyInsertionIndex(inAnchorGapAt: point, proposedIndex: nativeIndex) {
+      setSelectedRange(NSRange(location: index, length: 0))
+    }
+  }
+
+  private func bodyInsertionIndex(inAnchorGapAt point: NSPoint, proposedIndex index: Int) -> Int? {
+    guard let signature = MailSignature.trailingRange(in: string, signature: bottomAnchoredText),
+      signature.location > 0, index >= signature.location,
+      let manager = layoutManager, let container = textContainer else { return nil }
+    manager.ensureLayout(for: container)
+    let glyph = manager.glyphIndexForCharacter(at: signature.location)
+    let signatureRect = manager.boundingRect(
+      forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+    guard point.y < signatureRect.minY + textContainerOrigin.y else { return nil }
+    // Paragraph spacing is visual only. A click above the signature belongs to the final
+    // body line, rather than to a character in the signature's enlarged paragraph.
+    return (string as NSString).rangeOfComposedCharacterSequence(at: signature.location - 1).location
   }
 
   override func paste(_ sender: Any?) {

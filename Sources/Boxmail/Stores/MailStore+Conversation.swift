@@ -3,11 +3,12 @@ import Foundation
 
 extension MailStore {
   func latestConversationJob(task: String, message: MailMessage) -> AgentJob? {
-    let members = Set((conversation?.messages.map(\.id) ?? []) + [message.id])
+    let current = conversationAnchor == message.id && conversation?.accountId == message.accountId ? conversation : nil
+    let members = Set((current?.messages.map(\.id) ?? []) + [message.id])
     return jobs.first { job in
       guard job.task == task, job.status == "completed", job.accountId == message.accountId else { return false }
       return job.messageId == message.id
-        || (job.result?.conversationId != nil && job.result?.conversationId == conversation?.id)
+        || (job.result?.conversationId != nil && job.result?.conversationId == current?.id)
         || job.result?.sourceMessages?.contains(where: { members.contains($0.id) }) == true
     }
   }

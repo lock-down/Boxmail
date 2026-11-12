@@ -47,10 +47,11 @@ struct SearchCalendarPanel: View {
         WorkflowAction(title: "", icon: "chevron.left", help: "上个月") { moveMonth(-1) }
           .frame(width: 32)
         HStack(spacing: 24) {
-          WorkflowSelection(title: "日历年份", selection: yearSelection, options: years, compact: true)
+          WorkflowSelection(title: "日历年份", selection: yearSelection, options: years, style: .inline)
             .frame(maxWidth: .infinity)
           WorkflowSelection(title: "日历月份", selection: monthSelection,
-            options: (1...12).map { ($0, "\($0) 月") }, compact: true)
+            options: (1...12).map { ($0, "\($0) 月") }, style: .inline
+          )
             .frame(maxWidth: .infinity)
         }
         WorkflowAction(title: "", icon: "chevron.right", help: "下个月") { moveMonth(1) }

@@ -1,10 +1,11 @@
 import Foundation
 
 public enum AttachmentKind {
-  case pdf, word, spreadsheet, presentation, image, text, other
+  case pdf, word, spreadsheet, presentation, image, text, archive, other
 
   public init(name: String, contentType: String) {
     switch (name as NSString).pathExtension.lowercased() {
+    case "zip": self = .archive
     case "pdf": self = .pdf
     case "doc", "docx", "odt", "rtf": self = .word
     case "xls", "xlsx", "csv", "ods": self = .spreadsheet
@@ -15,6 +16,7 @@ public enum AttachmentKind {
       let mime = contentType.split(separator: ";", maxSplits: 1).first?
         .trimmingCharacters(in: .whitespaces).lowercased() ?? ""
       switch mime {
+      case "application/zip", "application/x-zip-compressed": self = .archive
       case "application/pdf": self = .pdf
       case "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": self = .word

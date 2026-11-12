@@ -225,6 +225,79 @@ import Testing
       (reopened.attribute(.font, at: nextMarker, effectiveRange: nil) as? NSFont)?.pointSize == 28)
   }
 
+  @Test func listConversionsPreserveContentSelectionAndSubsequentInsertion() throws {
+    let (window, view, controller) = editor("核对合同\n第二段")
+    defer {
+      window.contentView = nil
+      window.close()
+    }
+    view.setSelectedRange(NSRange(location: 1, length: 0))
+    controller.toggleList("bullet")
+    #expect(view.selectedRange() == NSRange(location: 3, length: 0))
+    view.insertText("新", replacementRange: view.selectedRange())
+    #expect(view.string == "• 核新对合同\n第二段")
+    controller.updateSelection()
+    controller.toggleList("bullet")
+    #expect(view.selectedRange() == NSRange(location: 2, length: 0))
+    view.setSelectedRange(NSRange(location: 0, length: view.string.utf16.count))
+    controller.updateSelection()
+    controller.toggleList("numbered")
+    #expect((view.string as NSString).substring(with: view.selectedRange()) == "核新对合同\n2. 第二段")
+  }
+
+  @Test func removingANumberedItemRenumbersOnlyMarkersAndPreservesUndo() throws {
+    let (window, view, controller) = editor("第一项\n第二项\n第三项")
+    defer {
+      window.contentView = nil
+      window.close()
+    }
+    let manager = try #require(window.undoManager)
+    manager.groupsByEvent = false
+    view.setSelectedRange(NSRange(location: 0, length: view.string.utf16.count))
+    controller.updateSelection()
+    performUndoableCommand(in: view, manager: manager) { controller.toggleList("numbered") }
+    let before = view.string
+    let removed = (view.string as NSString).range(of: "2. 第二项\n")
+    performUndoableCommand(in: view, manager: manager) {
+      view.insertText("", replacementRange: removed)
+    }
+    #expect(view.string == "1. 第一项\n2. 第三项")
+    manager.undo()
+    #expect(view.string == before)
+    manager.redo()
+    #expect(view.string == "1. 第一项\n2. 第三项")
+  }
+
+  @Test func coordinatorKeepsIncrementalBindingsCurrentAcrossTypingFormattingAndUndo() throws {
+    let (window, view, controller) = editor("首段\n第二段\n第三段")
+    defer { window.contentView = nil; window.close() }
+    var body = view.string
+    var document: RichTextDocument? = .init(text: body)
+    let bridge = RichTextEditor(text: Binding(get: { body }, set: { body = $0 }),
+      document: Binding(get: { document }, set: { document = $0 }), controller: controller,
+      placeholder: "", accessibilityLabel: "测试正文", signature: "", onLink: {})
+    let coordinator = bridge.makeCoordinator()
+    view.delegate = coordinator
+    view.textStorage?.delegate = coordinator
+    coordinator.resetProjection(try #require(view.textStorage))
+    let manager = try #require(window.undoManager)
+    manager.groupsByEvent = false
+    view.setSelectedRange(NSRange(location: 4, length: 0))
+    performUndoableCommand(in: view, manager: manager) { view.insertText("插入𠀀", replacementRange: view.selectedRange()) }
+    #expect(document == RichTextCodec.document(try #require(view.textStorage)))
+    #expect(body == document?.plainText)
+    performUndoableCommand(in: view, manager: manager) { view.insertNewline(nil) }
+    #expect(document == RichTextCodec.document(try #require(view.textStorage)))
+    view.setSelectedRange(NSRange(location: 0, length: 2))
+    controller.updateSelection()
+    performUndoableCommand(in: view, manager: manager) { controller.toggleBold() }
+    #expect(document == RichTextCodec.document(try #require(view.textStorage)))
+    manager.undo()
+    #expect(document == RichTextCodec.document(try #require(view.textStorage)))
+    manager.undo()
+    #expect(document == RichTextCodec.document(try #require(view.textStorage)))
+  }
+
   private func performUndoableCommand(
     in view: NSTextView, manager: UndoManager, _ command: () -> Void
   ) {

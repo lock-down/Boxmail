@@ -85,11 +85,12 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
   public var id, messageId, name, contentType, path, text, parseError, date: String
   public var size: Int
   public var analysis: String?
-  public var hasExtractedText, hasAnalysis: Bool?
+  public var hasExtractedText, hasAnalysis, hasPartialAnalysis: Bool?
   public var textPreview, analysisPreview: String?
+  public var archive: ArchiveDocument?
   enum CodingKeys: String, CodingKey {
     case id, messageId, name, contentType, path, text, parseError, date, size, analysis,
-      hasExtractedText, hasAnalysis, textPreview, analysisPreview
+      hasExtractedText, hasAnalysis, hasPartialAnalysis, textPreview, analysisPreview, archive
   }
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -100,7 +101,7 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
     // the bytes and identity strict, but allow unknown descriptive MIME metadata.
     let mime = (try? values.decode(String.self, forKey: .contentType))?.trimmingCharacters(in: .whitespacesAndNewlines)
     contentType = mime.flatMap { $0.isEmpty ? nil : $0 } ?? "application/octet-stream"
-    path = try values.decode(String.self, forKey: .path)
+    path = try values.decodeIfPresent(String.self, forKey: .path) ?? ""
     text = try values.decode(String.self, forKey: .text)
     parseError = try values.decode(String.self, forKey: .parseError)
     date = try values.decode(String.self, forKey: .date)
@@ -108,11 +109,24 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
     analysis = try values.decodeIfPresent(String.self, forKey: .analysis)
     hasExtractedText = try values.decodeIfPresent(Bool.self, forKey: .hasExtractedText)
     hasAnalysis = try values.decodeIfPresent(Bool.self, forKey: .hasAnalysis)
+    hasPartialAnalysis = try values.decodeIfPresent(Bool.self, forKey: .hasPartialAnalysis)
     textPreview = try values.decodeIfPresent(String.self, forKey: .textPreview)
     analysisPreview = try values.decodeIfPresent(String.self, forKey: .analysisPreview)
+    archive = try values.decodeIfPresent(ArchiveDocument.self, forKey: .archive)
   }
   public var isAnalyzed: Bool { hasAnalysis == true || analysis != nil }
+  public var isPartiallyAnalyzed: Bool {
+    guard isAnalyzed else { return false }
+    if let archive {
+      return archive.understoodCount < archive.totalFiles || ["partial", "paused", "running"].contains(archive.status)
+    }
+    return hasPartialAnalysis == true
+  }
+  public var analysisStatusTitle: String {
+    isPartiallyAnalyzed ? "部分理解" : isAnalyzed ? "AI 已理解" : canAnalyze ? "待理解" : "可预览"
+  }
   public var kind: AttachmentKind { AttachmentKind(name: name, contentType: contentType) }
+  public var isArchive: Bool { kind == .archive }
   public var isImage: Bool { kind == .image }
   public var isPDF: Bool { kind == .pdf }
   public var isSpreadsheet: Bool { kind == .spreadsheet }
@@ -121,17 +135,19 @@ public struct MailAttachment: Codable, Identifiable, Hashable {
     (name as NSString).pathExtension.lowercased() == "xlsx"
   }
   public var canAnalyze: Bool {
-    isImage || isPDF || isPresentation || hasExtractedText == true
+    isArchive || isImage || isPDF || isPresentation || hasExtractedText == true
       || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
   public var compact: MailAttachment {
     var value = self
     value.hasExtractedText = hasExtractedText == true || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     value.hasAnalysis = isAnalyzed
+    value.hasPartialAnalysis = isPartiallyAnalyzed
     value.textPreview = textPreview ?? (text.isEmpty ? nil : String(text.prefix(160)))
     value.analysisPreview = analysisPreview ?? analysis.map { String($0.prefix(160)) }
     value.text = ""
     value.analysis = nil
+    value.archive = nil
     return value
   }
 }

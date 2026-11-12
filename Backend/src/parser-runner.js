@@ -19,6 +19,9 @@ process.on('message', async message => {
     if (['mime', 'docx', 'xlsx'].includes(task)) {
       const { parseMailContent } = await import('./mail-content-worker.js');
       result = await parseMailContent(task, buffer);
+    } else if (['archive-list', 'archive-entry'].includes(task)) {
+      const { readArchive } = await import('./archive-reader.js');
+      result = await readArchive(buffer, options);
     } else if (task === 'pdf') {
       const { parsePDF } = await import('./pdf-processing.js');
       result = await parsePDF(buffer, options);

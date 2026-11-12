@@ -1,3 +1,6 @@
+import { messageHeaderJSON } from './message-header.js';
+import { storeAttachmentArchive, loadAttachmentArchive, migrateAttachmentArchives } from './attachment-archive-store.js';
+import { ServiceError } from './validation.js';
 import { unicodeJSON } from './unicode.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
@@ -9,10 +12,13 @@ import { draftSearchPage, draftPreview } from './draft-search.js';
 import { mailPreview } from './mail-preview.js';
 import { senderMessagePage } from './sender-groups.js';
 import { attachmentContentType, attachmentMetadata } from './attachment-metadata.js';
+import { attachmentPage } from './attachment-page.js';
 
 export class Repository {
   constructor(directory, { diagnostics } = {}) {
     this.diagnostics = diagnostics;
+    this.recordObservers = new Set();
+    this.messageRevision = 0;
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.directory = directory;
     this.db = new DatabaseSync(path.join(directory, 'boxmail.sqlite'));
@@ -48,8 +54,13 @@ export class Repository {
       json_extract(data,'$.accountId'),json_extract(data,'$.original.messageId'));
       CREATE INDEX IF NOT EXISTS relocation_uid ON records(kind,json_extract(data,'$.accountId'),
       json_extract(data,'$.destination'),json_extract(data,'$.uidValidity'),json_extract(data,'$.destinationUID'));`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS message_scope ON records(
+      json_extract(data,'$.accountId'),json_extract(data,'$.folder'),json_extract(data,'$.category'),json_extract(data,'$.date') DESC,id)
+      WHERE kind='message';
+      CREATE INDEX IF NOT EXISTS records_category ON records(kind,json_extract(data,'$.category'));`);
     this.searchIndex = new SearchIndex(this);
     this.repairAttachmentMetadata();
+    migrateAttachmentArchives(this);
   }
   repairAttachmentMetadata() {
     const invalid = [];
@@ -70,9 +81,9 @@ export class Repository {
     return invalid.length;
   }
   rebuildSearch() { return this.searchIndex.rebuild(); }
-  list(kind, { accountId, remotePath, messageId } = {}) {
+  list(kind, { accountId, remotePath, messageId, folder, category } = {}) {
     const clauses = ['kind=?'], params = [kind];
-    for (const [field, value] of Object.entries({ accountId, remotePath, messageId })) {
+    for (const [field, value] of Object.entries({ accountId, remotePath, messageId, folder, category })) {
       if (value === undefined) continue;
       clauses.push(`json_extract(data,'$.${field}')=?`);
       params.push(value);
@@ -80,7 +91,7 @@ export class Repository {
     return this.db
       .prepare(`SELECT data FROM records WHERE ${clauses.join(' AND ')} ORDER BY id`)
       .all(...params)
-      .map((r) => kind === 'attachment' ? attachmentMetadata(JSON.parse(r.data), { diagnostics: this.diagnostics }) : JSON.parse(r.data));
+      .map((r) => kind === 'attachment' ? loadAttachmentArchive(this, attachmentMetadata(JSON.parse(r.data), { diagnostics: this.diagnostics })) : JSON.parse(r.data));
   }
   get(kind, id) {
     const r = this.db
@@ -88,7 +99,21 @@ export class Repository {
       .get(kind, id);
     if (!r) return null;
     const value = JSON.parse(r.data);
-    return kind === 'attachment' ? attachmentMetadata(value, { diagnostics: this.diagnostics }) : value;
+    return kind === 'attachment' ? loadAttachmentArchive(this, attachmentMetadata(value, { diagnostics: this.diagnostics })) : value;
+  }
+  draftSyncHeaders(accountId) {
+    return this.db.prepare(`SELECT json_remove(data,'$.body','$.bodyHTML','$.richText','$.forwardedText','$.forwardedHTML') AS data
+      FROM records WHERE kind='draft' AND json_extract(data,'$.accountId')=?
+      AND coalesce(json_extract(data,'$.status'),'draft')!='sent' ORDER BY id`).all(accountId).map(row => JSON.parse(row.data));
+  }
+  messageCandidates({ accountId, folder, category, limit = 200 } = {}) {
+    const clauses = ["kind='message'"], params = [];
+    for (const [key,value] of Object.entries({accountId,folder,category})) if (value !== undefined) {
+      clauses.push(`json_extract(data,'$.${key}')=?`); params.push(value);
+    }
+    return this.db.prepare(`SELECT json_object('id',id,'attachmentIds',json(coalesce(json_extract(data,'$.attachmentIds'),'[]')),
+      'accountId',json_extract(data,'$.accountId'),'folder',json_extract(data,'$.folder')) AS data FROM records
+      WHERE ${clauses.join(' AND ')} ORDER BY json_extract(data,'$.date') DESC,id LIMIT ?`).all(...params,limit).map(row => JSON.parse(row.data));
   }
   activeDrafts(accountId) {
     return this.db.prepare(`SELECT data FROM records WHERE kind='draft'
@@ -146,7 +171,9 @@ export class Repository {
       .all().map(row => JSON.parse(row.data));
   }
   put(kind, value) {
-    if (kind === 'attachment') value = attachmentMetadata(value, { diagnostics: this.diagnostics, phase: 'persist' });
+    if (kind === 'attachment' && !this.db.isTransaction) return this.transaction(() => this.put(kind, value));
+    const original = value;
+    if (kind === 'attachment') value = storeAttachmentArchive(this, attachmentMetadata(value, { diagnostics: this.diagnostics, phase: 'persist' }));
     const result = this.db
       .prepare(
         'INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data WHERE records.data<>excluded.data',
@@ -154,18 +181,23 @@ export class Repository {
       .run(kind, value.id, unicodeJSON(value, { recordKind: kind,
         ...(this.diagnostics ? { onInvalid: details => this.diagnostics.recordCoalesced('data.unicode.repaired',
           { ...details, phase: 'persist' }) } : {}) }));
-    if (kind === 'message' && result.changes) this.previewCache?.delete(value.id);
+    if (result.changes) for (const observer of this.recordObservers) observer({ kind, id: value.id, value: original });
+    if (kind === 'message' && result.changes) { this.previewCache?.delete(value.id); this.messageRevision++; }
     if (kind === 'sync' && result.changes) this.onSyncProgress?.(value);
     if (result.changes && ['message', 'attachment', 'job'].includes(kind)) this.searchIndex?.schedule();
-    return value;
+    return kind === 'attachment' ? loadAttachmentArchive(this, value) : value;
   }
   remove(kind, id) {
+    if (kind === 'attachment' && !this.db.isTransaction) return this.transaction(() => this.remove(kind, id));
+    if (kind === 'attachment') this.remove('archive', id);
     this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id);
-    if (kind === 'message') this.previewCache?.delete(id);
+    for (const observer of this.recordObservers) observer({ kind, id, value: null });
+    if (kind === 'message') { this.previewCache?.delete(id); this.messageRevision++; }
     if (['message', 'attachment', 'job'].includes(kind)) this.searchIndex?.schedule();
   }
   invalidateMessagePreviews() {
     this.previewCache?.clear();
+    this.threadSnapshot = null;
     // A rolled-back transaction can have cached uncommitted grouping metadata.
     this.senderPageSnapshot = null;
   }
@@ -179,6 +211,7 @@ export class Repository {
     } catch (e) {
       this.db.exec(savepoint ? `ROLLBACK TO SAVEPOINT ${savepoint}; RELEASE SAVEPOINT ${savepoint}` : 'ROLLBACK');
       this.invalidateMessagePreviews();
+      for (const observer of this.recordObservers) observer(null);
       throw e;
     }
   }
@@ -206,14 +239,27 @@ export class Repository {
     if (fullText.clause) { clauses.push(fullText.clause); params.push(...fullText.params); }
     return { where: clauses.join(' AND '), params };
   }
-  messageHeaders(accountId, { previews = true } = {}) {
-    return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML') AS data
-      FROM records WHERE kind='message'${accountId === undefined ? '' : " AND json_extract(data,'$.accountId')=?"}
-      ORDER BY json_extract(data,'$.date') DESC, id`)
-      .all(...(accountId === undefined ? [] : [accountId]))
-      .map(row => this.messageHeader(JSON.parse(row.data), { previews }));
+  messageGraphHeaders({ accountId, id } = {}) {
+    const clauses = ["kind='message'"], params = [];
+    for (const [field,value] of Object.entries({accountId,id})) if (value !== undefined) {
+      clauses.push(field === 'id' ? 'id=?' : "json_extract(data,'$.accountId')=?"); params.push(value);
+    }
+    return this.db.prepare(`SELECT json_object('id',id,'accountId',json_extract(data,'$.accountId'),
+      'folder',json_extract(data,'$.folder'),'subject',json_extract(data,'$.subject'),'date',json_extract(data,'$.date'),
+      'messageId',json_extract(data,'$.messageId'),'inReplyTo',json_extract(data,'$.inReplyTo'),
+      'references',json_extract(data,'$.references'),'attachmentIds',json_extract(data,'$.attachmentIds')) AS data
+      FROM records WHERE ${clauses.join(' AND ')} ORDER BY id`).all(...params).map(row => JSON.parse(row.data));
   }
-  messageHeader(header, { previews = true } = {}) {
+  messageHeaders(accountId, { previews = true, ids } = {}) {
+    return this.db.prepare(`SELECT ${messageHeaderJSON()} AS data
+      ${previews ? ", substr(json_extract(data,'$.body'),1,8192) AS previewBody, substr(json_extract(data,'$.html'),1,32768) AS previewHTML" : ''}
+      FROM records WHERE kind='message'${accountId === undefined ? '' : " AND json_extract(data,'$.accountId')=?"}
+      ${ids ? 'AND id IN (SELECT value FROM json_each(?))' : ''}
+      ORDER BY json_extract(data,'$.date') DESC, id`)
+      .all(...(accountId === undefined ? [] : [accountId]), ...(ids ? [JSON.stringify(ids)] : []))
+      .map(row => this.messageHeader(JSON.parse(row.data), { previews, source: {body:row.previewBody,html:row.previewHTML} }));
+  }
+  messageHeader(header, { previews = true, source } = {}) {
     // Only small derived strings are cached, never full bodies. A restored or
     // reopened database has a new handle, so it cannot reuse an old projection.
     if (this.previewDatabase !== this.db) {
@@ -221,9 +267,9 @@ export class Repository {
       this.previewCache = new Map();
     }
     if (previews && !this.previewCache.has(header.id)) {
-      const source = typeof header.body === 'string' && header.bodyLoaded !== false
+      source ||= typeof header.body === 'string' && header.bodyLoaded !== false
         ? header : this.get('message', header.id) || header;
-      this.previewCache.set(header.id, mailPreview(source));
+      this.previewCache.set(header.id, mailPreview({ ...header, ...source }));
     }
     return { ...header, preview: this.previewCache.get(header.id) ?? '', body: '', bodyLoaded: false };
   }
@@ -238,36 +284,44 @@ export class Repository {
       ORDER BY kind DESC,CASE WHEN kind='message' THEN json_extract(data,'$.date') END DESC,id`).all(accountId);
   }
   attachmentHeaders() {
-    return this.db.prepare(`SELECT json_remove(data,'$.text','$.analysis') AS data,
+    return this.db.prepare(`SELECT json_remove(data,'$.text','$.analysis','$.archive','$.archiveInfo.searchText') AS data,
       length(json_extract(data,'$.text')) > 0 AS hasText,
       length(json_extract(data,'$.analysis')) > 0 AS hasAnalysis,
+      json_extract(data,'$.archiveInfo.totalFiles') AS archiveTotal,
+      json_extract(data,'$.archiveInfo.status') AS archiveStatus,
+      json_extract(data,'$.archiveInfo.completedCount') AS archiveCompleted,
       substr(json_extract(data,'$.text'),1,160) AS textPreview,
       substr(json_extract(data,'$.analysis'),1,160) AS analysisPreview
       FROM records WHERE kind='attachment'`)
       .all().map(row => ({ ...attachmentMetadata(JSON.parse(row.data), { diagnostics: this.diagnostics }), text: '', hasExtractedText: !!row.hasText, hasAnalysis: !!row.hasAnalysis,
+        hasPartialAnalysis: !!row.hasAnalysis && (row.archiveTotal > row.archiveCompleted || ['partial','paused','running'].includes(row.archiveStatus)),
         textPreview: row.textPreview || null, analysisPreview: row.analysisPreview || null }));
   }
   searchAttachmentIDs(query, accountId) {
     return this.db.prepare(`SELECT a.id FROM records a WHERE a.kind='attachment'
       AND instr(lower(coalesce(json_extract(a.data,'$.name'),'')||char(10)||
-        coalesce(json_extract(a.data,'$.text'),'')||char(10)||coalesce(json_extract(a.data,'$.analysis'),'')),lower(?))>0
+        coalesce(json_extract(a.data,'$.text'),'')||char(10)||coalesce(json_extract(a.data,'$.analysis'),'')||char(10)||coalesce(json_extract(a.data,'$.archiveInfo.searchText'),'')),lower(?))>0
       AND EXISTS(SELECT 1 FROM records m WHERE m.kind='message'
         AND m.id=json_extract(a.data,'$.messageId') AND json_extract(m.data,'$.accountId')=?)`)
       .all(query.trim(), accountId).map(row => row.id);
   }
+  attachmentPage(options) { return attachmentPage(this, options); }
   messagePage({ accountId, folder, filter, query = '', offset = 0, limit = 100, groupBy, senderGroup, revealId }) {
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200)
+      throw new ServiceError('邮件分页参数无效');
     const drafts = draftSearchPage(this, { query, accountId, folder, filter, offset, limit });
     if (drafts) return drafts;
     if (groupBy === 'sender' || senderGroup)
       return senderMessagePage(this, { accountId, folder, filter, query, offset, limit, senderGroup, revealId });
     const { where, params } = this.messageWhere({ accountId, folder, filter, query });
     const total = this.db.prepare(`SELECT COUNT(*) AS total FROM records m WHERE ${where}`).get(...params).total;
-    const rows = this.db.prepare(`SELECT json_remove(m.data,'$.body','$.html','$.translation','$.translationHTML') AS data
+    const rows = this.db.prepare(`SELECT ${messageHeaderJSON('m.data')} AS data,
+      substr(json_extract(m.data,'$.body'),1,8192) AS previewBody, substr(json_extract(m.data,'$.html'),1,32768) AS previewHTML
       FROM records m WHERE ${where} ORDER BY json_extract(m.data,'$.date') DESC, m.id LIMIT ? OFFSET ?`)
       .all(...params, limit, offset);
     const firstTerm = parseSearch(query).terms[0];
     return { messages: rows.map(row => {
-      const message = this.messageHeader(JSON.parse(row.data));
+      const message = this.messageHeader(JSON.parse(row.data), {source:{body:row.previewBody,html:row.previewHTML}});
       return firstTerm ? { ...message, searchSnippet: this.searchIndex.snippet(message.id, firstTerm) } : message;
     }),
       total, nextOffset: offset + rows.length < total ? offset + rows.length : null };

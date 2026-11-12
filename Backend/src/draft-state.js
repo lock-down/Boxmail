@@ -7,6 +7,7 @@ export function draftRevision(draft) {
 }
 
 export function presentDraft(draft) {
-  return { ...draft, revision: draftRevision(draft),
+  const { remoteDraft, remotePending, ...publicDraft } = draft;
+  return { ...publicDraft, revision: draftRevision(draft),
     syncState: draft.syncState || (draft.remoteDraft ? 'synced' : 'local') };
 }

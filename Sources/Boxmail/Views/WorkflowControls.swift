@@ -101,18 +101,20 @@ struct WorkflowSelection<Value: Hashable>: NSViewRepresentable {
   let title: String
   @Binding var selection: Value
   let options: [(Value, String)]
-  var compact = false
+  var style = WorkflowSelectionStyle.field
+  var displayTitle: String? = nil
 
   func makeNSView(context: Context) -> WorkflowSelectionButton {
     let button = WorkflowSelectionButton(frame: .zero, pullsDown: false)
     button.isBordered = false
     button.focusRingType = .none
+    button.style = style
     button.target = button
     button.action = #selector(WorkflowSelectionButton.selectValue)
     return button
   }
   func sizeThatFits(_ proposal: ProposedViewSize, nsView: WorkflowSelectionButton, context: Context) -> CGSize? {
-    CGSize(width: proposal.width ?? 160, height: SettingsFormLayout.controlHeight)
+    CGSize(width: proposal.width ?? 160, height: style.controlHeight)
   }
   func updateNSView(_ button: WorkflowSelectionButton, context: Context) {
     let labels = options.map(\.1)
@@ -123,7 +125,8 @@ struct WorkflowSelection<Value: Hashable>: NSViewRepresentable {
       for (index, item) in (button.itemArray).enumerated() { item.toolTip = labels[index] }
     }
     if let index = options.firstIndex(where: { $0.0 == selection }) { button.selectItem(at: index) }
-    button.compact = compact
+    button.style = style
+    button.displayTitle = displayTitle
     button.isEnabled = context.environment.isEnabled
     button.setAccessibilityLabel(title)
     button.setAccessibilityValue(button.titleOfSelectedItem ?? "请选择")
@@ -137,29 +140,52 @@ struct WorkflowSelection<Value: Hashable>: NSViewRepresentable {
   }
 }
 
+enum WorkflowSelectionStyle {
+  case field, inline, toolbar
+
+  var controlHeight: CGFloat {
+    self == .toolbar ? UILayout.iconControl : SettingsFormLayout.controlHeight
+  }
+}
+
 @MainActor final class WorkflowSelectionButton: SelectionControlButton {
-  var compact = false
+  var style = WorkflowSelectionStyle.field
+  var displayTitle: String?
   var onSelect: ((Int) -> Void)?
+
+  override var intrinsicContentSize: NSSize {
+    NSSize(width: NSView.noIntrinsicMetric, height: style.controlHeight)
+  }
 
   @objc func selectValue() { onSelect?(indexOfSelectedItem) }
   override func draw(_ dirtyRect: NSRect) {
-    drawSelectionSurface(visible: !compact)
+    if style == .toolbar {
+      drawIconSurface()
+    } else {
+      drawSelectionSurface(visible: style == .field)
+    }
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingMiddle
     paragraph.alignment = .left
-    let text = titleOfSelectedItem ?? "请选择"
-    let font = NSFont.systemFont(ofSize: 12, weight: compact ? .medium : .regular)
+    let compact = style != .field
+    let text = displayTitle ?? titleOfSelectedItem ?? "请选择"
+    let font = NSFont.systemFont(ofSize: 12, weight: style == .inline ? .medium : .regular)
     let textWidth = min(ceil((text as NSString).size(withAttributes: [.font: font]).width),
-      max(0, bounds.width - 40))
-    let inset: CGFloat = compact ? floor((bounds.width - textWidth - 16) / 2) : 12
+      max(0, bounds.width - (style == .toolbar ? 31 : 40)))
+    let indicatorGap: CGFloat = style == .toolbar ? 6 : 8
+    let groupWidth = textWidth + indicatorGap + 9
+    let inset: CGFloat = compact ? floor((bounds.width - groupWidth) / 2) : 12
     (text as NSString).draw(in: NSRect(x: inset, y: (bounds.height - 16) / 2,
         width: compact ? textWidth : max(0, bounds.width - inset - 28), height: 18),
       withAttributes: [
         .font: font,
-        .foregroundColor: NSColor(isHighlighted ? Palette.blue : Palette.ink).withAlphaComponent(isEnabled ? 1 : 0.4),
+        .foregroundColor: NSColor(
+          isHighlighted ? Palette.blue : style == .toolbar ? Palette.muted : Palette.ink
+        )
+        .withAlphaComponent(isEnabled ? 1 : 0.4),
         .paragraphStyle: paragraph,
       ])
-    drawSelectionIndicator(x: compact ? inset + textWidth + 8 : bounds.width - 21)
+    drawSelectionIndicator(x: compact ? inset + textWidth + indicatorGap : bounds.width - 21)
   }
 }
 

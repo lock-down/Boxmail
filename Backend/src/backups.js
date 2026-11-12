@@ -1,3 +1,4 @@
+import { migrateAttachmentArchives } from './attachment-archive-store.js';
 import { DatabaseSync } from 'node:sqlite';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, mkdtemp, lstat, readFile, writeFile, chmod, rename, copyFile, rm } from 'node:fs/promises';
@@ -54,16 +55,18 @@ export async function createBackup(repo, destination) {
   const staging = await mkdtemp(path.join(os.tmpdir(), 'boxmail-backup-'));
   const partial = `${destination}.partial-${randomUUID()}`;
   const streams = [];
+  let snapshot;
   try {
     const database = path.join(staging, 'boxmail.sqlite');
     repo.db.exec(`VACUUM INTO '${database.replaceAll("'", "''")}'`);
     await chmod(database, 0o600);
+    snapshot = new DatabaseSync(database, { readOnly: true });
     const info = await fileInfo(database);
     if (info.size > MAX_DATABASE) throw new ServiceError('数据库超过 256 MB，请先在退出应用后备份完整数据目录');
     const manifest = { format: 'boxmail-backup', version: 1, schemaVersion: 2,
       createdAt: new Date().toISOString(), credentialsIncluded: false,
       counts: Object.fromEntries(['account', 'message', 'draft', 'attachment', 'job', 'mutation']
-        .map(kind => [kind, repo.list(kind).length])),
+        .map(kind => [kind, snapshot.prepare('SELECT count(*) AS count FROM records WHERE kind=?').get(kind).count])),
       files: [{ path: 'boxmail.sqlite', ...info }],
     };
     const zip = new JSZip();
@@ -74,7 +77,7 @@ export async function createBackup(repo, destination) {
     };
     addFile('boxmail.sqlite', database);
     let total = info.size;
-    for (const attachment of repo.list('attachment')) {
+    for (const attachment of snapshot.prepare("SELECT id,json_extract(data,'$.name') AS name,json_extract(data,'$.path') AS path FROM records WHERE kind='attachment' ORDER BY id").iterate()) {
       const attachmentInfo = await fileInfo(attachment.path).catch(() => {
         throw new ServiceError(`附件“${attachment.name || attachment.id}”缺失或不可读取，未创建不完整备份`);
       });
@@ -95,6 +98,7 @@ export async function createBackup(repo, destination) {
     await rename(partial, destination);
     return { path: destination, ...archive, ...summary(manifest) };
   } finally {
+    snapshot?.close();
     for (const stream of streams) stream.destroy();
     await rm(partial, { force: true }).catch(() => {});
     await rm(staging, { recursive: true, force: true });
@@ -221,6 +225,7 @@ export async function restoreBackup(repo, source, approved, { beforeCommit, expe
           if (row.kind === 'sync' && value.status === 'running') value.status = 'paused';
           insert.run(row.kind, row.id, JSON.stringify(value));
         }
+        migrateAttachmentArchives(repo);
         const event = repo.db.prepare('INSERT INTO events(id,time,type,detail) VALUES(?,?,?,?)');
         for (const row of events) event.run(row.id, row.time, row.type, row.detail);
         repo.rebuildSearch?.();

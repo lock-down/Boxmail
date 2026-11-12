@@ -53,13 +53,13 @@ export class ParserProcess {
   }
   async run(task, buffer, options = {}) {
     this.signal?.throwIfAborted();
-    if (!['mime', 'docx', 'xlsx', 'pdf', 'presentation-text', 'presentation', 'workbook-preview'].includes(task))
+    if (!['mime', 'docx', 'xlsx', 'pdf', 'presentation-text', 'presentation', 'workbook-preview', 'archive-list', 'archive-entry'].includes(task))
       throw new ServiceError('不支持此解析任务');
     if (this.busy) throw new ServiceError('解析任务正在运行，请稍后重试', 409);
     this.busy = true;
     const started = performance.now();
     let child, timer, abort, receive, failed, exited;
-    const formats = new Set(['mime', 'pdf', 'docx', 'xlsx', 'ppt', 'pptx', 'pps', 'ppsx', 'presentation']);
+    const formats = new Set(['mime', 'pdf', 'docx', 'xlsx', 'ppt', 'pptx', 'pps', 'ppsx', 'presentation', 'zip']);
     const details = { account: this.account, requestID: this.requestID, parser: task, format: formats.has(options.format) ? options.format : 'unknown',
       bytes: buffer.length, phase: 'parse' };
     try {

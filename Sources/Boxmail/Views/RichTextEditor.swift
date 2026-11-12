@@ -42,6 +42,8 @@ struct RichTextEditor: NSViewRepresentable {
     ]
     view.textStorage?.setAttributedString(RichTextCodec.attributed(document ?? .init(text: text)))
     view.delegate = context.coordinator
+    view.textStorage?.delegate = context.coordinator
+    if let storage = view.textStorage { context.coordinator.resetProjection(storage) }
     view.setSelectedRange(NSRange(location: 0, length: 0))
     scroll.documentView = view
     configure(view)
@@ -53,13 +55,15 @@ struct RichTextEditor: NSViewRepresentable {
     guard let view = scroll.documentView as? RichComposerTextView else { return }
     configure(view)
     if !view.hasMarkedText(),
-      text != view.string || document != context.coordinator.lastDocument && document != nil
+      document != nil ? document != context.coordinator.lastDocument : text != view.string
     {
       let selection = view.selectedRange()
-      view.textStorage?.setAttributedString(RichTextCodec.attributed(document ?? .init(text: text)))
-      view.setSelectedRange(
-        NSRange(location: min(selection.location, view.string.utf16.count), length: 0))
+      let replacement = RichTextCodec.attributed(document ?? .init(text: text))
+      let mapped = RichTextSelection.map(selection, from: view.attributedString(), to: replacement)
+      view.textStorage?.setAttributedString(replacement)
+      view.setSelectedRange(mapped)
       context.coordinator.lastDocument = document
+      if let storage = view.textStorage { context.coordinator.resetProjection(storage) }
     }
     view.updateBottomAnchor()
     view.needsDisplay = true
@@ -84,19 +88,55 @@ struct RichTextEditor: NSViewRepresentable {
   }
   static func dismantleNSView(_ view: NSScrollView, coordinator: Coordinator) {
     (view.documentView as? NSTextView)?.delegate = nil
+    (view.documentView as? NSTextView)?.textStorage?.delegate = nil
   }
-  final class Coordinator: NSObject, NSTextViewDelegate {
+  final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
     var parent: RichTextEditor
     var lastDocument: RichTextDocument?
+    private let projection = RichTextDocumentProjection()
+    var changesParagraphs = false
+    var editedRangeForLayout: NSRange? { characterEdits == 1 ? edit?.range : nil }
+    private var characterEdits = 0
+    private var edit: (range: NSRange, delta: Int)?
+    func resetProjection(_ storage: NSTextStorage) {
+      projection.reset(storage)
+      characterEdits = 0
+      edit = nil
+      changesParagraphs = false
+    }
+    func textStorage(
+      _ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+      range editedRange: NSRange, changeInLength delta: Int
+    ) {
+      if editedMask.contains(.editedCharacters) {
+        characterEdits += 1
+        edit = (editedRange, delta)
+      }
+    }
     init(_ parent: RichTextEditor) {
       self.parent = parent
       lastDocument = parent.document
+    }
+    func textView(
+      _ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange,
+      replacementString: String?
+    ) -> Bool {
+      let previous = (textView.string as NSString).substring(with: affectedCharRange)
+      changesParagraphs =
+        changesParagraphs || previous.contains("\n") || previous.contains("\r")
+        || replacementString?.contains("\n") == true || replacementString?.contains("\r") == true
+      return true
     }
     func textDidChange(_ notification: Notification) {
       guard let view = notification.object as? NSTextView, !view.hasMarkedText(),
         let storage = view.textStorage
       else { return }
-      let value = RichTextCodec.document(storage)
+      let value = projection.update(
+        storage, editedRange: characterEdits == 1 ? edit?.range : nil,
+        changeInLength: edit?.delta ?? 0)
+      characterEdits = 0
+      edit = nil
+      changesParagraphs = false
       lastDocument = value
       parent.document = value
       parent.text = value.plainText
@@ -111,9 +151,51 @@ struct RichTextEditor: NSViewRepresentable {
 final class RichComposerTextView: PlaceholderTextView {
   weak var controller: RichTextController?
   var onLink: (() -> Void)?
+  private var normalizingMarkers = false
   override func didChangeText() {
-    if !hasMarkedText(), let storage = textStorage { RichTextListLayout.normalize(storage) }
+    if !normalizingMarkers, !hasMarkedText(), let storage = textStorage {
+      let coordinator = delegate as? RichTextEditor.Coordinator
+      if undoManager?.isUndoing != true && undoManager?.isRedoing != true,
+        coordinator?.changesParagraphs != false
+      {
+        normalizeNumbering(storage)
+      }
+      RichTextListLayout.normalize(storage, range: coordinator?.editedRangeForLayout)
+    }
     super.didChangeText()
+  }
+  private func normalizeNumbering(_ storage: NSTextStorage) {
+    let source = storage.string as NSString
+    var location = 0
+    var ordinal = 0
+    var edits: [(NSRange, String)] = []
+    while location < source.length {
+      let range = source.paragraphRange(for: NSRange(location: location, length: 0))
+      let kind =
+        storage.attribute(RichTextCodec.listKind, at: location, effectiveRange: nil) as? String
+        ?? "paragraph"
+      ordinal = kind == "numbered" ? ordinal + 1 : 0
+      if kind == "numbered" {
+        let line = source.substring(with: range)
+        let prefix = RichTextListLayout.prefixLength(in: line, kind: kind)
+        let marker = "\(ordinal). "
+        if prefix > 0 && !line.hasPrefix(marker) {
+          edits.append((NSRange(location: location, length: prefix), marker))
+        }
+      }
+      location = NSMaxRange(range)
+    }
+    guard !edits.isEmpty else { return }
+    let before = NSAttributedString(attributedString: storage)
+    normalizingMarkers = true
+    defer { normalizingMarkers = false }
+    let selection = selectedRange()
+    for (range, marker) in edits.reversed() {
+      if shouldChangeText(in: range, replacementString: marker) {
+        storage.replaceCharacters(in: range, with: marker)
+      }
+    }
+    setSelectedRange(RichTextSelection.map(selection, from: before, to: storage))
   }
   override func keyDown(with event: NSEvent) {
     if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {

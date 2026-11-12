@@ -19,6 +19,7 @@ import SwiftUI
   var messages: [MailMessage] = []
   var drafts: [MailDraft] = []
   var attachments: [MailAttachment] = []
+  var workspaceListRevision = 0
   var jobs: [AgentJob] = []
   var events: [AuditEvent] = []
   var settings = SettingsData()
@@ -144,11 +145,21 @@ import SwiftUI
     starting = true
     startupError = nil
     defer { starting = false }
+    let startedAt = Date()
     do {
       try await self.backend.start()
+      backend.diagnostics.record(
+        "startup.phase",
+        ["phase": "service", "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1000))])
       if let message = self.backend.startupNotice { notice = message }
       try await refresh()
       ready = true
+      backend.diagnostics.record(
+        "startup.ready",
+        [
+          "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1000)),
+          "count": String(messages.count),
+        ])
       watchAIOutput()
       selectedMessageId = filteredMessages.first?.id
       if messages.contains(where: { message in
@@ -170,6 +181,19 @@ import SwiftUI
     }
   }
   func refresh(reloadContent: Bool = true) async throws {
+    let measuringStartup = starting && !ready
+    var phaseStarted = Date()
+    func measure(_ phase: String) {
+      if measuringStartup {
+        backend.diagnostics.record(
+          "startup.phase",
+          [
+            "phase": phase,
+            "durationMs": String(Int(Date().timeIntervalSince(phaseStarted) * 1000)),
+          ])
+      }
+      phaseStarted = Date()
+    }
     let generation = UUID()
     let revision = restoreRevision
     refreshGeneration = generation
@@ -177,6 +201,7 @@ import SwiftUI
       "/state?compact=1&previews=0", timeout: reloadContent ? 190 : 30)
     try Task.checkCancellation()
     guard generation == refreshGeneration, revision == restoreRevision else { return }
+    measure("snapshot")
     accounts = state.accounts
     credentialIssueAccounts.formIntersection(accounts.map(\.id))
     messages = state.messages
@@ -185,6 +210,7 @@ import SwiftUI
       (selectedMessage?.attachmentIds ?? []) + [previewAttachment?.id].compactMap { $0 })
     attachmentCache = attachmentCache.filter { keptAttachments.contains($0.key) }
     attachments = state.attachments.map { attachmentCache[$0.id] ?? $0 }
+    workspaceListRevision &+= 1
     jobs = state.jobs
     events = state.events
     settings = state.settings
@@ -199,14 +225,19 @@ import SwiftUI
     if !accounts.contains(where: { $0.id == accountId }) {
       accountId = accounts.first(where: { !$0.isDemo })?.id ?? accounts.first?.id ?? ""
     }
+    measure("apply")
     await loadMessages(reset: true, preserveSelection: true)
+    measure("first-page")
     guard generation == refreshGeneration, revision == restoreRevision else { return }
     if let id = selectedMessageId, !ids.contains(id) {
       selectedMessageId = filteredMessages.first?.id
     }
     if reloadContent || selectedMessageId.map({ detailCache[$0] == nil }) == true {
       await loadSelectedMessage()
+    } else {
+      await loadConversation()
     }
+    measure("selected-content")
     watchOrganizer()
     watchAttachmentBatches()
   }

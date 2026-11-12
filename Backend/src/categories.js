@@ -33,8 +33,9 @@ export function editCategory(repo, id, input = {}, remove = false) {
       : previous ? categories.map(value => value.id === id ? item : value) : [...categories, item];
     repo.put('categoryCatalog', { id: 'categories', items });
     if (previous && previous.name !== name) {
-      for (const message of repo.list('message').filter(m => m.category === previous.name))
-        repo.put('message', { ...message, category: name });
+      repo.db.prepare("UPDATE records SET data=json_set(data,'$.category',?) WHERE kind='message' AND json_extract(data,'$.category')=?").run(name, previous.name);
+      repo.invalidateMessagePreviews();
+      repo.searchIndex.schedule();
       for (const kind of ['relocation', 'recovery'])
         for (const record of repo.list(kind).filter(record => record.original?.category === previous.name))
           repo.put(kind, { ...record, original: { ...record.original, category: name } });

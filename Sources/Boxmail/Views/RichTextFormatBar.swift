@@ -11,16 +11,17 @@ struct RichTextFormatBar: View {
 
   var body: some View {
     HStack(spacing: UILayout.iconGap) {
-      WorkflowSelection(
-        title: "字号",
-        selection: Binding(
-          get: { controller.fontSize }, set: { if let size = $0 { controller.setFontSize(size) } }),
-        options: sizeOptions, compact: true
-      ).frame(width: 88)
       formatButton("bold", help: "粗体（Command-B）", selected: controller.bold) {
         controller.toggleBold()
       }
       colorMenu
+      WorkflowSelection(
+        title: "字号",
+        selection: Binding(
+          get: { controller.fontSize }, set: { if let size = $0 { controller.setFontSize(size) } }),
+        options: sizeOptions, style: .toolbar,
+        displayTitle: controller.fontSize == nil ? "混合" : nil
+      ).frame(width: 64, height: UILayout.iconControl)
       formatButton("list.bullet", help: "项目符号列表", selected: controller.list == "bullet") {
         controller.toggleList("bullet")
       }

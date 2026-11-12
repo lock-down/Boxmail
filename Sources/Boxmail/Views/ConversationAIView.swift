@@ -10,9 +10,10 @@ struct ConversationAIView: View {
     store.latestConversationJob(task: task, message: message)
   }
   private func stale(_ job: AgentJob) -> Bool {
+    guard store.conversationAnchor == message.id, store.conversation?.accountId == message.accountId else { return true }
     guard let fingerprint = store.conversation?.fingerprint,
       let original = job.result?.contextFingerprint
-    else { return false }
+    else { return true }
     return fingerprint != original
   }
   var body: some View {

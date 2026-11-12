@@ -61,6 +61,7 @@ public struct RichTextDocument: Codable, Hashable {
 
 /// Semantic text crosses the persistence boundary; layout-only signature spacing does not.
 public enum RichTextCodec {
+  private static let lineEndings = try! NSRegularExpression(pattern: "\r\n?")
   public static let listKind = NSAttributedString.Key("BoxmailListKind")
 
   public static func attributed(
@@ -110,52 +111,88 @@ public enum RichTextCodec {
   }
 
   public static func document(_ input: NSAttributedString) -> RichTextDocument {
-    let text = NSMutableAttributedString(attributedString: input)
-    let lineEndings = try! NSRegularExpression(pattern: "\r\n?")
-    for match in lineEndings.matches(
-      in: text.string, range: NSRange(location: 0, length: text.length)
-    ).reversed() {
-      text.replaceCharacters(in: match.range, with: "\n")
+    let text: NSAttributedString
+    if input.string.contains("\r") {
+      let normalized = NSMutableAttributedString(attributedString: input)
+      for match in lineEndings.matches(
+        in: input.string, range: NSRange(location: 0, length: input.length)
+      ).reversed() {
+        normalized.replaceCharacters(in: match.range, with: "\n")
+      }
+      text = normalized
+    } else {
+      text = input
     }
     let source = text.string as NSString
+    struct StyleKey: Equatable {
+      let font: ObjectIdentifier?
+      let color: ObjectIdentifier?
+      let link: String?
+    }
+    var previousStyleKey: StyleKey?
+    var previousStyle: RichTextRun?
     var blocks: [RichTextBlock] = []
+    var contentRanges: [NSRange] = []
     var location = 0
     while location <= source.length {
       let newline = source.range(
         of: "\n", range: NSRange(location: location, length: source.length - location))
       let end = newline.location == NSNotFound ? source.length : newline.location
-      let paragraphRange = NSRange(location: location, length: end - location)
       let kind =
         location < text.length
         ? text.attribute(listKind, at: location, effectiveRange: nil) as? String ?? "paragraph"
         : "paragraph"
-      let content = source.substring(with: paragraphRange)
-      let prefixLength = RichTextListLayout.prefixLength(in: content, kind: kind)
-      var runs: [RichTextRun] = []
-      let range = NSRange(
-        location: location + prefixLength, length: paragraphRange.length - prefixLength)
-      text.enumerateAttributes(in: range) { attributes, range, _ in
-        let traits = (attributes[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
-        let link = (attributes[.link] as? URL)?.absoluteString ?? attributes[.link] as? String
-        let run = RichTextRun(
-          text: source.substring(with: range), bold: traits.contains(.bold),
-          italic: traits.contains(.italic),
-          link: link.flatMap { RichTextDocument.safeLink($0)?.absoluteString },
-          fontSize: (attributes[.font] as? NSFont).map { Double($0.pointSize) },
-          color: (attributes[.foregroundColor] as? NSColor).flatMap(RichTextStyle.hexColor))
-        if let last = runs.last,
-          last.bold == run.bold && last.italic == run.italic && last.link == run.link
-            && last.fontSize == run.fontSize && last.color == run.color
-        {
-          runs[runs.count - 1].text += run.text
-        } else {
-          runs.append(run)
-        }
-      }
+      let content = source.substring(with: NSRange(location: location, length: end - location))
+      let prefix = RichTextListLayout.prefixLength(in: content, kind: kind)
+      contentRanges.append(NSRange(location: location + prefix, length: end - location - prefix))
       blocks.append(
-        .init(kind: ["bullet", "numbered"].contains(kind) ? kind : "paragraph", runs: runs))
+        .init(kind: ["bullet", "numbered"].contains(kind) ? kind : "paragraph", runs: []))
       if newline.location == NSNotFound { break }
       location = end + 1
+    }
+    // Enumerate style spans once. One span can cover thousands of paragraphs;
+    // opening a Foundation attribute enumerator for every paragraph is avoidable.
+    var paragraph = 0
+    text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, span, _ in
+      let link = (attributes[.link] as? URL)?.absoluteString ?? attributes[.link] as? String
+      let font = attributes[.font] as? NSFont
+      let color = attributes[.foregroundColor] as? NSColor
+      let key = StyleKey(
+        font: font.map(ObjectIdentifier.init), color: color.map(ObjectIdentifier.init), link: link)
+      var style: RichTextRun
+      if key == previousStyleKey, let cached = previousStyle {
+        style = cached
+      } else {
+        let traits = font?.fontDescriptor.symbolicTraits ?? []
+        style = RichTextRun(
+          text: "", bold: traits.contains(.bold), italic: traits.contains(.italic),
+          link: link.flatMap { RichTextDocument.safeLink($0)?.absoluteString },
+          fontSize: font.map { Double($0.pointSize) }, color: color.flatMap(RichTextStyle.hexColor))
+        previousStyleKey = key
+        previousStyle = style
+      }
+      while paragraph < contentRanges.count {
+        let content = contentRanges[paragraph]
+        if NSMaxRange(content) <= span.location {
+          paragraph += 1
+          continue
+        }
+        if content.location >= NSMaxRange(span) { break }
+        let range = NSIntersectionRange(content, span)
+        if range.length > 0 {
+          var run = style
+          run.text = source.substring(with: range)
+          if let last = blocks[paragraph].runs.last,
+            last.bold == run.bold && last.italic == run.italic && last.link == run.link
+              && last.fontSize == run.fontSize && last.color == run.color
+          {
+            blocks[paragraph].runs[blocks[paragraph].runs.count - 1].text += run.text
+          } else {
+            blocks[paragraph].runs.append(run)
+          }
+        }
+        if NSMaxRange(content) <= NSMaxRange(span) { paragraph += 1 } else { break }
+      }
     }
     return RichTextDocument(blocks: blocks)
   }

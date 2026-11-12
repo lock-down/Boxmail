@@ -158,7 +158,7 @@ struct AttachmentCard: View {
             } else if attachment.isAnalyzed {
               Tag(text: "AI 已解析", ai: true)
             } else if attachment.canAnalyze {
-              Tag(text: attachment.isImage || attachment.isPDF || attachment.isPresentation ? "可 AI 理解" : "已提取文本", ai: true)
+              Tag(text: attachment.isArchive || attachment.isImage || attachment.isPDF || attachment.isPresentation ? "可 AI 理解" : "已提取文本", ai: true)
             }
           }
           if let item = batchItem, item.status == "failed", let error = item.error {

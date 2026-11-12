@@ -29,7 +29,7 @@ export async function clearTrash(repo, accountId, password, approved, { clientFa
     } finally { await client.logout().catch(() => client.close()); }
   }
 
-  const messages = repo.list('message').filter(m => m.accountId === accountId && m.folder === 'trash');
+  const messages = repo.messageCandidates({accountId,folder:'trash',limit:-1});
   const retained = ['relocation', 'recovery'].flatMap(kind => repo.list(kind)
     .filter(r => r.accountId === accountId && r.original.folder === 'trash')
     .map(record => ({ kind, record })));

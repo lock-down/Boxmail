@@ -24,12 +24,12 @@ async function fixture(t) {
   const worker = new MailContentWorker();
   repo.put('account', account);
   t.after(async () => { await worker.close(); repo.close(); await rm(directory, { recursive: true, force: true }); });
-  const state = { validity: '10', next: 1, messages: new Map(), appends: 0, deletes: [], afterAppend: null, searches: 0, onSearch: null };
+  const state = { validity: '10', next: 1, messages: new Map(), appends: 0, deletes: [], afterAppend: null, searches: 0, onSearch: null, statuses: 0, onStatus: null };
   const add = raw => { const uid = state.next++; state.messages.set(uid, raw); return uid; };
   const client = { capabilities: new Set(['UIDPLUS']), mailbox: {},
     async getMailboxLock() { this.mailbox = { path: 'Drafts', uidValidity: state.validity, exists: state.messages.size }; return { release() {} }; },
-    async status() { return { messages: state.messages.size, uidValidity: state.validity, uidNext: state.next }; },
-    async search() { state.onSearch?.(++state.searches); return [...state.messages.keys()]; },
+    async status() { state.onStatus?.(++state.statuses); return { messages: state.messages.size, uidValidity: state.validity, uidNext: state.next }; },
+    async search() { state.searches++; state.onSearch?.(state.searches); return [...state.messages.keys()]; },
     async *fetch(uids) { for (const uid of uids) if (state.messages.has(uid)) yield { uid, flags: new Set(['\\Draft']), size: state.messages.get(uid).length }; },
     async fetchOne(uid) { return state.messages.has(uid) ? { uid, source: state.messages.get(uid) } : false; },
     async append(folder, raw, flags) {
@@ -41,7 +41,7 @@ async function fixture(t) {
     async messageDelete(uid, options) { assert.equal(options.uid, true); state.deletes.push(uid); state.messages.delete(uid); return true; },
   };
   const sync = (changes = {}) => syncRemoteDrafts(repo, { ...structuredClone(account), ...changes }, client, { contentWorker: worker, timeoutMs: 2000 });
-  return { get repo() { return repo; }, state, client, sync, add,
+  return { get repo() { return repo; }, state, client, sync, add, worker,
     reopen() { repo.close(); repo = new Repository(directory); } };
 }
 
@@ -92,6 +92,7 @@ test('point size and color survive server draft upload and import on another ins
   assert.equal(imported.length, 1);
   assert.deepEqual(imported[0].richText, styled.richText);
   assert.equal(imported[0].body, styled.body);
+  assert.match(imported[0].bcc, /hidden@example\.test/);
   assert.equal(state.appends, 1);
 });
 
@@ -170,7 +171,7 @@ test('servers without UIDPLUS never trigger a mailbox-wide EXPUNGE', async t => 
 test('an edit during the final inventory check cannot be overwritten by an older upload snapshot', async t => {
   const { repo, state, sync } = await fixture(t);
   repo.put('draft', localDraft());
-  state.onSearch = count => { if (count === 3) repo.put('draft', { ...repo.get('draft', 'local'), body: '最终核对期间的编辑' }); };
+  state.onStatus = count => { if (count === 3) repo.put('draft', { ...repo.get('draft', 'local'), body: '最终核对期间的编辑' }); };
   await sync();
   assert.equal(repo.get('draft', 'local').body, '最终核对期间的编辑');
   assert.equal(repo.get('draft', 'local').syncState, 'pending');
@@ -254,7 +255,150 @@ test('oversized attachment collections stop before MIME allocation or network up
   for (let index = 0; index < 2; index++) files.push(await saveAttachment(repo, 'local', `large-${index}.bin`,
     Buffer.alloc(13 * 1024 * 1024), 'application/octet-stream'));
   repo.put('draft', { ...localDraft(), attachmentIds: files.map(file => file.id) });
-  await assert.rejects(sync(), /25 MB/);
+  await sync();
+  assert.match(repo.get('draft','local').syncError, /25 MB/);
   assert.equal(state.appends, 0); assert.equal(repo.get('draft', 'local').attachmentIds.length, 2);
   assert.ok(files.every(file => repo.get('attachment', file.id)));
+});
+
+
+test('one malformed remote draft cannot block valid imports or local uploads over repeated syncs', async t => {
+  const {repo,state,sync,add} = await fixture(t);
+  add(await mime('坏正文', '<bad@example.test>', {html:'<p>'+'x'.repeat(520000)+'</p>'}));
+  add(await mime('正常远端', '<good@example.test>'));
+  repo.put('draft',localDraft());
+  await sync(); await sync();
+  assert.equal(state.appends,1);
+  assert.equal(repo.activeDrafts('a1').length,2);
+  const progress=repo.list('sync')[0];
+  assert.equal(progress.status,'completed'); assert.equal(progress.remaining,0);
+  assert.match(progress.lastError,/服务器草稿 UID/);
+});
+
+test('concurrent deletion of a later upload candidate does not abort remaining drafts', async t => {
+  const {repo,state,sync}=await fixture(t);
+  for (const id of ['a','b','c']) repo.put('draft',{...localDraft(),id});
+  state.afterAppend=()=>{repo.remove('draft','b');};
+  await sync();
+  assert.equal(state.appends,2); assert.equal(repo.get('draft','c').syncState,'synced');
+});
+
+test('UIDVALIDITY changes match external deletion intents by Message-ID and retain unknown identities', async t => {
+  const {repo,state,sync,add}=await fixture(t);
+  add(await mime('将删除的草稿')); await sync();
+  const draft=repo.activeDrafts('a1')[0]; queueDraftDeletion(repo,draft); repo.remove('draft',draft.id);
+  state.messages.clear(); state.validity='11'; state.next=10;
+  add(await mime('将删除的草稿'));
+  await sync();
+  assert.equal(state.messages.size,0); assert.equal(repo.activeDrafts('a1').length,0);
+  assert.equal(repo.list('draftDeletion').length,0);
+  repo.put('draftDeletion',{...draft.remoteDraft,id:'unknown',uidValidity:'9',accountId:'a1',messageId:''});
+  await sync(); assert.equal(repo.list('draftDeletion').length,1);
+});
+
+test('unchanged pending drafts converge to synced and draft scans stay constant with remote count', async t => {
+  const {repo,sync,state}=await fixture(t);
+  repo.put('draft',localDraft()); await sync();
+  repo.put('draft',{...repo.get('draft','local'),syncState:'pending',syncError:'old warning'});
+  const active=repo.activeDrafts.bind(repo); let scans=0;
+  repo.activeDrafts=(...args)=>{scans++;return active(...args);};
+  await sync();
+  assert.equal(repo.get('draft','local').syncState,'synced'); assert.equal(repo.get('draft','local').syncError,null);
+  assert.ok(scans<=2); assert.equal(state.searches,2);
+});
+
+test('unrelated remote arrivals during upload do not abort the remaining local drafts', async t => {
+  const {repo,state,sync,add}=await fixture(t);
+  for(const id of ['a','b']) repo.put('draft',{...localDraft(),id});
+  state.afterAppend=()=>{add(Buffer.from('new external arrival'));};
+  await sync(); assert.equal(state.appends,2);
+  assert.equal(repo.get('draft','b').syncState,'synced');
+});
+
+test('an unreadable replacement retains its local binding and retries MIME only after the cache expires', async t => {
+  const context = await fixture(t);
+  const { repo, state, sync, add, worker } = context;
+  const originalUID = add(await mime('原始正文')); await sync();
+  const original = repo.activeDrafts('a1')[0];
+  state.messages.delete(originalUID);
+  const badUID = add(await mime('坏版本', undefined, { html: '<p>' + 'x'.repeat(520000) + '</p>' }));
+  let parses = 0;
+  const run = worker.run.bind(worker);
+  worker.run = (...args) => { if (args[0] === 'mime') parses++; return run(...args); };
+  await sync();
+  let current = repo.get('draft', original.id);
+  assert.equal(current.body, original.body);
+  assert.deepEqual(current.remoteDraft, original.remoteDraft);
+  assert.equal(current.remoteReadBlocked, true);
+  assert.match(current.syncError, /无法读取/);
+  assert.doesNotMatch(current.syncError, /已删除/);
+  const progress = repo.list('sync')[0], retryAfter = progress.readFailures.items[0].retryAfter;
+  context.reopen();
+  await sync();
+  assert.equal(parses, 1);
+  assert.equal(context.repo.list('sync')[0].readFailures.items[0].retryAfter, retryAfter);
+  const savedProgress = context.repo.list('sync')[0];
+  context.repo.put('sync', { ...savedProgress, readFailures: { ...savedProgress.readFailures,
+    items: savedProgress.readFailures.items.map(item => ({ ...item, retryAfter: 0 })) } });
+  await sync();
+  assert.equal(parses, 2);
+  state.messages.delete(badUID); add(await mime('恢复后的服务器正文'));
+  await sync();
+  current = context.repo.get('draft', original.id);
+  assert.match(current.body, /恢复后的服务器正文/);
+  assert.equal(current.syncState, 'synced');
+  assert.equal(context.repo.activeDrafts('a1').length, 1);
+  assert.equal(context.repo.list('sync')[0].readFailures.items.length, 0);
+  assert.equal(state.appends, 0);
+});
+
+test('unresolved deletion intents reach bounded manual review and still match a later Message-ID', async t => {
+  const { repo, state, sync, add } = await fixture(t);
+  add(await mime('待删除正文')); await sync();
+  const original = repo.activeDrafts('a1')[0];
+  queueDraftDeletion(repo, original); repo.remove('draft', original.id);
+  state.messages.clear(); state.validity = '11';
+  for (let round = 0; round < 4; round++) await sync();
+  const pending = repo.list('draftDeletion')[0];
+  assert.equal(pending.verificationAttempts, 3);
+  assert.equal(pending.reviewRequired, true);
+  assert.match(repo.list('sync')[0].lastError, /1 份.*人工处理/);
+  assert.doesNotMatch(repo.list('sync')[0].lastError, /下次同步继续核对/);
+  add(await mime('待删除正文'));
+  await sync();
+  assert.equal(repo.list('draftDeletion').length, 0);
+  assert.equal(state.messages.size, 0);
+});
+
+test('concurrent expunge is confirmed by UID and does not abort other local uploads', async t => {
+  const { repo, state, client, sync, add } = await fixture(t);
+  add(await mime('将被其他客户端删除')); await sync();
+  const draft = repo.activeDrafts('a1')[0];
+  queueDraftDeletion(repo, draft); repo.remove('draft', draft.id);
+  repo.put('draft', localDraft());
+  client.messageDelete = async uid => { state.messages.delete(uid); return false; };
+  const fetchOne = client.fetchOne.bind(client), confirmed = [];
+  client.fetchOne = async (...args) => { if (args[1]?.uid) confirmed.push(args[0]); return fetchOne(...args); };
+  await sync();
+  assert.deepEqual(confirmed, [draft.remoteDraft.uid]);
+  assert.equal(repo.list('draftDeletion').length, 0);
+  assert.equal(repo.get('draft', 'local').syncState, 'synced');
+  assert.equal(state.appends, 1);
+});
+
+test('unconfirmed expunge retains its intent and warns once without blocking other uploads', async t => {
+  const { repo, state, client, sync, add } = await fixture(t);
+  add(await mime('服务器仍保留的草稿')); await sync();
+  const draft = repo.activeDrafts('a1')[0];
+  queueDraftDeletion(repo, draft); repo.remove('draft', draft.id);
+  repo.put('draft', localDraft());
+  let attempts = 0;
+  client.messageDelete = async () => { attempts++; return false; };
+  await sync();
+  assert.equal(attempts, 1);
+  assert.equal(repo.list('draftDeletion').length, 1);
+  assert.ok(state.messages.has(draft.remoteDraft.uid));
+  assert.equal(repo.activeDrafts('a1').length, 1);
+  assert.equal(repo.get('draft', 'local').syncState, 'synced');
+  assert.match(repo.list('sync')[0].lastError, /未确认/);
 });

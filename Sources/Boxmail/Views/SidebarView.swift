@@ -100,7 +100,7 @@ struct SidebarView: View {
               }.padding(12).frame(width: 360)
             }
           sectionTitle("邮箱")
-          ForEach([MailDestination.inbox, .starred, .drafts, .sent, .attachments, .trash, .archive, .spam])
+          ForEach([MailDestination.inbox, .starred, .drafts, .sent, .trash, .archive, .spam, .attachments])
           {
             destination in row(destination)
           }

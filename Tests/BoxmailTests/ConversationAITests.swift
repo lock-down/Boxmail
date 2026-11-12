@@ -28,6 +28,7 @@ import Testing
   thread.messages = [message, oldMember]
   let store = MailStore()
   store.conversation = thread
+  store.conversationAnchor = message.id
   var foreign = old
   foreign.id = "foreign"
   foreign.accountId = "different-account"
@@ -38,4 +39,6 @@ import Testing
     store.latestConversationJob(task: "conversationSummary", message: message)?.result?
       .contextFingerprint != thread.fingerprint)
   #expect(store.latestConversationJob(task: "conversationReply", message: message) == nil)
+  store.conversationAnchor = "other-message"
+  #expect(store.latestConversationJob(task: "conversationSummary", message: message) == nil)
 }

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { isArchive } from './archive-reader.js';
 import { aiConfig, ServiceError } from './validation.js';
 import { runAgent } from './agent.js';
 import { isPresentation } from './presentations.js';
@@ -9,7 +10,7 @@ const finished = new Set(['completed', 'existing', 'unsupported']);
 export const MAX_BATCH_ATTACHMENTS = 100;
 const imageTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 function supported(file) {
-  return !!file.text?.trim() || isPresentation(file) || file.contentType === 'application/pdf' || imageTypes.has(file.contentType)
+  return isArchive(file) || !!file.text?.trim() || isPresentation(file) || file.contentType === 'application/pdf' || imageTypes.has(file.contentType)
     || ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(path.extname(file.name).toLowerCase());
 }
 function publicError(error) {
@@ -49,15 +50,16 @@ export class AttachmentBatch {
     if (!config.enabled) throw new ServiceError('请先启用 AI 助手');
     if (!input.apiKey && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.baseURL).hostname))
       throw new ServiceError('请在设置中填写 API Key');
-    const selected = previous ? previous.attachmentItems?.map(item => item.id) ?? []
-      : input.attachmentIds ?? message.attachmentIds ?? [];
+    const selected = input.attachmentIds ?? (previous ? previous.attachmentItems?.map(item => item.id) ?? [] : message.attachmentIds ?? []);
     if (!Array.isArray(selected) || selected.length > MAX_BATCH_ATTACHMENTS
       || previous?.attachmentItems?.length > MAX_BATCH_ATTACHMENTS)
       throw new ServiceError('每次最多理解 100 个附件，请选择不超过 100 个附件分批处理。');
     const ids = [...new Set(selected)];
+    if (previous && ids.some(id => !previous.attachmentItems.some(item => item.id === id)))
+      throw new ServiceError('重试附件不属于原任务');
     if (ids.some(id => !(message.attachmentIds || []).includes(id))) throw new ServiceError('附件不属于本封邮件');
     if (!ids.length) throw new ServiceError('本封邮件没有附件');
-    const attachmentItems = previous ? previous.attachmentItems.map(item => finished.has(item.status)
+    const attachmentItems = previous ? previous.attachmentItems.map(item => !ids.includes(item.id) || finished.has(item.status) && input.force !== true
       ? { ...item } : { ...item, status: 'pending', error: null }) : ids.map(id => {
       const file = this.repo.get('attachment', id);
       const item = { id, name: textSlice(file?.name || '附件不可用', 0, 256), status: 'pending', error: null };
@@ -74,7 +76,9 @@ export class AttachmentBatch {
     const controller = new AbortController();
     const worker = { controller, promise: null };
     this.workers.set(job.id, worker);
-    worker.promise = Promise.resolve().then(() => this.run(job, config, input.apiKey, controller.signal))
+    // Keep item references: reconciliation can change attachment IDs in place.
+    const selectedItems = new Set(attachmentItems.filter(item => ids.includes(item.id)));
+    worker.promise = Promise.resolve().then(() => this.run(job, config, input.apiKey, controller.signal, input.force === true, selectedItems))
       .catch(error => {
         job.status = controller.signal.aborted ? 'paused' : 'failed';
         for (const item of job.attachmentItems.filter(item => item.status === 'running')) item.status = 'pending';
@@ -92,7 +96,7 @@ export class AttachmentBatch {
     for (const [index, item] of job.attachmentItems.entries()) {
       item.name = textSlice(item.name || '附件', 0, 256);
       if (item.error) item.error = textSlice(item.error, 0, 1000);
-      const id = current?.attachmentItems?.[index]?.id;
+      const id = current?.attachmentItems?.length === job.attachmentItems.length ? current?.attachmentItems?.[index]?.id : null;
       if (!id || item.id === id) continue;
       item.id = id;
       // A formerly foreign file is now valid and can join the remainder of this batch.
@@ -124,10 +128,10 @@ export class AttachmentBatch {
     }
     this.savedItems.set(job.id, items);
   }
-  async run(job, config, apiKey, signal) {
+  async run(job, config, apiKey, signal, force = false, selectedItems = null) {
     for (const item of job.attachmentItems) {
       if (signal.aborted) break;
-      if (finished.has(item.status) || item.status === 'failed') continue;
+      if (selectedItems && !selectedItems.has(item) || finished.has(item.status) || item.status === 'failed') continue;
       item.status = 'running';
       this.save(job);
       try {
@@ -137,7 +141,7 @@ export class AttachmentBatch {
           || file?.messageId !== message.id) throw new ServiceError('附件已移动或移除，请重新打开邮件后重试。', 409);
         await this.runAgent(this.repo, {
           task: 'attachment', accountId: job.accountId, messageId: message.id, attachmentId: item.id,
-          parentJobId: job.id, config, apiKey, signal, onProgress: this.onProgress,
+          parentJobId: job.id, config, apiKey, signal, force, onProgress: this.onProgress,
         });
         signal.throwIfAborted();
         if (!this.repo.get('attachment', item.id)?.analysis?.trim())
@@ -152,7 +156,8 @@ export class AttachmentBatch {
     }
     const failed = job.attachmentItems.filter(item => item.status === 'failed').length;
     const completed = job.attachmentItems.filter(item => ['completed', 'existing'].includes(item.status)).length;
-    job.status = signal.aborted ? 'paused' : failed ? completed ? 'partial' : 'failed' : 'completed';
+    const pending = job.attachmentItems.some(item => ['pending','running'].includes(item.status));
+    job.status = signal.aborted ? 'paused' : failed ? completed ? 'partial' : 'failed' : pending ? completed ? 'partial' : 'paused' : 'completed';
     job.error = signal.aborted ? '批量理解已暂停，已完成的结果已保留。'
       : failed ? `${failed} 个附件理解失败，其余结果已保存，可只重试失败附件。` : null;
     this.save(job);

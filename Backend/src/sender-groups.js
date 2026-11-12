@@ -1,3 +1,4 @@
+import { messageHeaderJSON } from './message-header.js';
 import { parseSearch } from './search-query.js';
 
 function identity(row) {
@@ -47,10 +48,13 @@ export function senderMessagePage(repo, { accountId, folder, filter, query = '',
   const { where, params } = repo.messageWhere({ accountId, folder, filter, query });
   const { metadata, groups } = senderSnapshot(repo, where, params);
   const firstTerm = parseSearch(query).terms[0];
-  const header = repo.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML') AS data
+  const header = repo.db.prepare(`SELECT ${messageHeaderJSON()} AS data,
+    substr(json_extract(data,'$.body'),1,8192) AS previewBody,
+    substr(json_extract(data,'$.html'),1,32768) AS previewHTML
     FROM records WHERE kind='message' AND id=?`);
   const project = row => {
-    const message = repo.messageHeader(JSON.parse(header.get(row.id).data));
+    const projected = header.get(row.id);
+    const message = repo.messageHeader(JSON.parse(projected.data), { source: { body: projected.previewBody, html: projected.previewHTML } });
     return firstTerm ? { ...message, searchSnippet: repo.searchIndex.snippet(message.id, firstTerm) } : message;
   };
   if (senderGroup) {

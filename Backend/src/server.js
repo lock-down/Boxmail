@@ -1,3 +1,4 @@
+import { recoverInterruptedArchives } from './attachment-archive-store.js';
 import './check-node.js';
 import { textSlice, unicodeJSON } from './unicode.js';
 import http from 'node:http';
@@ -15,9 +16,11 @@ import { testAccount, syncAccount, updateMessage, restoreMessage, unarchiveMessa
 import { archiveRestoreFolder, trashRestoreFolder } from './mail-folders.js';
 import { runAgent, approveClassification, useReplyPreview, completion } from './agent.js';
 import { saveAttachment, attachmentBytes, removeUnusedAttachments } from './attachments.js';
+import { openArchive, archiveEntry } from './archive-service.js';
 import { seedDemo } from './demo.js';
 import { DEFAULT_AI, upgradeDefaultPrompts } from './ai-settings.js';
 import { Organizer } from './organizer.js';
+import { organizationPage } from './organization-page.js';
 import { createReplyDraft } from './reply.js';
 import { workbookPreview } from './workbook-preview.js';
 import { AttachmentBatch } from './attachment-batch.js';
@@ -69,6 +72,7 @@ export async function startServer({
         item.status === 'running' ? { ...item, status: 'pending', error: null } : item) } : {}),
       error: '应用关闭中断了任务，已完成的结果已保留，请重试',
     });
+  recoverInterruptedArchives(repo);
   const locks = new Set();
   const clearingTrash = new Set();
   let maintenance = false, activeWrites = 0;
@@ -154,13 +158,13 @@ export async function startServer({
       unarchiveFolder: archiveRestoreFolder(message, repo.get('account', message.accountId)) };
     return message;
   }
-  function state(compact = false, previews = true) {
+  function state(compact = false, previews = false) {
     const accounts = repo.list('account');
     return {
       accounts,
-      messages: (compact ? repo.messageHeaders(undefined, { previews }) : repo.search('')).map(presentMessage),
+      messages: (compact ? repo.messageHeaders(undefined, { previews }) : repo.messagePage({ limit: 200 }).messages).map(presentMessage),
       drafts: repo.draftHeaders(),
-      attachments: compact ? repo.attachmentHeaders() : repo.list('attachment'),
+      attachments: repo.attachmentHeaders(),
       jobs: (compact ? repo.jobHeaders() : repo.list('job'))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       settings: repo.get('settings', 'settings'),
@@ -197,11 +201,12 @@ export async function startServer({
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
       const route = url.pathname;
+      const archiveRequest = req.method === 'GET' && /^\/attachments\/[^/]+\/archive(?:\/[0-9]+)?$/.test(route);
       if (req.method === 'GET' && route === '/ai/events') {
         aiProgress.subscribe(res, { requestID });
         return;
       }
-      if (maintenance && req.method !== 'GET') throw new ServiceError('正在备份、恢复或重建索引，请稍候', 409);
+      if (maintenance && (req.method !== 'GET' || archiveRequest)) throw new ServiceError('正在备份、恢复或重建索引，请稍候', 409);
       let body = {};
       if (['POST', 'PATCH', 'PUT'].includes(req.method)) {
         let size = 0;
@@ -220,11 +225,11 @@ export async function startServer({
         if (!body || typeof body !== 'object' || Array.isArray(body))
           throw new ServiceError('请求格式错误');
       }
-      if (maintenance && req.method !== 'GET') throw new ServiceError('正在维护本机数据，请稍候', 409);
-      if (req.method !== 'GET') { activeWrites++; countedWrite = true; }
+      if (maintenance && (req.method !== 'GET' || archiveRequest)) throw new ServiceError('正在维护本机数据，请稍候', 409);
+      if (req.method !== 'GET' || archiveRequest) { activeWrites++; countedWrite = true; }
       let result;
       if (req.method === 'GET' && route === '/health') result = { ok: true };
-      else if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1', url.searchParams.get('previews') !== '0');
+      else if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1', url.searchParams.get('previews') === '1');
       else if (req.method === 'GET' && route === '/sync-status') result = syncStatus();
       else if (req.method === 'POST' && route === '/summaries/visibility') result = setSummaryVisibility(repo, body);
       else if (req.method === 'POST' && route === '/configuration/export') result = exportConfiguration(repo, body.settings);
@@ -256,6 +261,11 @@ export async function startServer({
             : await restoreBackup(repo, body.path, body.approved, { expectedSHA256: body.sha256 });
           if (route.endsWith('/restore')) { syncTasks.clear(); categoryCatalog(repo); }
         } finally { maintenance = false; }
+      }
+      else if (req.method === 'GET' && route === '/organization/messages') {
+        result = organizationPage(repo, { accountId: url.searchParams.get('accountId') || '',
+          category: url.searchParams.get('category') || '', offset: Number(url.searchParams.get('offset') || 0),
+          limit: Number(url.searchParams.get('limit') || 50) });
       }
       else if (req.method === 'GET' && route === '/messages') {
         const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 100);
@@ -303,10 +313,8 @@ export async function startServer({
       }
       else if (req.method === 'GET' && route === '/search')
         result = {
-          messages: repo.search(
-            url.searchParams.get('q') || '',
-            url.searchParams.get('accountId'),
-          ),
+          ...repo.messagePage({ query: url.searchParams.get('q') || '', accountId: url.searchParams.get('accountId'),
+            offset: Number(url.searchParams.get('offset') || 0), limit: 200 }),
         };
       else if (req.method === 'POST' && route === '/accounts/test')
         result = await mailTest(accountInput(body.account), body.password);
@@ -333,9 +341,9 @@ export async function startServer({
           || repo.activeDrafts(id).some(draft => draft.status === 'sending'))
           throw new ServiceError('账户正在执行任务，请完成后再移除', 409);
         const candidates = new Set(
-          [...repo.list('message'), ...repo.list('draft'),
-            ...repo.list('relocation').map(record => record.original),
-            ...repo.list('recovery').map(record => record.original)]
+          [...repo.messageCandidates({ accountId: id, limit: -1 }), ...repo.list('draft', { accountId: id }),
+            ...repo.list('relocation', { accountId: id }).map(record => record.original),
+            ...repo.list('recovery', { accountId: id }).map(record => record.original)]
             .filter((m) => m.accountId === id)
             .flatMap((m) => m.attachmentIds || []),
         );
@@ -351,7 +359,7 @@ export async function startServer({
             'recovery',
             'draftDeletion',
           ])
-            for (const v of repo.list(kind).filter((x) => x.accountId === id))
+            for (const v of (kind === 'message' ? repo.messageCandidates({accountId:id,limit:-1}) : repo.list(kind, {accountId:id})))
               repo.remove(kind, v.id);
         });
         await removeUnusedAttachments(repo, candidates);
@@ -487,7 +495,7 @@ export async function startServer({
         if (job.task === 'attachmentBatch' && locks.has('agent'))
           throw new ServiceError('AI 正在执行任务，请等待完成', 409);
         result = (job.task === 'attachmentBatch' ? attachmentBatch : organizer).start({ accountId: job.accountId, apiKey: body.apiKey,
-          config: requestedAI(body) }, id);
+          config: requestedAI(body), attachmentIds: body.attachmentIds, force: body.force }, id);
       } else if (req.method === 'POST' && route === '/agent') {
         const messageId = body.messageId || (body.attachmentId ? repo.get('attachment', body.attachmentId)?.messageId : null);
         const message = messageId ? repo.get('message', messageId) : null;
@@ -547,7 +555,9 @@ export async function startServer({
         if (!account)
           throw new ServiceError('请选择发送账户');
         const id = body.id || randomUUID();
+        if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new ServiceError('草稿标识无效');
         const old = repo.get('draft', id);
+        if (old && old.accountId !== body.accountId) throw new ServiceError('草稿不属于当前账户，请另存为新草稿', 409);
         const editableOld = old && upgradeForwardDraft(old,
           () => old.sourceMessageId ? repo.get('message', old.sourceMessageId) : null);
         if (body.bodyLoaded === false) throw new ServiceError('草稿正文尚未加载，请重新打开草稿后保存', 409);
@@ -579,6 +589,7 @@ export async function startServer({
         if (old && body.revision != null && body.revision !== draftRevision(editableOld)
           && draftRevision(saved) !== draftRevision(editableOld))
           throw new ServiceError('草稿已在其他位置更新，当前编辑内容仍保留。请另存为新草稿或重新打开服务器版本。', 409);
+        if (!account.isDemo && saved.remoteDraft && draftRevision(saved) === saved.remoteDraft.baseHash) saved.syncState = 'synced';
         if (saved.body.length > 500000) throw new ServiceError('草稿正文超过 500,000 个字符，请缩短正文后保存；转发原文请保留在引用区域。');
         result = { ...presentDraft(repo.put('draft', saved)), preview: draftPreview(saved, account) };
       } else if (req.method === 'DELETE' && route.startsWith('/drafts/')) {
@@ -610,9 +621,23 @@ export async function startServer({
           Buffer.from(body.content, 'base64'),
           body.contentType,
         );
+      } else if (req.method === 'GET' && route === '/attachments') {
+        const direction = url.searchParams.get('direction') || 'desc';
+        if (!['asc', 'desc'].includes(direction)) throw new ServiceError('附件排序方向无效');
+        result = repo.attachmentPage({ accountId: url.searchParams.get('accountId') || '',
+          query: textSlice(url.searchParams.get('q') || '', 0, 4000),
+          type: url.searchParams.get('type') || 'all', sort: url.searchParams.get('sort') || 'date',
+          ascending: direction === 'asc', offset: Number(url.searchParams.get('offset') || 0),
+          limit: Number(url.searchParams.get('limit') || 50) });
       } else if (req.method === 'GET' && route === '/attachments/search') {
         const query = textSlice(url.searchParams.get('q') || '', 0, 4000);
         result = { ids: repo.searchAttachmentIDs(query, url.searchParams.get('accountId') || '') };
+      } else if (req.method === 'GET' && /^\/attachments\/[^/]+\/archive$/.test(route)) {
+        const id = route.split('/')[2];
+        result = (await openArchive(repo, id)).archive;
+      } else if (req.method === 'GET' && /^\/attachments\/[^/]+\/archive\/[0-9]+$/.test(route)) {
+        const file = await archiveEntry(repo, route.split('/')[2], route.split('/')[4]);
+        result = { name: file.name, contentType: file.contentType, content: file.buffer.toString('base64') };
       } else if (req.method === 'GET' && /^\/attachments\/[^/]+\/preview$/.test(route)) {
         const a = await attachmentBytes(repo, route.split('/')[2]);
         if (!a.metadata.name.toLowerCase().endsWith('.xlsx')) throw new ServiceError('此格式请使用系统原文件预览');

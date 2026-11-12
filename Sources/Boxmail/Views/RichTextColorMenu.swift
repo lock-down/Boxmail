@@ -6,7 +6,7 @@ import SwiftUI
 struct RichTextColorMenu: NSViewRepresentable {
   static let colors: [(title: String, hex: String?)] = [
     ("默认", nil), ("黑色", "#000000"), ("灰色", "#606E82"), ("红色", "#B42318"),
-    ("橙色", "#98651F"), ("绿色", "#28745B"), ("蓝色", "#3567AF"), ("紫色", "#6941C6"),
+    ("橙色", "#BF5700"), ("绿色", "#28745B"), ("蓝色", "#3567AF"), ("紫色", "#6941C6"),
   ]
   let color: String?
   let mixed: Bool
@@ -46,6 +46,7 @@ struct RichTextColorMenu: NSViewRepresentable {
     focusRingType = .none
     let menu = NSMenu()
     menu.autoenablesItems = false
+    menu.font = .systemFont(ofSize: 12)
     menu.addItem(NSMenuItem(title: "文字颜色", action: nil, keyEquivalent: ""))
     for (index, option) in RichTextColorMenu.colors.enumerated() {
       let item = NSMenuItem(

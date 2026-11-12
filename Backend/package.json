@@ -1,6 +1,6 @@
 {
   "name": "boxmail-local-service",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "type": "module",
   "engines": {
@@ -24,7 +24,8 @@
     "openai": "7.19.0",
     "pdf-parse": "2.4.5",
     "pdfjs-dist": "5.4.296",
-    "sanitize-html": "2.18.0"
+    "sanitize-html": "2.18.0",
+    "yauzl": "3.4.0"
   },
   "devDependencies": {
     "smtp-server": "3.19.21"

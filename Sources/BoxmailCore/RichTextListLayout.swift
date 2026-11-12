@@ -11,13 +11,19 @@ public enum RichTextListLayout {
     return 0
   }
 
-  public static func normalize(_ text: NSMutableAttributedString) {
+  public static func normalize(
+    _ text: NSMutableAttributedString, range requestedRange: NSRange? = nil
+  ) {
     let source = text.string as NSString
-    var location = 0
-    var previousAttributes: [NSAttributedString.Key: Any] = [:]
+    let affected = requestedRange.map { source.paragraphRange(for: $0) }
+    var location = affected?.location ?? 0
+    let end = affected.map(NSMaxRange) ?? source.length
+    var previousAttributes: [NSAttributedString.Key: Any] =
+      location > 0
+      ? text.attributes(at: location - 1, effectiveRange: nil) : [:]
     text.beginEditing()
     defer { text.endEditing() }
-    while location < source.length {
+    while location < source.length && location < end {
       let range = source.paragraphRange(for: NSRange(location: location, length: 0))
       let line = source.substring(with: range).trimmingCharacters(in: .newlines)
       defer {

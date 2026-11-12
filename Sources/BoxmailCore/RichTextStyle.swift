@@ -17,7 +17,10 @@ public enum RichTextStyle {
   }
 
   public static func normalizedColor(_ value: String?) -> String? {
-    guard let value, value.range(of: #"^#[0-9a-fA-F]{6}$"#, options: .regularExpression) != nil
+    guard let value, value.utf8.count == 7, value.first == "#",
+      value.utf8.dropFirst().allSatisfy({
+        (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0)
+      })
     else { return nil }
     let color = value.uppercased()
     return color == defaultColor ? nil : color

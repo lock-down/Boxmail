@@ -77,7 +77,8 @@ test('legacy malformed MIME headers cannot poison startup snapshots, details or 
     const response = await get(route);
     const value = response.messages?.[0] ?? response;
     assert.ok(value.subject.isWellFormed(), route);
-    if (!route.includes('compact') && !route.includes('groupBy')) assert.equal(value.body, message.body);
+    if (route === '/messages/legacy') assert.equal(value.body, message.body);
+    else assert.equal(value.body,'');
   }
   assert.equal(app.repo.get('message', 'legacy').body, message.body);
   await app.repo.diagnostics.flush();

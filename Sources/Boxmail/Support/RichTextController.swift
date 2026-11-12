@@ -76,13 +76,16 @@ import Observation
       view.typingAttributes = attributes
       updateSelection()
     } else {
-      let value = NSMutableAttributedString(attributedString: storage)
+      let value = NSMutableAttributedString(
+        attributedString: storage.attributedSubstring(from: selection))
       storage.enumerateAttributes(in: selection) { attributes, range, _ in
         var attributes = attributes
         transform(&attributes)
-        value.setAttributes(attributes, range: range)
+        value.setAttributes(
+          attributes,
+          range: NSRange(location: range.location - selection.location, length: range.length))
       }
-      replace(value, selection: selection, name: name, affectedRange: selection)
+      replace(value, selection: selection, name: name, affectedRange: selection, fragment: true)
     }
   }
 
@@ -103,7 +106,9 @@ import Observation
     for index in before..<min(document.blocks.count, before + count) {
       document.blocks[index].kind = list == kind ? "paragraph" : kind
     }
-    replace(RichTextCodec.attributed(document), selection: selection, name: "列表")
+    let value = RichTextCodec.attributed(document)
+    replace(
+      value, selection: RichTextSelection.map(selection, from: storage, to: value), name: "列表")
   }
 
   @discardableResult func applyLink(_ value: String) -> Bool {
@@ -124,24 +129,22 @@ import Observation
   }
 
   private func replace(
-    _ value: NSAttributedString, selection: NSRange, name: String, affectedRange: NSRange? = nil
+    _ value: NSAttributedString, selection: NSRange, name: String, affectedRange: NSRange? = nil,
+    fragment: Bool = false
   ) {
     guard let view = textView, view.isEditable, let storage = view.textStorage else { return }
     view.breakUndoCoalescing()
     let range = affectedRange ?? NSRange(location: 0, length: storage.length)
-    let replacement =
-      value.string == storage.string
-      ? nil
-      : value.attributedSubstring(
-        from: NSRange(
-          location: range.location, length: value.length - storage.length + range.length)
-      ).string
-    guard
-      view.shouldChangeText(
-        in: range, replacementString: replacement)
-    else { return }
-    // TextKit owns the attributed undo record for precisely the affected range.
-    storage.setAttributedString(value)
+    let replacementRange =
+      fragment
+      ? NSRange(location: 0, length: value.length)
+      : NSRange(location: range.location, length: value.length - storage.length + range.length)
+    let replacement = value.attributedSubstring(from: replacementRange)
+    let plain =
+      replacement.string == storage.attributedSubstring(from: range).string
+      ? nil : replacement.string
+    guard view.shouldChangeText(in: range, replacementString: plain) else { return }
+    storage.replaceCharacters(in: range, with: replacement)
     let location = min(selection.location, storage.length)
     view.setSelectedRange(
       NSRange(location: location, length: min(selection.length, storage.length - location)))

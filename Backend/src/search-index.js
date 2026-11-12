@@ -152,7 +152,7 @@ export class SearchIndex {
       pending: db.prepare('SELECT COUNT(*) AS n FROM search_dirty').get().n,
       failed: db.prepare('SELECT COUNT(*) AS n FROM search_failures').get().n,
       updatedAt: db.prepare('SELECT updated_at FROM search_meta WHERE id=1').get()?.updated_at || null,
-      partial: this.repo.list('sync').some(item => item.hasMore || item.remaining > 0), version: INDEX_VERSION };
+      partial: this.repo.list('sync').some(item => item.folder !== 'drafts' && (item.hasMore || item.remaining > 0)), version: INDEX_VERSION };
   }
   snippet(id, term) {
     let text = this.repo.db.prepare('SELECT text FROM mail_fts WHERE rowid=(SELECT rowid FROM search_documents WHERE message_id=?)').get(id)?.text;

@@ -59,7 +59,7 @@ struct ConfigurationImportOutcome {
           "revision": candidate.plan.revision, "credentialReferences": references, "approved": true,
         ])
       }, current: {
-        let state: AppSnapshot = try await BackendService.shared.request("/state?compact=1", timeout: 10)
+        let state: AppSnapshot = try await BackendService.shared.request("/state?compact=1&previews=0", timeout: 10)
         return ConfigurationSnapshot(accounts: state.accounts, settings: state.settings,
           credentialsRequired: candidate.plan.credentialsRequired?.filter { !candidate.containsCredential($0) })
       })

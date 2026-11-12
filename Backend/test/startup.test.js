@@ -39,12 +39,12 @@ test('startup metadata defers body previews while the first page and legacy snap
   assert.ok(state.messages.every(message => message.bodyLoaded === false && message.body === '' && message.preview === ''));
   const page = await request('/messages?accountId=a&folder=inbox&limit=5');
   assert.equal(page.total, 20);
-  assert.equal(reads.length, 5);
+  assert.equal(reads.length, 0);
   assert.ok(page.messages.every(message => message.preview === '可读正文'));
   const next = await request('/state?compact=1&previews=0');
-  assert.equal(reads.length, 5);
+  assert.equal(reads.length, 0);
   assert.equal(next.messages.filter(message => message.preview === '可读正文').length, 5);
-  const legacy = await request('/state?compact=1');
+  const legacy = await request('/state?compact=1&previews=1');
   assert.ok(legacy.messages.every(message => message.preview === '可读正文'));
   assert.equal(repo.get('message', 'm0').preview, '过时预览');
 });
@@ -56,11 +56,11 @@ test('conversation graph reads only the bodies needed for the returned thread pa
   assert.equal(thread.total, 2);
   assert.equal(thread.messages[0].id, 'm0');
   assert.equal(thread.messages[0].preview, '可读正文');
-  assert.deepEqual(new Set(reads), new Set(['m0']));
+  assert.deepEqual(reads, []);
   reads.length = 0;
   const next = await request('/messages/m0/thread?limit=1&offset=1');
   assert.equal(next.messages[0].id, 'm1');
-  assert.deepEqual(new Set(reads), new Set(['m0', 'm1']));
+  assert.deepEqual(reads, []);
 });
 
 test('snapshot skips source bodies for replies and forwards that already have a saved quotation', async t => {
@@ -119,9 +119,26 @@ test('saving a light draft header is rejected before it can replace the complete
   const { repo, request, port } = await fixture(t);
   const draft = buildReplyDraft(repo.get('message', 'm0'), {}, { forward: true });
   repo.put('draft', draft);
-  const state = await request('/state?compact=1');
+  const state = await request('/state?compact=1&previews=1');
   const response = await fetch(`http://127.0.0.1:${port}/drafts`, { method: 'POST',
     headers: { 'X-Boxmail-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(state.drafts[0]) });
   assert.equal(response.status, 409);
   assert.deepEqual(repo.get('draft', draft.id), draft);
+});
+
+test('large recipient headers stay bounded in state, pages, groups and threads while details retain every address',async t=>{
+  const {repo,request,get,reads}=await fixture(t);
+  const recipients=Array.from({length:3000},(_,i)=>`Person ${i} <person${i}@example.test>`).join(', ');
+  repo.put('message',{...get('message','m0'),to:recipients,cc:recipients,bcc:recipients});
+  const state=await request('/state?compact=1&previews=0');
+  assert.ok(Buffer.byteLength(JSON.stringify(state))<200000);
+  const header=state.messages.find(message=>message.id==='m0');
+  assert.equal(header.to.length,2048);assert.equal(header.cc.length,2048);assert.equal(header.bcc.length,2048);
+  const normal=await request('/messages?accountId=a&limit=100');
+  assert.equal(normal.messages.find(message=>message.id==='m0').to.length,2048);
+  reads.length=0;
+  const grouped=await request('/messages?accountId=a&groupBy=sender&revealId=m0');
+  assert.equal(grouped.revealedMessage.to.length,2048);assert.equal(reads.length,0);
+  const thread=await request('/messages/m0/thread');assert.equal(thread.messages[0].to.length,2048);
+  const detail=await request('/messages/m0');assert.equal(detail.to,recipients);assert.equal(detail.cc,recipients);
 });

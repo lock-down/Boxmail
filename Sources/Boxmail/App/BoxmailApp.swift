@@ -8,13 +8,15 @@ import SwiftUI
   @FocusedValue(\.mailTriage) private var triage: MailStore?
   var body: some Scene {
     WindowGroup("Boxmail", id: "main") {
-      ContentView(store: store).frame(minWidth: 720, minHeight: 600).preferredColorScheme(.light)
+      ContentView(store: store).frame(
+        minWidth: MainWindowLayout.minimumSize.width, minHeight: MainWindowLayout.minimumSize.height
+      ).preferredColorScheme(.light)
         .task {
           delegate.store = store
           if !store.ready { await store.load() }
         }
     }
-    .defaultSize(width: 1440, height: 900)
+    .defaultSize(width: MainWindowLayout.defaultSize.width, height: MainWindowLayout.defaultSize.height)
     .windowStyle(.hiddenTitleBar)
     .commands {
       CommandGroup(replacing: .newItem) {

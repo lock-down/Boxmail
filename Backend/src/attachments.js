@@ -82,10 +82,11 @@ export async function attachmentBytes(repo, id) {
 }
 
 export async function removeUnusedAttachments(repo, ids) {
+  const candidates = new Set(ids);
+  if (!candidates.size) return;
   // Remove records before yielding to file I/O. A concurrent draft save then
   // cannot acquire a reference to a file that is already scheduled for removal.
   const files = repo.transaction(() => {
-    const candidates = new Set(ids);
     // Old sent drafts are delivery receipts. Their files belong to the Sent
     // message; stale receipt references must not prevent an approved purge.
     const receipts = repo.db.prepare(`SELECT id,json_extract(data,'$.attachmentIds') AS ids FROM records
@@ -171,13 +172,18 @@ export function reassignAttachments(repo, ids, messageId, ownerId) {
 export async function modelAttachment(repo, id, { signal } = {}) {
   signal?.throwIfAborted();
   const { metadata, buffer } = await attachmentBytes(repo, id);
+  return modelFile(buffer, metadata, { signal, diagnostics: repo.diagnostics });
+}
+
+export async function modelFile(buffer, metadata, { signal, diagnostics } = {}) {
+  signal?.throwIfAborted();
   const ext = path.extname(metadata.name).toLowerCase();
   const imageTypes = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
   const imageType = imageTypes[ext] || (Object.values(imageTypes).includes(metadata.contentType) ? metadata.contentType : null);
   if (imageType)
     return { kind: 'image', images: [{ name: metadata.name, contentType: imageType, buffer }] };
   if (isPresentation(metadata)) {
-    const parser = new MailContentWorker({ signal, diagnostics: repo.diagnostics });
+    const parser = new MailContentWorker({ signal, diagnostics });
     try {
       const result = await parser.run('presentation', buffer, { name: metadata.name, contentType: metadata.contentType, format: 'presentation' });
       for (const image of result.images || []) image.buffer = Buffer.from(image.buffer);
@@ -185,7 +191,7 @@ export async function modelAttachment(repo, id, { signal } = {}) {
     } finally { await parser.close(); }
   }
   if (ext === '.pdf' || metadata.contentType === 'application/pdf')
-    return processPDF(buffer, { name: metadata.name, signal, diagnostics: repo.diagnostics });
+    return processPDF(buffer, { name: metadata.name, signal, diagnostics });
   if (metadata.text?.trim()) return { kind: 'text', images: [] };
   throw new ServiceError('该附件格式暂不支持模型理解，请使用 PDF、PPT、PPTX、DOCX、XLSX、文本或 JPEG、PNG、GIF、WebP 图片');
 }

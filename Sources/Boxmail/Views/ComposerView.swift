@@ -42,7 +42,8 @@ struct ComposerView: View {
           ActionButton(title: sending ? "正在发送…" : "发送", icon: "paperplane", kind: .primary) {
             confirmSend = true
           }.disabled(
-            sending || importingAttachments || draft.status == "uncertain" || draft.to.isEmpty
+            sending || syncingDraft || importingAttachments || draft.status == "uncertain"
+              || draft.to.isEmpty
               || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
           HStack(spacing: 8) {
             Text("发件人").font(UIType.caption).foregroundStyle(Palette.muted)
@@ -146,7 +147,7 @@ struct ComposerView: View {
             writingAssistant.frame(width: 300)
           }
         }.disabled(sending || draft.status == "uncertain")
-      }.disabled(sending || closing || syncingDraft)
+      }.disabled(sending || closing)
     }.frame(minWidth: 680, minHeight: 480).background(.white).tint(Palette.blue)
       .interactiveDismissDisabled()
       .onChange(of: subjectFocused) { _, focused in
@@ -260,7 +261,7 @@ struct ComposerView: View {
         if store.accounts.first(where: { $0.id == draft.accountId })?.isDemo == false {
           ActionButton(title: syncingDraft ? "正在同步…" : "同步草稿", icon: "arrow.triangle.2.circlepath") {
             syncDraft()
-          }.disabled(store.busy.contains("sync"))
+          }.disabled(syncingDraft || store.busy.contains("sync"))
         }
         if saveError != nil {
           ActionButton(title: "另存为新草稿", icon: "doc.on.doc") { saveCopy() }
@@ -285,17 +286,24 @@ struct ComposerView: View {
       defer { syncingDraft = false }
       do {
         try await persist()
-        await store.syncAll(folder: "drafts", accountID: draft.accountId)
+        let syncedID = draft.id, syncedAccount = draft.accountId
+        await store.syncAll(folder: "drafts", accountID: syncedAccount)
+        guard draft.id == syncedID, draft.accountId == syncedAccount, store.composer?.id == syncedID
+        else { return }
         let current: MailDraft = try await store.backend.request("/drafts/\(draft.id)")
+        guard draft.id == syncedID, draft.accountId == syncedAccount, store.composer?.id == syncedID
+        else { return }
         if draft.hasSameContent(as: current) {
-          draft.revision = current.revision; draft.syncState = current.syncState; draft.syncError = current.syncError
+          draft.revision = current.revision; draft.syncState = current.syncState;
+          draft.syncError = current.syncError
         } else {
           saveError = "服务器草稿已更新，当前编辑内容仍保留，可另存为新草稿。"
         }
       } catch { saveError = error.localizedDescription }
     }
   }
-  private func recipientField(_ title: String, text: Binding<String>, others: [String]) -> some View {
+  private func recipientField(_ title: String, text: Binding<String>, others: [String]) -> some View
+  {
     HStack {
       Text(title).font(UIType.caption).foregroundStyle(Palette.muted).frame(width: 52, height: 30, alignment: .trailing)
       RecipientEntryView(title: title, accountID: draft.accountId, text: text, otherRecipients: others) { focused in
@@ -361,7 +369,7 @@ struct ComposerView: View {
     }
   }
   private func send() {
-    guard !sending, !closing, !importingAttachments, draft.status == "draft" else { return }
+    guard !sending, !syncingDraft, !closing, !importingAttachments, draft.status == "draft" else { return }
     let accountID = draft.accountId
     sending = true
     autosave?.cancel()

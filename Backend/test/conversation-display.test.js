@@ -130,7 +130,7 @@ test('repeated list refreshes reuse previews, and changed bodies invalidate them
   assert.equal(bodyReads, warmed);
   repo.put('message', { ...message, body: '新的正文\n-- \n新的签名' });
   assert.equal(repo.messageHeaders().find(m => m.id === 'selected').preview, '新的正文');
-  assert.equal(bodyReads, warmed + 1);
+  assert.equal(bodyReads, 0);
 });
 
 test('a rolled-back body edit cannot leak its preview into later lists', async t => {
@@ -248,4 +248,13 @@ test('draft search snippets retain quoted matches and fall back to the clean pre
   const subject = repo.messagePage({ query: 'folder:drafts 草稿' }).messages[0];
   assert.match(subject.searchSnippet, /草稿/);
   assert.doesNotMatch(subject.searchSnippet, /独特签名公司/);
+});
+
+
+test('bounded list preview projections retain sender metadata for signoff filtering',async t=>{
+  const repo=await fixture(t);
+  repo.put('message',{...repo.get('message','selected'),sender:'Alice',html:'',body:'Please review.\nBest regards,\nAlice\nCompany'});
+  assert.equal(repo.messageHeaders().find(message=>message.id==='selected').preview,'Please review.');
+  repo.invalidateMessagePreviews();
+  assert.equal(repo.messagePage({accountId:'a1'}).messages.find(message=>message.id==='selected').preview,'Please review.');
 });

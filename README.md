@@ -4,9 +4,11 @@
 
 Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通过本机 Node.js 服务连接 IMAP/SMTP 邮箱，以 SQLite 保存本机数据，支持通过 BYOK 接入兼容 OpenAI Responses、Chat Completions 或 Anthropic Messages 的 AI 服务。
 
-当前发布版本为 **0.1.7（build 46）**，源码标签为 `v0.1.7`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.1.7)。本次修复写信与回复时空地址框切换闪烁，完善富文本字号、颜色和列表标记。继续使用 pi-ai 1.3.0、内置 Node.js 26.13.0 LTS，最低运行时为 24.22.2 LTS。版本号以 [VERSION](VERSION) 为准，变化与验证范围见 [变更记录](CHANGELOG.md)。
+当前发布版本为 **0.1.8（build 47）**，源码标签为 `v0.1.8`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.1.8)。本版增加 ZIP 资料包理解、共用分页列表和原生窗口缩放，完善草稿同步、备份恢复及启动性能。继续使用 pi-ai 1.3.0、内置 Node.js 26.13.0 LTS，最低运行时为 24.22.2 LTS。版本号以 [VERSION](VERSION) 为准，变化与验证范围见 [变更记录](CHANGELOG.md)。
 
 写信格式栏提供常用字号、预设及自定文字颜色，列表编号与符号随正文格式调整；空收件人、抄送和密送之间切换保持稳定，输入关键词后的联系人补全继续保留。
+
+ZIP 资料包支持逐文件理解及带来源的整体整理。附件中心与智能整理共用圆角列表和分页栏，每页 50 条；附件可在当前账户内全局搜索、筛选和排序，智能整理按完整收件箱分类筛选。智能整理与摘要集合只在列表内部滚动，顶部操作保持固定；顶部空白处可双击，以原生动画最大化或还原窗口。写信格式栏、签名留白点击、草稿同步、备份恢复及启动快照也已改进，详细变化见变更记录。
 
 ## 功能
 
@@ -30,7 +32,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 ./script/build_and_run.sh
 ```
 
-脚本安装缺失的后端依赖，编译并打包本机服务及运行时，关闭已运行的 Boxmail，再启动 `dist/Boxmail.app`。Codex Run 使用同一入口；`swift run` 不会准备 App 所需的后端资源。
+脚本安装缺失的后端依赖，编译并打包本机服务及运行时，关闭已运行的 Boxmail，再启动 `dist/Boxmail.app`。日常开发版默认不生成演示数据，隔离验收模式 `--review` 保留演示数据。Codex Run 使用同一入口；`swift run` 不会准备 App 所需的后端资源。
 
 ```bash
 ./script/test.sh
@@ -38,7 +40,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI 构建界面，通�
 
 测试脚本先构建 PPT 原生渲染组件，再运行后端和 Swift 测试，使用临时数据及本机模拟服务。联调、签名及发布步骤见 [开发说明](docs/DEVELOPMENT.md)。
 
-0.1.7 完整回归通过 416 项后端测试和 179 项 Swift 测试，无失败或跳过。覆盖空地址框焦点切换及启用状态、富文本字号与色样、列表标记和撤销，以及既有凭证、草稿同步、会话、搜索、附件和大邮箱回归；发布验收与验证边界统一见开发说明。
+当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、工作区分页、预览临时文件清理、富文本连续编辑及窗口缩放。最新测试数量、性能结论、原生验收和真实服务验证范围统一见[变更记录](CHANGELOG.md#018--2026-11-12)，复现方法见[开发说明](docs/DEVELOPMENT.md)。已发布版本的验证基线保留在对应历史条目中。
 
 ## 安装包
 
@@ -79,7 +81,6 @@ Backend/test/                        后端回归测试及合成附件样例
 Tests/BoxmailCoreTests/               Swift 数据契约和行为测试
 Tests/BoxmailTests/                   客户端导航、选择与分页状态回归
 docs/                                使用指南、UI 规范、开发说明及路线
-Design/Exports/                      19 个 HTML/CSS 设计参考
 script/                              构建、启动、测试、打包和图标生成
 ```
 

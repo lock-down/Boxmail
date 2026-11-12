@@ -8,13 +8,17 @@ cd "$ROOT_DIR"
 NODE_BINARY="$(command -v node)"
 "$NODE_BINARY" Backend/src/check-node.js
 APP_VERSION="$(cat VERSION)"
-APP_BUILD="46"
+APP_BUILD="$(cat BUILD)"
+if [[ ! "$APP_BUILD" =~ ^[1-9][0-9]*$ ]]; then
+  echo "BUILD must contain a positive integer" >&2
+  exit 2
+fi
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VERSION must contain a version such as 0.1.0" >&2
   exit 2
 fi
 BUILD_CONFIGURATION="debug"
-DEMO_DATA="true"
+DEMO_DATA="false"
 APP_BUNDLE="$ROOT_DIR/dist/$APP_NAME.app"
 case "$MODE" in
 --review|review)
@@ -24,6 +28,7 @@ case "$MODE" in
   fi
   BUNDLE_ID="com.boxmail.desktop.review"
   APP_NAME="Boxmail Review"
+  DEMO_DATA="true"
   APP_BUNDLE="$ROOT_DIR/artifacts/ui-review/Boxmail Review.app"
   pkill -f "$APP_BUNDLE/Contents/MacOS/" >/dev/null 2>&1 || true
   ;;
@@ -122,7 +127,7 @@ codesign --verify --deep --strict "$APP_BUNDLE"
 # Finder shows the bundle directory's date, which does not track changes inside Contents.
 touch "$APP_BUNDLE"
 case "$MODE" in
---package|package) echo "已生成全新安装测试 App：$APP_BUNDLE" ;;
+--package|package) echo "已生成发布 App：$APP_BUNDLE" ;;
 --package-test|package-test) echo "已生成独立诊断修复测试 App：$APP_BUNDLE" ;;
 run) launch_app ;;
 --review|review) launch_app ;;

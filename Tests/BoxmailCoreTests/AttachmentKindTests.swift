@@ -18,7 +18,7 @@ import Testing
   #expect(AttachmentKind(name: "报告.pdf", contentType: "application/msword") == .pdf)
   #expect(AttachmentKind(name: "图片.png", contentType: "") == .image)
   #expect(AttachmentKind(name: "说明.txt", contentType: "") == .text)
-  #expect(AttachmentKind(name: "备份.zip", contentType: "application/zip") == .other)
+  #expect(AttachmentKind(name: "备份.zip", contentType: "application/zip") == .archive)
 }
 
 @Test func emptyPresentationHeadersAllowAIWithoutMistakingLegacySheetsForXLSXPreview() throws {
@@ -32,6 +32,8 @@ import Testing
   file.name = "新格式.xlsx"
   #expect(file.usesWorkbookPreview)
   file.name = "备份.zip"
+  #expect(file.isArchive && file.canAnalyze)
+  file.name = "未知.bin"
   #expect(!file.canAnalyze)
 }
 

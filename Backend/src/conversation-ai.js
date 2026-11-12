@@ -10,6 +10,8 @@ export function conversationContext(repo, messageId) {
   const chronological = [...thread.members].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0) || a.id.localeCompare(b.id));
   const included = chronological.slice(0, 50);
   if (!included.some(message => message.id === messageId)) included[included.length - 1] = thread.members[0];
+  const attachmentIDs = [...new Set(included.flatMap(message => (message.attachmentIds || []).slice(0,20)))];
+  const names = new Map(repo.db.prepare("SELECT id,json_extract(data,'$.name') AS name FROM records WHERE kind='attachment' AND id IN (SELECT value FROM json_each(?))").all(JSON.stringify(attachmentIDs)).map(row => [row.id,row.name]));
   let remaining = 120000;
   const sources = included.map(header => {
     const message = repo.get('message', header.id);
@@ -18,7 +20,7 @@ export function conversationContext(repo, messageId) {
     return { id: message.id, sender: message.sender, senderEmail: message.senderEmail, to: message.to,
       subject: message.subject, date: message.date, body, bodyTruncated: body.length < (message.body?.length || 0),
       attachments: (message.attachmentIds || []).slice(0, 20).map(id => {
-        const name = repo.db.prepare("SELECT json_extract(data,'$.name') AS name FROM records WHERE kind='attachment' AND id=?").get(id)?.name;
+        const name = names.get(id);
         return typeof name === 'string' ? textSlice(name, 0, 256) : null;
       }).filter(Boolean),
       attachmentsTruncated: (message.attachmentIds?.length || 0) > 20,

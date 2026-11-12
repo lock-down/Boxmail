@@ -68,6 +68,34 @@ test('complete backup restores records, attachment bytes, jobs, drafts and queue
   assert.equal(repo.get('draft', 'd').body, '恢复前修改');
 });
 
+test('backup attachment enumeration avoids hydrating archive details and full record lists', async t => {
+  const { repo, backup } = await fixture(t);
+  const archive = { hash: 'a'.repeat(64), totalFiles: 1, omitted: 0, status: 'completed', entries: [
+    { id: '0', name: 'good.txt', path: 'good.txt', contentType: 'text/plain', size: 10, status: 'completed', analysis: '分析'.repeat(10000) },
+  ] };
+  repo.put('attachment', { ...repo.get('attachment', 'f'), archive });
+  const list = repo.list.bind(repo), get = repo.get.bind(repo);
+  repo.list = (kind, ...args) => { assert.notEqual(kind, 'attachment'); return list(kind, ...args); };
+  repo.get = (kind, ...args) => { assert.notEqual(kind, 'archive'); return get(kind, ...args); };
+  const saved = await createBackup(repo, backup);
+  assert.equal(saved.counts.attachment, 1);
+  assert.equal((await inspectBackup(backup)).counts.attachment, 1);
+});
+
+test('startup discards corrupt running archive projections before recovering work', async t => {
+  const { repo } = await fixture(t);
+  repo.db.prepare("INSERT INTO records(kind,id,data) VALUES('archive','f',?)").run(JSON.stringify({ id: 'f', hash: 'bad', entries: [], status: 'running' }));
+  repo.db.prepare("UPDATE records SET data=json_set(data,'$.archiveInfo',json(?)) WHERE kind='attachment' AND id='f'")
+    .run(JSON.stringify({ status: 'running', totalFiles: 100 }));
+  const app = await startServer({ directory: repo.directory, token: 'corrupt-cache-startup-token-123456', demo: false });
+  try {
+    assert.equal(app.repo.get('attachment', 'f').archive, undefined);
+    const raw = JSON.parse(app.repo.db.prepare("SELECT data FROM records WHERE kind='attachment' AND id='f'").get().data);
+    assert.equal(raw.archiveInfo, undefined);
+    assert.equal(app.repo.get('archive', 'f'), null);
+  } finally { await app.close(); }
+});
+
 test('ZIP backups exclude local dotenv secrets and restore preserves the current credential file', async t => {
   const { repo, backup } = await fixture(t);
   const env = path.join(repo.directory, '.env');
@@ -357,4 +385,32 @@ test('HTTP full backup transfers all record kinds and attachment bytes to anothe
   assert.equal(target.repo.get('message', 'target-only').subject, '目标目录原有邮件');
   assert.equal(target.repo.get('draft', 'd').body, '目标目录原有草稿');
   assert.equal((await request(target, '/attachments/f')).body.content, Buffer.from('附件原始字节').toString('base64'));
+});
+
+test('restored drafts regenerate HTML from rich text and sanitize HTML-only and forwarded content', async t => {
+  const {repo,backup}=await fixture(t);
+  const draft=repo.get('draft','d');
+  repo.put('draft',{...draft,bodyHTML:'<img src="https://tracking.example.test/a"><script>bad()</script>',
+    richText:{blocks:[{kind:'paragraph',runs:[{text:'可信正文',bold:true}]}]},
+    forwardedHTML:'<p>引用</p><script>bad()</script>',forwardedText:'引用'});
+  repo.put('draft',{...draft,id:'html-only',bodyHTML:'<p>保留文字</p><img src="https://tracking.example.test/a"><script>bad()</script>'});
+  await createBackup(repo,backup);await restoreBackup(repo,backup,true);
+  const restored=repo.get('draft','d');
+  assert.equal(restored.body,'可信正文');assert.match(restored.bodyHTML,/<strong>可信正文/);
+  assert.doesNotMatch(restored.bodyHTML,/img|script|tracking/);
+  assert.doesNotMatch(restored.forwardedHTML,/script|bad\(\)/);
+  assert.equal(repo.get('draft','html-only').body,'保留文字');
+  assert.doesNotMatch(repo.get('draft','html-only').bodyHTML,/img|script|tracking/);
+});
+
+test('orphan archiveInfo in a backup is discarded and restored data can start the backend',async t=>{
+  const {repo,backup}=await fixture(t);
+  repo.db.prepare("UPDATE records SET data=json_set(data,'$.archiveInfo',json(?)) WHERE kind='attachment' AND id='f'")
+    .run(JSON.stringify({status:'running',totalFiles:1,completedCount:0,searchText:'forged cache'}));
+  await createBackup(repo,backup);
+  await restoreBackup(repo,backup,true);
+  assert.equal(repo.get('attachment','f').archiveInfo,undefined);
+  const app=await startServer({directory:repo.directory,token:'orphan-archive-restart-session-token',demo:false});
+  try { assert.equal(app.repo.get('attachment','f').archive,undefined); }
+  finally { await app.close(); }
 });

@@ -1,3 +1,5 @@
+import { DraftReadFailures, unresolvedDeletion } from './draft-sync-state.js';
+import { DraftSyncIndex } from './draft-sync-index.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
@@ -85,16 +87,27 @@ export async function syncRemoteDrafts(repo, account, client, { signal, timeoutM
   const path = account.folders.drafts;
   const scope = serverIdentity(account);
   const progressID = digest(`${account.id}:${path}`);
+  const previousFailures = repo.get('sync', progressID)?.readFailures;
+  let readFailures;
   let progress = { id: progressID, accountId: account.id, folder: 'drafts', remotePath: path,
     status: 'running', phase: 'inventory', total: 0, downloaded: 0, remaining: 0, hasMore: false };
-  const publish = changes => { progress = { ...progress, ...changes, updatedAt: new Date().toISOString() }; repo.put('sync', progress); };
+  const publish = changes => { progress = { ...progress, ...changes, ...(readFailures ? { readFailures: readFailures.snapshot() } : {}), updatedAt: new Date().toISOString() }; repo.put('sync', progress); };
   const perform = operation => imapOperation(client, operation, { signal, timeoutMs, phase: 'drafts' });
-  let lock;
+  let lock, index;
+  const warnings = [];
+  class DraftContentError extends ServiceError {}
+  const contentOperation = async operation => {
+    try { return await operation(); } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new DraftContentError(error instanceof ServiceError ? error.message : '服务器草稿格式无法读取，请在网页版检查。');
+    }
+  };
   publish({});
   try {
     lock = await perform(() => client.getMailboxLock(path));
     const { fetched, validity } = await mailboxMetadata(client, path, { signal, timeoutMs,
       onInventory: inventory => publish({ inventory }) });
+    readFailures = new DraftReadFailures(previousFailures, scope, validity, fetched);
     migrateCachedDrafts(repo, account, path);
     for (const draft of repo.activeDrafts(account.id)) {
       const binding = draft.remotePending || draft.remoteDraft;
@@ -104,117 +117,140 @@ export async function syncRemoteDrafts(repo, account, client, { signal, timeoutM
     }
     for (const deletion of repo.list('draftDeletion', { accountId: account.id }))
       if (deletion.serverIdentity !== scope) repo.remove('draftDeletion', deletion.id);
+    index = new DraftSyncIndex(repo, account.id);
     const knownUIDs = new Set(fetched.map(item => item.uid));
     const activeUIDs = new Set(fetched.filter(item => !item.flags.has('\\Deleted')).map(item => item.uid));
     const stable = async () => {
-      const current = await perform(() => client.search({ all: true }, { uid: true }));
-      if (String(client.mailbox?.uidValidity) !== validity || !Array.isArray(current)
-        || current.length !== knownUIDs.size || current.some(uid => !knownUIDs.has(uid)))
-        throw new ServiceError('服务器草稿在同步期间发生变化，已保留双方内容，请再次同步。', 409);
+      const status = await perform(() => client.status(path, { uidValidity: true }));
+      if (String(client.mailbox?.uidValidity) !== validity || String(status?.uidValidity) !== validity)
+        throw new ServiceError('服务器草稿文件夹身份已变化，已保留双方内容，请再次同步。', 409);
     };
+    const unconfirmedDeletes = new Set();
     const deleteUID = async uid => {
+      if (unconfirmedDeletes.has(uid)) return false;
       if (!client.capabilities?.has('UIDPLUS'))
         throw new ServiceError('服务器不支持安全的单封草稿清理（UIDPLUS），已保留旧副本，请在网页版清理。', 409);
       await stable();
-      if (!await perform(() => client.messageDelete(uid, { uid: true })))
-        throw new ServiceError('服务器未确认草稿清理，下次同步会重试。', 502);
+      if (!await perform(() => client.messageDelete(uid, { uid: true }))) {
+        const remaining = await perform(() => client.fetchOne(uid, { uid: true }, { uid: true }));
+        await stable();
+        if (remaining !== false) {
+          unconfirmedDeletes.add(uid);
+          warnings.push('服务器未确认一封草稿的清理，删除意图已保留，下次同步重试。');
+          return false;
+        }
+      }
       knownUIDs.delete(uid);
+      readFailures.remove(uid);
+      return true;
     };
-    const pendingDeletes = repo.list('draftDeletion', { accountId: account.id }).filter(item => item.path === path);
-    const matched = new Set();
+    const matched = new Set(), unreadable = [];
     publish({ total: fetched.length, remaining: fetched.length, phase: 'download' });
     for (const remote of fetched.sort((a, b) => b.uid - a.uid)) {
       signal?.throwIfAborted();
       if (remote.flags.has('\\Deleted')) continue;
-      const direct = repo.activeDrafts(account.id).find(draft => matches(draft.remoteDraft, path, validity, remote.uid));
-      const deletion = repo.list('draftDeletion', { accountId: account.id }).find(item => matches(item, path, validity, remote.uid));
-      if (deletion) {
-        await deleteUID(remote.uid); repo.remove('draftDeletion', deletion.id);
-      } else if (direct) {
-        matched.add(direct.id);
-      } else {
-        if (remote.size > 25 * 1024 * 1024)
-          throw new ServiceError('服务器草稿超过 25 MB，已保留本机版本，请在网页版处理。', 502);
-        const source = await messageSource(client, remote, { signal, timeoutMs });
-        if (!source) throw new ServiceError('服务器未完整返回草稿正文，未覆盖本机草稿。', 502);
-        const mime = await contentWorker.run('mime', source);
-        const { parsed, content } = mime, contentHash = mimeHash(mime);
-        const removedDuringParse = repo.list('draftDeletion', { accountId: account.id })
-          .find(item => matches(item, path, validity, remote.uid));
-        if (removedDuringParse) {
-          await deleteUID(remote.uid); repo.remove('draftDeletion', removedDuringParse.id); continue;
-        }
-        const token = parsed.draftToken;
-        const deletionByToken = token && pendingDeletes.find(item => item.token === token);
-        if (deletionByToken) {
-          await deleteUID(remote.uid); repo.remove('draftDeletion', deletionByToken.id);
-          continue;
-        }
-        const candidates = repo.activeDrafts(account.id);
-        const pending = token && candidates.find(draft => draft.remotePending?.token === token);
-        let existing = pending || candidates.find(draft => !matched.has(draft.id)
-          && draft.remoteDraft?.path === path
-          && (token && draft.remoteDraft.token === token
-            || parsed.messageId && draft.remoteDraft.messageId === parsed.messageId)
-          && !matches(draft.remoteDraft, path, validity, remote.uid)
-          && (draft.remoteDraft.uidValidity !== validity || !activeUIDs.has(draft.remoteDraft.uid)));
-        if (pending && pending.remotePending.contentHash === contentHash) {
-          const intent = pending.remotePending;
-          const binding = { path, uid: remote.uid, uidValidity: validity, messageId: parsed.messageId,
-            token, contentHash, baseHash: intent.baseHash, serverIdentity: scope };
-          repo.put('draft', { ...pending, remoteDraft: binding, remotePending: null, syncError: null,
-            syncState: draftRevision(pending) === intent.baseHash ? 'synced' : 'pending' });
-          if (matches(intent.previous, path, validity, intent.previous?.uid) && knownUIDs.has(intent.previous.uid)) {
-            repo.put('draftDeletion', { ...intent.previous, id: randomUUID(), accountId: account.id });
-          }
-          matched.add(pending.id);
-        } else if (existing && existing.remoteDraft?.contentHash === contentHash) {
-          repo.put('draft', { ...existing, remoteDraft: { ...existing.remoteDraft, uid: remote.uid, uidValidity: validity },
-            syncState: draftRevision(existing) === existing.remoteDraft.baseHash ? 'synced' : 'pending', syncError: null });
-          matched.add(existing.id);
+      let identity;
+      try {
+        const direct = index.direct(path, validity, remote.uid);
+        const deletion = index.deletion(path, validity, remote.uid);
+        if (deletion) {
+          if (await deleteUID(remote.uid)) repo.remove('draftDeletion', deletion.id);
+        } else if (direct) {
+          matched.add(direct.id);
         } else {
-          // Prepare files first; compare again after every await before deciding
-          // whether a concurrent local edit needs its own conflict copy.
-          const expectedID = existing?.id;
-          const id = expectedID || randomUUID(), prepared = [];
-          let committed = false;
-          try {
-            for (const file of parsed.attachments || []) prepared.push(await prepareAttachment(repo, id,
-              file.filename || '附件', file.content, file.contentType, { signal, contentWorker }));
-            const rich = importedBody(content);
-            const imported = { id, accountId: account.id, to: parsed.to?.text || '', cc: parsed.cc?.text || '',
-              bcc: parsed.bcc?.text || '', subject: parsed.subject || '', ...rich,
-              attachmentIds: prepared.map(file => file.id), inReplyTo: parsed.inReplyTo || '',
-              references: typeof parsed.references === 'string' ? [parsed.references] : parsed.references || [],
-              status: 'draft', updatedAt: new Date().toISOString(), syncState: 'synced',
-              remoteDraft: { path, uid: remote.uid, uidValidity: validity, messageId: parsed.messageId || '', token,
-                contentHash, baseHash: '', serverIdentity: scope } };
-            imported.remoteDraft.baseHash = draftRevision(imported);
-            let oldFiles = [];
-            repo.transaction(() => {
-              existing = existing && repo.get('draft', existing.id);
-              if (expectedID && !existing)
-                throw new ServiceError('草稿已在本机移除，未重新创建；下次同步将核对服务器副本。', 409);
-              if (existing && existing.accountId !== account.id)
-                throw new ServiceError('草稿的发件账户已改变，本机修改仍保留，请再次同步。', 409);
-              if (existing && existing.status !== 'draft') throw new ServiceError('草稿正在发送，服务器版本将在下次同步读取。', 409);
-              if (existing && draftRevision(existing) !== (existing.remoteDraft?.baseHash || existing.remotePending?.baseHash)) {
-                const copy = { ...existing, id: randomUUID(), remoteDraft: null, remotePending: null,
-                  conflictOf: id, syncState: 'conflict', updatedAt: new Date().toISOString(),
-                  syncError: '本机与服务器均有修改，已分别保留。本份为本机副本，可继续编辑或同步为新草稿。' };
-                repo.put('draft', copy);
-                imported.syncError = '发现同时编辑，服务器版本与本机冲突副本已分别保留。';
-              } else oldFiles = existing?.attachmentIds || [];
-              for (const file of prepared) repo.put('attachment', file);
-              repo.put('draft', imported);
-            });
-            committed = true;
-            if (oldFiles.length) await removeUnusedAttachments(repo, oldFiles);
-            matched.add(id);
-          } finally {
-            if (!committed) await Promise.allSettled(prepared.map(file => rm(file.path, { force: true })));
+          const cached = readFailures.cached(remote);
+          if (cached) throw Object.assign(new DraftContentError(cached.error), { cachedFailure: cached });
+          if (remote.size > 25 * 1024 * 1024)
+            throw new DraftContentError('服务器草稿超过 25 MB，已保留本机版本，请在网页版处理。', 502);
+          const source = await messageSource(client, remote, { signal, timeoutMs });
+          if (!source) throw new DraftContentError('服务器暂未完整返回草稿正文，本机草稿已保留，稍后会再次核对。');
+          const mime = await contentOperation(() => contentWorker.run('mime', source));
+          const { parsed, content } = mime, contentHash = mimeHash(mime);
+          identity = { token: parsed.draftToken, messageId: parsed.messageId };
+          const removedDuringParse = index.deletion(path, validity, remote.uid);
+          if (removedDuringParse) {
+            if (await deleteUID(remote.uid)) repo.remove('draftDeletion', removedDuringParse.id);
+            continue;
+          }
+          const token = parsed.draftToken;
+          const deletionByToken = index.deletion(path, validity, remote.uid, token, parsed.messageId);
+          if (deletionByToken) {
+            if (await deleteUID(remote.uid)) repo.remove('draftDeletion', deletionByToken.id);
+            continue;
+          }
+          const candidates = index.candidates(token, parsed.messageId);
+          const pending = token && candidates.find(draft => draft.remotePending?.token === token);
+          let existing = pending || candidates.find(draft => !matched.has(draft.id)
+            && draft.remoteDraft?.path === path
+            && (token && draft.remoteDraft.token === token
+              || parsed.messageId && draft.remoteDraft.messageId === parsed.messageId)
+            && !matches(draft.remoteDraft, path, validity, remote.uid)
+            && (draft.remoteDraft.uidValidity !== validity || !activeUIDs.has(draft.remoteDraft.uid)));
+          if (existing) existing = repo.get('draft', existing.id);
+          const currentPending = pending && repo.get('draft', pending.id);
+          if (currentPending && currentPending.remotePending?.contentHash === contentHash) {
+            const intent = currentPending.remotePending;
+            const binding = { path, uid: remote.uid, uidValidity: validity, messageId: parsed.messageId,
+              token, contentHash, baseHash: intent.baseHash, serverIdentity: scope };
+            repo.put('draft', { ...currentPending, remoteDraft: binding, remotePending: null, syncError: null,
+              syncState: draftRevision(currentPending) === intent.baseHash ? 'synced' : 'pending' });
+            if (matches(intent.previous, path, validity, intent.previous?.uid) && knownUIDs.has(intent.previous.uid)) {
+              repo.put('draftDeletion', { ...intent.previous, id: randomUUID(), accountId: account.id });
+            }
+            matched.add(pending.id);
+          } else if (existing && existing.remoteDraft?.contentHash === contentHash) {
+            repo.put('draft', { ...existing, remoteDraft: { ...existing.remoteDraft, uid: remote.uid, uidValidity: validity },
+              syncState: draftRevision(existing) === existing.remoteDraft.baseHash ? 'synced' : 'pending', syncError: null, remoteReadBlocked: false });
+            matched.add(existing.id);
+          } else {
+            // Prepare files first; compare again after every await before deciding
+            // whether a concurrent local edit needs its own conflict copy.
+            const expectedID = existing?.id;
+            const id = expectedID || randomUUID(), prepared = [];
+            let committed = false;
+            try {
+              for (const file of parsed.attachments || []) prepared.push(await prepareAttachment(repo, id,
+                file.filename || '附件', file.content, file.contentType, { signal, contentWorker }));
+              const rich = await contentOperation(() => importedBody(content));
+              const imported = { id, accountId: account.id, to: parsed.to?.text || '', cc: parsed.cc?.text || '',
+                bcc: parsed.bcc?.text || '', subject: parsed.subject || '', ...rich,
+                attachmentIds: prepared.map(file => file.id), inReplyTo: parsed.inReplyTo || '',
+                references: typeof parsed.references === 'string' ? [parsed.references] : parsed.references || [],
+                status: 'draft', updatedAt: new Date().toISOString(), syncState: 'synced',
+                remoteDraft: { path, uid: remote.uid, uidValidity: validity, messageId: parsed.messageId || '', token,
+                  contentHash, baseHash: '', serverIdentity: scope } };
+              imported.remoteDraft.baseHash = draftRevision(imported);
+              let oldFiles = [];
+              repo.transaction(() => {
+                existing = existing && repo.get('draft', existing.id);
+                if (expectedID && !existing)
+                  throw new DraftContentError('草稿已在本机移除，未重新创建；下次同步将核对服务器副本。', 409);
+                if (existing && existing.accountId !== account.id)
+                  throw new DraftContentError('草稿的发件账户已改变，本机修改仍保留，请再次同步。', 409);
+                if (existing && existing.status !== 'draft') throw new DraftContentError('草稿正在发送，服务器版本将在下次同步读取。', 409);
+                if (existing && draftRevision(existing) !== (existing.remoteDraft?.baseHash || existing.remotePending?.baseHash)) {
+                  const copy = { ...existing, id: randomUUID(), remoteDraft: null, remotePending: null,
+                    conflictOf: id, syncState: 'conflict', updatedAt: new Date().toISOString(),
+                    syncError: '本机与服务器均有修改，已分别保留。本份为本机副本，可继续编辑或同步为新草稿。' };
+                  repo.put('draft', copy);
+                  imported.syncError = '发现同时编辑，服务器版本与本机冲突副本已分别保留。';
+                } else oldFiles = existing?.attachmentIds || [];
+                for (const file of prepared) repo.put('attachment', file);
+                repo.put('draft', imported);
+              });
+              committed = true;
+              if (oldFiles.length) await removeUnusedAttachments(repo, oldFiles);
+              matched.add(id);
+            } finally {
+              if (!committed) await Promise.allSettled(prepared.map(file => rm(file.path, { force: true })));
+            }
           }
         }
+        readFailures.remove(remote.uid);
+      } catch (error) {
+        if (!(error instanceof DraftContentError)) throw error;
+        unreadable.push(error.cachedFailure || readFailures.record(remote, error.message, identity));
+        warnings.push(`服务器草稿 UID ${remote.uid}：${error.message}`);
       }
       publish({ downloaded: progress.downloaded + 1, remaining: Math.max(0, progress.remaining - 1) });
     }
@@ -223,66 +259,92 @@ export async function syncRemoteDrafts(repo, account, client, { signal, timeoutM
     await stable();
     for (const draft of repo.activeDrafts(account.id)) {
       if (draft.remoteDraft?.path !== path || matched.has(draft.id)) continue;
+      const uncertain = unreadable.some(item => !item.token && !item.messageId
+        || item.token && item.token === draft.remoteDraft.token
+        || item.messageId && item.messageId === draft.remoteDraft.messageId);
+      if (uncertain) {
+        repo.put('draft', { ...draft, syncState: 'conflict', remoteReadBlocked: true,
+          syncError: '服务器草稿暂时无法读取，本机内容及服务器绑定已保留，待服务器版本可读取后继续核对。' });
+        continue;
+      }
       repo.put('draft', { ...draft, remoteDraft: null, remotePending: null, syncState: 'conflict',
         syncError: '服务器草稿已删除或文件夹身份已变化，本机内容仍保留。确认后可同步为新草稿。' });
     }
+    let manualDeletions = 0;
     for (const deletion of repo.list('draftDeletion', { accountId: account.id }).filter(item => item.path === path)) {
-      if (deletion.uidValidity === validity && knownUIDs.has(deletion.uid)) await deleteUID(deletion.uid);
-      repo.remove('draftDeletion', deletion.id);
+      if (deletion.uidValidity === validity) {
+        if (!knownUIDs.has(deletion.uid) || await deleteUID(deletion.uid)) repo.remove('draftDeletion', deletion.id);
+      } else {
+        const pending = unresolvedDeletion(repo, deletion);
+        if (pending.reviewRequired) manualDeletions++;
+        else warnings.push('部分已删除草稿的服务器身份已变化，删除意图已保留，将在下次同步继续核对。');
+      }
     }
+    if (manualDeletions) warnings.push(`${manualDeletions} 份草稿删除意图连续三轮无法核对，已转为人工处理，请在网页版确认；记录仍保留在备份中。`);
     publish({ phase: 'upload' });
-    for (const header of repo.activeDrafts(account.id)) {
+    for (const header of repo.draftSyncHeaders(account.id)) {
       const draft = repo.get('draft', header.id);
-      if (draft.status !== 'draft' || typeof draft.body !== 'string' || draft.syncState === 'conflict'
-        || draft.remoteDraft && draftRevision(draft) === draft.remoteDraft.baseHash) continue;
-      const files = [];
-      let attachmentSize = 0;
-      for (const id of draft.attachmentIds || []) {
-        const { metadata, buffer } = await attachmentBytes(repo, id);
-        attachmentSize += buffer.length;
-        if (attachmentSize > 25 * 1024 * 1024)
-          throw new ServiceError('草稿附件合计超过服务器草稿的 25 MB 上限，已保留本机版本。');
-        files.push({ filename: metadata.name, contentType: metadata.contentType, content: buffer });
+      if (!draft || draft.accountId !== account.id || draft.status !== 'draft' || typeof draft.body !== 'string' || draft.syncState === 'conflict') continue;
+      if (draft.remoteDraft && draftRevision(draft) === draft.remoteDraft.baseHash) {
+        if (draft.syncState !== 'synced' || draft.syncError) repo.put('draft', { ...draft, syncState: 'synced', syncError: null });
+        continue;
       }
-      signal?.throwIfAborted();
-      const content = draftContent(draft), token = randomUUID();
-      const messageId = draft.remoteDraft?.messageId || `<${randomUUID()}@boxmail.draft>`;
-      const composer = new MailComposer({ from: { name: account.name, address: account.email },
-        to: draft.to || undefined, cc: draft.cc || undefined, bcc: draft.bcc || undefined, keepBcc: true,
-        subject: draft.subject, text: content.text, html: inlineForwardImages(syncHTML(draft, content), files), attachments: files,
-        inReplyTo: draft.inReplyTo || undefined, references: draft.references?.length ? draft.references : undefined,
-        messageId, headers: { 'X-Boxmail-Draft-Token': token }, disableFileAccess: true, disableUrlAccess: true }).compile();
-      composer.keepBcc = true;
-      const raw = await composer.build();
-      if (raw.length > 25 * 1024 * 1024)
-        throw new ServiceError('草稿正文与附件编码后超过 25 MB，已保留本机版本，请缩小附件后同步。');
-      const contentHash = mimeHash(await contentWorker.run('mime', raw));
-      const intent = { path, token, messageId, contentHash, baseHash: draftRevision(draft),
-        previous: draft.remoteDraft || null, serverIdentity: scope };
-      await stable();
-      const latest = repo.get('draft', draft.id);
-      if (!latest || latest.status !== 'draft' || latest.accountId !== account.id) continue;
-      repo.put('draft', { ...latest, remotePending: intent, syncState: 'pending' });
-      const appended = await perform(() => client.append(path, raw, ['\\Draft', '\\Seen']));
-      if (!appended?.uid || String(appended.uidValidity) !== validity)
-        throw new ServiceError('服务器尚未确认草稿编号，本机内容与同步意图已保存，请再次同步核对。', 502);
-      knownUIDs.add(appended.uid);
-      const current = repo.get('draft', draft.id);
-      const binding = { path, token, messageId, contentHash, baseHash: intent.baseHash, uid: appended.uid,
-        uidValidity: validity, serverIdentity: scope };
-      if (current && current.status === 'draft' && current.accountId === account.id) repo.put('draft', { ...current, remoteDraft: binding,
-        remotePending: null, syncError: null, syncState: draftRevision(current) === intent.baseHash ? 'synced' : 'pending' });
-      else repo.put('draftDeletion', { ...binding, id: randomUUID(), accountId: account.id });
-      if (draft.remoteDraft?.uidValidity === validity && knownUIDs.has(draft.remoteDraft.uid)) {
-        const deletion = { ...draft.remoteDraft, id: randomUUID(), accountId: account.id };
-        repo.put('draftDeletion', deletion);
-        await deleteUID(draft.remoteDraft.uid); repo.remove('draftDeletion', deletion.id);
+      try {
+        const files = [];
+        let attachmentSize = 0;
+        for (const id of draft.attachmentIds || []) {
+          const { metadata, buffer } = await contentOperation(() => attachmentBytes(repo, id));
+          attachmentSize += buffer.length;
+          if (attachmentSize > 25 * 1024 * 1024)
+            throw new DraftContentError('草稿附件合计超过服务器草稿的 25 MB 上限，已保留本机版本。');
+          files.push({ filename: metadata.name, contentType: metadata.contentType, content: buffer });
+        }
+        signal?.throwIfAborted();
+        const content = draftContent(draft), token = randomUUID();
+        const messageId = draft.remoteDraft?.messageId || `<${randomUUID()}@boxmail.draft>`;
+        const composer = new MailComposer({ from: { name: account.name, address: account.email },
+          to: draft.to || undefined, cc: draft.cc || undefined, bcc: draft.bcc || undefined,
+          subject: draft.subject, text: content.text, html: inlineForwardImages(syncHTML(draft, content), files), attachments: files,
+          inReplyTo: draft.inReplyTo || undefined, references: draft.references?.length ? draft.references : undefined,
+          messageId, headers: { 'X-Boxmail-Draft-Token': token }, disableFileAccess: true, disableUrlAccess: true }).compile();
+        composer.keepBcc = true;
+        const raw = await composer.build();
+        if (raw.length > 25 * 1024 * 1024)
+          throw new DraftContentError('草稿正文与附件编码后超过 25 MB，已保留本机版本，请缩小附件后同步。');
+        const contentHash = mimeHash(await contentWorker.run('mime', raw));
+        const intent = { path, token, messageId, contentHash, baseHash: draftRevision(draft),
+          previous: draft.remoteDraft || null, serverIdentity: scope };
+        await stable();
+        const latest = repo.get('draft', draft.id);
+        if (!latest || latest.status !== 'draft' || latest.accountId !== account.id) continue;
+        repo.put('draft', { ...latest, remotePending: intent, syncState: 'pending' });
+        const appended = await perform(() => client.append(path, raw, ['\\Draft', '\\Seen']));
+        if (!appended?.uid || String(appended.uidValidity) !== validity)
+          throw new ServiceError('服务器尚未确认草稿编号，本机内容与同步意图已保存，请再次同步核对。', 502);
+        knownUIDs.add(appended.uid);
+        const current = repo.get('draft', draft.id);
+        const binding = { path, token, messageId, contentHash, baseHash: intent.baseHash, uid: appended.uid,
+          uidValidity: validity, serverIdentity: scope };
+        if (current && current.status === 'draft' && current.accountId === account.id) repo.put('draft', { ...current, remoteDraft: binding,
+          remotePending: null, syncError: null, syncState: draftRevision(current) === intent.baseHash ? 'synced' : 'pending' });
+        else repo.put('draftDeletion', { ...binding, id: randomUUID(), accountId: account.id });
+        if (draft.remoteDraft?.uidValidity === validity && knownUIDs.has(draft.remoteDraft.uid)) {
+          const deletion = { ...draft.remoteDraft, id: randomUUID(), accountId: account.id };
+          repo.put('draftDeletion', deletion);
+          if (await deleteUID(draft.remoteDraft.uid)) repo.remove('draftDeletion', deletion.id);
+        }
+      } catch (error) {
+        if (!(error instanceof DraftContentError)) throw error;
+        const current = repo.get('draft', draft.id);
+        if (current?.accountId === account.id && current.status === 'draft')
+          repo.put('draft', { ...current, syncState: 'pending', syncError: error.message });
+        warnings.push(error.message);
       }
     }
-    publish({ status: 'completed', phase: 'completed', remaining: 0, lastError: null });
+    publish({ status: 'completed', phase: 'completed', remaining: 0, lastError: warnings.length ? [...new Set(warnings)].join('\n') : null });
   } catch (error) {
     publish({ status: signal?.aborted ? 'paused' : 'failed', lastError: error instanceof ServiceError
       ? error.message : '服务器草稿同步未完成，本机内容已保留，可再次同步。' });
     throw error;
-  } finally { lock?.release(); }
+  } finally { index?.close(); lock?.release(); }
 }
