@@ -7,9 +7,11 @@ struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
   @ViewBuilder var footer: () -> Footer
 
   var body: some View {
-    VStack(spacing: 0) {
+    VStack(alignment: .leading, spacing: 0) {
       header()
-      OverlayScrollView { content() }
+      OverlayScrollView {
+        content().frame(maxWidth: .infinity, alignment: .leading)
+      }
       footer()
     }
     .background(Palette.paper)
@@ -25,6 +27,7 @@ struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
 /// Data-driven rows use the same surface as richer summary and streaming lists.
 struct WorkspaceList<Item: Identifiable, Header: View, Row: View, Footer: View>: View {
   let items: [Item]
+  var emptyMessage: String? = nil
   @ViewBuilder var header: () -> Header
   @ViewBuilder var footer: () -> Footer
   @ViewBuilder var row: (Item) -> Row
@@ -39,7 +42,11 @@ struct WorkspaceList<Item: Identifiable, Header: View, Row: View, Footer: View>:
     }
   }
   private var rows: some View {
-    LazyVStack(spacing: 0) {
+    LazyVStack(alignment: .leading, spacing: 0) {
+      if items.isEmpty, let emptyMessage {
+        Text(emptyMessage).font(UIType.caption).foregroundStyle(Palette.muted)
+          .frame(maxWidth: .infinity).padding(32)
+      }
       ForEach(items) { item in
         row(item)
         if item.id != items.last?.id { Divider().overlay(Palette.softBorder) }

@@ -336,9 +336,6 @@ import SwiftUI
   func restore(_ message: MailMessage) {
     restoreMessages([message])
   }
-  func unarchive(_ message: MailMessage) {
-    restoreMessages([message])
-  }
   func emptyTrash(account: MailAccount) {
     action("empty-trash-\(account.id)") {
       var input: [String: Any] = ["accountId": account.id, "approved": true]
@@ -380,6 +377,7 @@ import SwiftUI
     prompt: String = "", body: String = "", tone: String = "正式", length: String = "适中",
     replyPreset: ReplyPreset? = nil, preview: Bool = false, background: Bool = false
   ) async throws -> AgentJob {
+    let runsInBackground = background || ["summary", "reply"].contains(task)
     guard !busy.contains("agent") else { throw self.backend.failure("AI 正在执行任务，请稍候") }
     busy.insert("agent")
     watchAIOutput()
@@ -395,12 +393,12 @@ import SwiftUI
     if let attachment { input["attachmentId"] = attachment.id }
     if let replyPreset { input["replyPreset"] = replyPreset.rawValue }
     if preview { input["preview"] = true }
-    if background { input["background"] = true }
+    if runsInBackground { input["background"] = true }
     let preparationAllowance = attachment?.isPresentation == true ? 150 : 30
     var job: AgentJob = try await self.backend.request(
       "/agent", method: "POST", body: input,
-      timeout: background ? 15 : TimeInterval(settings.ai.timeout + preparationAllowance))
-    if background {
+      timeout: runsInBackground ? 15 : TimeInterval(settings.ai.timeout + preparationAllowance))
+    if runsInBackground {
       replaceJob(job)
       var pollingFailures = 0
       while job.status == "running" {
@@ -489,29 +487,48 @@ import SwiftUI
     jobs.append(job)
     jobs.sort { $0.createdAt > $1.createdAt }
   }
+  func pollRunningJobs(
+    task: String, interval: Duration, timeout: TimeInterval = 30,
+    stopOnFailure: Bool = false,
+    onUpdate: (AgentJob) async -> Void = { _ in },
+    onFailure: (AgentJob) -> Void,
+    onIdle: () async -> Void = {}
+  ) async {
+    while !Task.isCancelled {
+      let running = jobs.filter { $0.task == task && $0.status == "running" }
+      if running.isEmpty { break }
+      var failed = false
+      for job in running {
+        do {
+          let updated: AgentJob = try await backend.request("/jobs/\(job.id)", timeout: timeout)
+          try Task.checkCancellation()
+          replaceJob(updated)
+          await onUpdate(updated)
+        } catch is CancellationError {
+          return
+        } catch {
+          failed = true
+          if !Task.isCancelled { onFailure(job) }
+          if stopOnFailure { break }
+        }
+      }
+      if !failed, !jobs.contains(where: { $0.task == task && $0.status == "running" }) {
+        await onIdle()
+      }
+      try? await Task.sleep(for: interval)
+    }
+  }
   private func watchOrganizer() {
     guard organizePolling == nil,
       jobs.contains(where: { $0.task == "classify" && $0.status == "running" })
     else { return }
     organizePolling = Task {
       defer { organizePolling = nil }
-      while !Task.isCancelled {
-        let running = jobs.filter { $0.task == "classify" && $0.status == "running" }
-        if running.isEmpty { break }
-        do {
-          for job in running {
-            let updated: AgentJob = try await self.backend.request("/jobs/\(job.id)")
-            replaceJob(updated)
-          }
-          organizeError = nil
-          if !jobs.contains(where: { $0.task == "classify" && $0.status == "running" }) {
-            try await refresh()
-          }
-        } catch {
-          if !Task.isCancelled { organizeError = "暂时无法获取进度，正在重新连接。" }
-        }
-        try? await Task.sleep(for: .seconds(2))
-      }
+      await pollRunningJobs(
+        task: "classify", interval: .seconds(2), stopOnFailure: true,
+        onUpdate: { _ in organizeError = nil },
+        onFailure: { _ in organizeError = "暂时无法获取进度，正在重新连接。" },
+        onIdle: { try? await refresh() })
     }
   }
   func toggleTodo(message: MailMessage, todo: MailTodo) {
@@ -535,9 +552,9 @@ import SwiftUI
         }
         self.externalPreviewFiles.append(original)
       } else {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = file.name
-        if panel.runModal() == .OK, let url = panel.url { try data.write(to: url) }
+        if let url = FilePanel.save(title: "保存附件", name: file.name) {
+          try data.write(to: url)
+        }
       }
     }
   }

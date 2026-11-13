@@ -39,7 +39,7 @@ struct ComposerView: View {
     GeometryReader { geometry in
       VStack(spacing: 0) {
         HStack(spacing: 10) {
-          ActionButton(title: sending ? "正在发送…" : "发送", icon: "paperplane", kind: .primary) {
+          ActionButton(title: sending ? "正在发送…" : "发送", icon: "paperplane", color: Palette.accent) {
             confirmSend = true
           }.disabled(
             sending || syncingDraft || importingAttachments || draft.status == "uncertain"
@@ -155,14 +155,9 @@ struct ComposerView: View {
       }
       .onChange(of: draft) { old, new in if !old.hasSameContent(as: new) { scheduleSave() } }
       .onDisappear { autosave?.cancel() }
-      .alert(
-        "操作未完成",
-        isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })
-      ) {
-        Button("确定") { store.error = nil }
-      } message: {
-        Text(store.error ?? "")
-      }
+      .storeAlert(
+        "操作未完成", text: { store.error }, isPresented: { store.error != nil },
+        dismiss: { store.error = nil })
       .alert("确认发送邮件", isPresented: $confirmSend) {
         Button("取消", role: .cancel) {}
         Button("确认发送") { send() }
@@ -204,7 +199,7 @@ struct ComposerView: View {
         FilterBar(values: ["简短", "适中", "详细"], selection: $length, compact: true)
         HStack {
           ActionButton(
-            title: store.busy.contains("compose-ai") ? "正在拟稿…" : "生成草稿", icon: "sparkles", kind: .ai
+            title: store.busy.contains("compose-ai") ? "正在拟稿…" : "生成草稿", icon: "sparkles", color: Palette.accent
           ) { generate() }.disabled(
             prompt.isEmpty || store.busy.contains("agent"))
           if store.busy.contains("agent") { ProgressView().controlSize(.small) }
@@ -217,7 +212,7 @@ struct ComposerView: View {
             Text("AI 生成草稿").font(UIType.section)
             Text(generated.subject ?? "").font(.system(size: 13, weight: .medium))
             Text(generated.body ?? "").font(UIType.body).lineSpacing(6).textSelection(.enabled)
-            ActionButton(title: "插入到正文", icon: "text.insert", kind: .softAI) {
+            ActionButton(title: "插入到正文", icon: "text.insert", color: Palette.accent) {
               draft.subject = generated.subject ?? draft.subject
               if let body = generated.body {
                 draft.body = MailSignature.replacingContent(
@@ -399,11 +394,8 @@ struct ComposerView: View {
     }
   }
   private func addAttachments() {
-    let panel = NSOpenPanel()
-    panel.allowsMultipleSelection = true
-    panel.canChooseDirectories = false
-    if panel.runModal() == .OK {
-      importAttachments(panel.urls.map { .file($0) })
+    if let urls = FilePanel.openURLs(allowsMultipleSelection: true) {
+      importAttachments(urls.map { .file($0) })
     }
   }
   @discardableResult private func pasteAttachments(_ pasteboard: NSPasteboard) -> Bool {

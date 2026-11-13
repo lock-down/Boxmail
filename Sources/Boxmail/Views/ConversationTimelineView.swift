@@ -26,7 +26,8 @@ struct ConversationTimelineView<SelectedContent: View>: View {
         VStack(alignment: .leading, spacing: 14) {
           HStack(spacing: 8) {
             Text("当前邮件").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.blue)
-            Text(folderTitle(selected.folder)).font(UIType.small).foregroundStyle(Palette.muted)
+            Text(MailDestination.title(forFolder: selected.folder) ?? selected.folder)
+              .font(UIType.small).foregroundStyle(Palette.muted)
           }
           selectedContent()
         }.id("thread-\(selected.id)")
@@ -36,7 +37,7 @@ struct ConversationTimelineView<SelectedContent: View>: View {
           Divider().overlay(Palette.softBorder)
         }
         if conversation.nextOffset != nil {
-          WorkflowAction(title: "继续加载（已显示 \(conversation.messages.count) / \(conversation.total) 封）", icon: "chevron.down", color: Palette.blue) {
+          ActionButton(title: "继续加载（已显示 \(conversation.messages.count) / \(conversation.total) 封）", icon: "chevron.down", color: Palette.blue) {
             Task { await store.loadConversation(reset: false) }
           }
         }
@@ -44,12 +45,11 @@ struct ConversationTimelineView<SelectedContent: View>: View {
       if let error = store.conversationError {
         VStack(alignment: .leading, spacing: 8) {
           Text("会话加载未完成：\(error)").font(UIType.small).foregroundStyle(Palette.amber)
-          WorkflowAction(title: "重新加载会话", icon: "arrow.clockwise", color: Palette.blue) { Task { await store.loadConversation() } }
+          ActionButton(title: "重新加载会话", icon: "arrow.clockwise", color: Palette.blue) { Task { await store.loadConversation() } }
         }
       }
     }
   }
-  private func folderTitle(_ folder: String) -> String { MailDestination(rawValue: folder)?.title ?? (folder == "spam" ? "垃圾邮件" : folder) }
 }
 
 private struct ConversationMessageView: View {
@@ -73,7 +73,7 @@ private struct ConversationMessageView: View {
             HStack {
               Text(header.subject).font(UIType.caption).lineLimit(1)
               Spacer(minLength: 8)
-              Text(MailDestination(rawValue: header.folder)?.title ?? (header.folder == "spam" ? "垃圾邮件" : header.folder))
+              Text(MailDestination.title(forFolder: header.folder) ?? header.folder)
                 .font(UIType.small).foregroundStyle(Palette.muted)
             }
             if !expanded {
@@ -83,24 +83,23 @@ private struct ConversationMessageView: View {
           Image(systemName: expanded ? "chevron.down" : "chevron.right")
             .font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.muted)
             .frame(width: 14, height: 32)
-        }.foregroundStyle(Palette.ink).padding(10).contentShape(RoundedRectangle(cornerRadius: 8))
-      }.buttonStyle(ControlFeedback(corner: 8))
+        }.foregroundStyle(Palette.ink).padding(12)
+      }.buttonStyle(ControlFeedback()).controlFocus()
         .accessibilityLabel("\(expanded ? "收起" : "展开")会话邮件：\(header.sender)，\(header.subject)")
       if expanded {
         VStack(alignment: .leading, spacing: 14) {
           if let message = store.conversationBodies[header.id] {
             Text(message.senderEmail).font(UIType.small).foregroundStyle(Palette.muted).textSelection(.enabled)
             RecipientDetailsView(to: message.to, cc: message.cc)
-            HStack(spacing: 12) {
-              WorkflowAction(title: "回复此封", icon: "arrowshape.turn.up.left", color: Palette.blue) { store.newDraft(reply: message) }
-              WorkflowAction(title: "打开此封邮件", icon: "arrow.up.right") { store.openMail(message) }
-              Spacer(minLength: 0)
+            WrappingFlowLayout(spacing: 8) {
+              ActionButton(title: "回复此封", icon: "arrowshape.turn.up.left", color: Palette.blue) { store.newDraft(reply: message) }
+              ActionButton(title: "打开此封邮件", icon: "arrow.up.right") { store.openMail(message) }
               if message.folder == "trash" {
-                WorkflowAction(title: message.restoreTitle, icon: "arrow.uturn.backward") { store.restore(message) }
+                ActionButton(title: message.restoreTitle, icon: "arrow.uturn.backward") { store.restore(message) }
               } else if message.folder == "archive" {
-                WorkflowAction(title: "取消归档", icon: "arrow.uturn.backward") { store.unarchive(message) }
+                ActionButton(title: "取消归档", icon: "arrow.uturn.backward") { store.restore(message) }
               } else {
-                WorkflowAction(title: "归档", icon: "archivebox") { store.update(message, ["folder": "archive"]) }
+                ActionButton(title: "归档", icon: "archivebox") { store.update(message, ["folder": "archive"]) }
               }
             }
             QuoteCollapsingBodyView(message: message, preferences: store.settings.preferences)
@@ -127,7 +126,7 @@ struct QuoteCollapsingBodyView: View {
       MailBodyView(message: message, preferences: preferences, collapseQuotes: hasQuotes && !showingQuotes,
         updatesTextOnly: updatesTextOnly)
       if hasQuotes {
-        WorkflowAction(title: showingQuotes ? "收起引用内容" : "显示引用内容", icon: "text.quote") { showingQuotes.toggle() }
+        ActionButton(title: showingQuotes ? "收起引用内容" : "显示引用内容", icon: "text.quote") { showingQuotes.toggle() }
       }
     }
   }

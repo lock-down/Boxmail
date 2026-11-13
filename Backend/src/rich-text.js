@@ -1,9 +1,8 @@
 import { Parser } from 'htmlparser2';
 import { ServiceError } from './validation.js';
 import { textStyle, styleAttribute, styleFromHTML, resolvedTextStyle } from './rich-text-style.js';
+import { escapeHTML } from './unicode.js';
 
-const escape = value => value.replace(/[&<>"']/g,
-  character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 export function safeLink(value) {
   if (typeof value !== 'string' || value.length > 4000 || /[\x00-\x20\x7f]/.test(value)) return null;
   try { return ['https:', 'http:', 'mailto:'].includes(new URL(value).protocol) ? value : null; }
@@ -55,11 +54,11 @@ export function richContent(input) {
     }
     const markerStyle = block.runs.length ? resolvedTextStyle(block.runs[0]) : previousStyle;
     const inline = block.runs.map(run => {
-      let value = escape(run.text);
+      let value = escapeHTML(run.text);
       if (run.bold) value = `<strong>${value}</strong>`;
       if (run.italic) value = `<em>${value}</em>`;
       const style = styleAttribute(list ? resolvedTextStyle(run) : run);
-      if (run.link) value = `<a href="${escape(run.link)}"${style}>${value}</a>`;
+      if (run.link) value = `<a href="${escapeHTML(run.link)}"${style}>${value}</a>`;
       else if (style) value = `<span${style}>${value}</span>`;
       return value;
     }).join('');

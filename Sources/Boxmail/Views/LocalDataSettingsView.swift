@@ -40,7 +40,7 @@ struct LocalDataSettingsView: View {
             NSWorkspace.shared.activateFileViewerSelecting([try CredentialService.fileURL])
           } catch { selectionError = error.localizedDescription }
         }
-        ActionButton(title: "更改位置…", icon: "folder.badge.gearshape", kind: .primary) {
+        ActionButton(title: "更改位置…", icon: "folder.badge.gearshape", color: Palette.accent) {
           chooseDirectory()
         }.disabled(backend.hasDataDirectoryOverride || !store.ready)
       }
@@ -101,11 +101,7 @@ struct LocalDataSettingsView: View {
   }
 
   private func folderTitle(_ folder: String) -> String {
-    switch folder {
-    case "spam": return "垃圾邮件"
-    case "drafts": return "邮箱草稿"
-    default: return MailDestination(rawValue: folder)?.title ?? folder
-    }
+    folder == "drafts" ? "邮箱草稿" : MailDestination.title(forFolder: folder) ?? folder
   }
 
   private var isScheduled: Bool {
@@ -113,16 +109,13 @@ struct LocalDataSettingsView: View {
   }
 
   private func chooseDirectory() {
-    let panel = NSOpenPanel()
-    panel.title = "选择本机数据目录"
-    panel.message = "选择一个空文件夹保存 Boxmail 数据。重新打开应用时迁移已有邮件和附件，原目录保留。"
-    panel.prompt = "选择文件夹"
-    panel.canChooseFiles = false
-    panel.canChooseDirectories = true
-    panel.allowsMultipleSelection = false
-    panel.canCreateDirectories = true
-    panel.directoryURL = pendingDirectory ?? backend.dataDirectory.deletingLastPathComponent()
-    guard panel.runModal() == .OK, let url = panel.url else { return }
+    guard let url = FilePanel.open(
+      title: "选择本机数据目录", canChooseFiles: false, canChooseDirectories: true,
+      canCreateDirectories: true,
+      directory: pendingDirectory ?? backend.dataDirectory.deletingLastPathComponent(),
+      message: "选择一个空文件夹保存 Boxmail 数据。重新打开应用时迁移已有邮件和附件，原目录保留。",
+      prompt: "选择文件夹")
+    else { return }
     do {
       pendingDirectory = try LocalDataStorage.validateDestination(from: backend.dataDirectory, to: url)
       selectionError = nil

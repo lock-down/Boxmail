@@ -27,7 +27,7 @@ struct SummaryOverviewView: View {
         Spacer(minLength: 12)
         ActionButton(
           title: store.busy.contains("summarize-unread") ? "正在总结…" : "总结未读邮件",
-          icon: "sparkles", kind: .ai
+          icon: "sparkles", color: Palette.accent
         ) {
           store.summarizeUnread()
         }.disabled(
@@ -54,7 +54,7 @@ struct SummaryOverviewView: View {
           .font(UIType.caption).foregroundStyle(Palette.muted)
           .fixedSize(horizontal: false, vertical: true)
           Spacer(minLength: 8)
-          ActionButton(title: "撤销", icon: "arrow.uturn.backward", kind: .primary) {
+          ActionButton(title: "撤销", icon: "arrow.uturn.backward", color: Palette.accent) {
             store.undoSummaryListChange()
           }
           .disabled(store.changingSummaryList)
@@ -145,22 +145,22 @@ struct SummaryOverviewView: View {
   private var toolbar: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 8) {
-        FilterButton(title: "列表 \(listed.count)", selected: !showingRemoved) {
+        SelectionButton(title: "列表 \(listed.count)", selected: !showingRemoved) {
           showingRemoved = false
         }
-        FilterButton(title: "已移除 \(removed.count)", selected: showingRemoved) {
+        SelectionButton(title: "已移除 \(removed.count)", selected: showingRemoved) {
           showingRemoved = true
         }
         Spacer(minLength: 8)
         if store.changingSummaryList { ProgressView().controlSize(.small) }
         ActionButton(
-          title: selecting ? "取消多选" : "多选", icon: selecting ? "xmark" : "checklist", kind: .primary
+          title: selecting ? "取消多选" : "多选", icon: selecting ? "xmark" : "checklist", color: Palette.accent
         ) {
           selecting.toggle()
           selected = []
         }.disabled(messages.isEmpty || store.changingSummaryList)
         if !showingRemoved {
-          ActionButton(title: "清空列表", icon: "tray", kind: .normal) {
+          ActionButton(title: "清空列表", icon: "tray") {
             store.setSummaryVisibility(hidden: true, all: true)
           }.disabled(listed.isEmpty || store.changingSummaryList)
         }
@@ -174,14 +174,14 @@ struct SummaryOverviewView: View {
               Image(systemName: selected == messageIDs ? "checkmark.square.fill" : "square")
                 .frame(width: 16).foregroundStyle(Palette.accent)
               Text(selected == messageIDs ? "取消全选" : "全选")
-            }.font(UIType.caption).frame(height: 30)
-          }.buttonStyle(ControlFeedback(corner: 6)).controlFocus(corner: 6)
+            }.font(UIType.caption).padding(.horizontal, 8).frame(height: UIControlSize.regular.height)
+          }.buttonStyle(ControlFeedback()).controlFocus()
           Text("已选 \(selected.count) 项").font(UIType.caption).foregroundStyle(Palette.muted)
             .monospacedDigit()
           Spacer()
           ActionButton(
             title: showingRemoved ? "恢复选中" : "移除选中",
-            icon: showingRemoved ? "arrow.uturn.backward" : "minus.circle", kind: .primary
+            icon: showingRemoved ? "arrow.uturn.backward" : "minus.circle", color: Palette.accent
           ) {
             store.setSummaryVisibility(ids: Array(selected), hidden: !showingRemoved)
           }.disabled(selected.isEmpty || store.changingSummaryList)
@@ -209,8 +209,8 @@ struct SummaryOverviewView: View {
               .font(.system(size: 16)).foregroundStyle(
                 selected.contains(message.id) ? Palette.accent : Palette.muted
               )
-              .frame(width: 28, height: 30).contentShape(Rectangle())
-          }.buttonStyle(ControlFeedback(corner: 6)).controlFocus(corner: 6)
+              .frame(width: UILayout.iconControl, height: UILayout.iconControl)
+          }.buttonStyle(ControlFeedback(corner: UILayout.iconRadius)).controlFocus(corner: UILayout.iconRadius)
             .accessibilityLabel("选择摘要：\(message.subject)")
             .accessibilityValue(selected.contains(message.id) ? "已选中" : "未选中")
         }
@@ -221,7 +221,7 @@ struct SummaryOverviewView: View {
             .foregroundStyle(Palette.muted)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 3)
         HStack(spacing: 4) {
-          ActionButton(title: "打开邮件", icon: "arrow.up.right", kind: .primary) {
+          ActionButton(title: "打开邮件", icon: "arrow.up.right", color: Palette.accent) {
             store.openMail(message, tab: .summary)
           }
           IconButton(
@@ -254,8 +254,8 @@ struct SummaryOverviewView: View {
                       Text(todo.due).foregroundStyle(Palette.amber).lineLimit(1)
                     }
                   }.font(UIType.caption).foregroundStyle(Palette.ink)
-                    .contentShape(Rectangle()).frame(minHeight: 24, alignment: .leading)
-                }.buttonStyle(ControlFeedback(corner: 4)).controlFocus(corner: 4)
+                    .controlLabel(size: .compact, verticalInset: 4, alignment: .leading)
+                }.buttonStyle(ControlFeedback()).controlFocus()
                   .accessibilityLabel(todo.title).accessibilityValue("待处理")
               }
               if pending.count > 2 {
@@ -265,7 +265,11 @@ struct SummaryOverviewView: View {
             }
           }
         }
-        Button {
+        ActionButton(
+          title: expanded.contains(message.id) ? "收起详情" : "展开详情",
+          icon: expanded.contains(message.id) ? "chevron.up" : "chevron.down",
+          color: Palette.muted, size: .compact
+        ) {
           withAnimation(UIMotion.disclosure(reduceMotion)) {
             if expanded.contains(message.id) {
               expanded.remove(message.id)
@@ -273,14 +277,7 @@ struct SummaryOverviewView: View {
               expanded.insert(message.id)
             }
           }
-        } label: {
-          Label(
-            expanded.contains(message.id) ? "收起详情" : "展开详情",
-            systemImage: expanded.contains(message.id) ? "chevron.up" : "chevron.down"
-          )
-          .font(UIType.small).foregroundStyle(Palette.muted).frame(height: 28)
-          .contentShape(Rectangle())
-        }.buttonStyle(ControlFeedback(corner: 4)).controlFocus(corner: 4)
+        }
           .accessibilityValue(expanded.contains(message.id) ? "已展开" : "已收起")
       }
     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)

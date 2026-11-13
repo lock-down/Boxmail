@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mailBody } from './mail-body.js';
 import { ServiceError } from './validation.js';
-
-const escape = value => String(value || '').replace(/[&<>"']/g,
-  character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+import { escapeHTML } from './unicode.js';
 
 export function forwardText(message) {
   return `---------- 转发邮件 ----------\n发件人：${message.sender} <${message.senderEmail}>\n日期：${message.date}\n主题：${message.subject}\n\n${message.body}`;
@@ -15,8 +13,8 @@ export function forwardedFields(message) {
   return {
     forwardedText: forwardText(message),
     forwardedHTML: `<div style="border-top:1px solid #e9edf2;margin-top:20px;padding-top:16px;font-family:Arial,sans-serif;font-size:13px;line-height:1.6">`
-      + `<div>---------- 转发邮件 ----------</div><div>发件人：${escape(message.sender)} &lt;${escape(message.senderEmail)}&gt;</div>`
-      + `<div>日期：${escape(message.date)}</div><div>主题：${escape(message.subject)}</div></div>`
+      + `<div>---------- 转发邮件 ----------</div><div>发件人：${escapeHTML(message.sender)} &lt;${escapeHTML(message.senderEmail)}&gt;</div>`
+      + `<div>日期：${escapeHTML(message.date)}</div><div>主题：${escapeHTML(message.subject)}</div></div>`
       + `<div style="margin-top:16px">${html}</div>`,
   };
 }
@@ -46,9 +44,9 @@ export function savedForwardFields(input, previous = {}) {
 export function draftContent(draft) {
   const text = [draft.body, draft.forwardedText].filter(value => typeof value === 'string' && value.length).join('\n\n');
   if (!draft.bodyHTML && !draft.forwardedHTML) return { text };
-  const introduction = draft.bodyHTML || `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${escape(draft.body)}</div>`;
+  const introduction = draft.bodyHTML || `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${escapeHTML(draft.body)}</div>`;
   const quote = draft.forwardedHTML || (draft.forwardedText
-    ? `<div style="white-space:pre-wrap">${escape(draft.forwardedText)}</div>` : '');
+    ? `<div style="white-space:pre-wrap">${escapeHTML(draft.forwardedText)}</div>` : '');
   return { text, html: introduction + quote };
 }
 

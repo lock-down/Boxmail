@@ -9,19 +9,11 @@ struct MailAIBar: View {
   var body: some View {
     HStack(spacing: 8) {
       ForEach([MailAITab.summary, .translate, .reply, .conversation]) { tab in
-        Button {
+        SelectionButton(title: title(tab), icon: tab.icon, selected: store.mailAITab == tab, size: .compact) {
           if tab != .translate && store.mailAITab == tab { store.mailAITab = nil }
           else { store.showMailAI(tab, message: message) }
-        } label: {
-          Label(title(tab), systemImage: tab.icon)
-            .font(.system(size: 12, weight: .medium)).padding(.horizontal, 8).frame(height: 30)
-            .foregroundStyle(store.mailAITab == tab ? Palette.blue : Palette.muted)
-            .background(store.mailAITab == tab ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(RoundedRectangle(cornerRadius: 6))
-        }.buttonStyle(ControlFeedback(selected: store.mailAITab == tab, corner: 6))
-          .controlFocus(corner: 6)
-          .accessibilityAddTraits(store.mailAITab == tab ? .isSelected : [])
-          .help(tab == .summary ? "总结本封邮件或查看已有总结"
+        }
+          .help(tab == .summary ? "结合正文与全部附件理解整封邮件，或查看已有结果"
             : tab == .translate ? "在原文与译文之间切换"
             : tab == .conversation ? "总结往来进展、未决事项，并根据上下文拟回复" : "为本封邮件起草回复")
       }
@@ -34,7 +26,7 @@ struct MailAIBar: View {
   }
   private func title(_ tab: MailAITab) -> String {
     switch tab {
-    case .summary: return "AI 总结"
+    case .summary: return "整封理解"
     case .translate: return store.isShowingTranslation(message) ? "显示原文" : message.translation == nil ? "翻译" : "显示译文"
     case .conversation: return "会话 AI"
     default: return "AI 回复"
@@ -72,10 +64,9 @@ struct MailAssistantView: View {
       }
       switch tab {
       case .summary: summary
-      case .translate: EmptyView()
-      case .attachment: MailAttachmentSection(store: store, message: message)
       case .reply: MailReplyView(store: store, message: message)
       case .conversation: ConversationAIView(store: store, message: message)
+      default: EmptyView()
       }
     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
       .background(tab == .summary ? Palette.blueSoft.opacity(0.55) : Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
@@ -87,9 +78,9 @@ struct MailAssistantView: View {
     } else if let summary = message.summary {
       SummaryCard(store: store, message: message, summary: summary, embedded: true)
     } else {
-      Text("提炼正文要点、待办与关键信息。").font(.system(size: 12)).foregroundStyle(Palette.muted)
+      Text("结合正文与全部附件，梳理整体结论、待办、关键数据和跨文件差异。").font(.system(size: 12)).foregroundStyle(Palette.muted)
       if !working {
-        ActionButton(title: "生成总结", icon: "sparkles", kind: .ai) {
+        ActionButton(title: "理解整封邮件", icon: "sparkles", color: Palette.accent) {
           store.generate(task: "summary", message: message)
         }.disabled(store.busy.contains("agent"))
       }

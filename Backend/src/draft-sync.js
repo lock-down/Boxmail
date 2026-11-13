@@ -1,16 +1,15 @@
-import { DraftReadFailures, unresolvedDeletion } from './draft-sync-state.js';
-import { DraftSyncIndex } from './draft-sync-index.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { parseDocument } from 'htmlparser2';
-import { prepareAttachment, attachmentBytes, removeUnusedAttachments } from './attachments.js';
+import { prepareAttachment, attachmentBytes, attachmentFiles, removeUnusedAttachments } from './attachments.js';
 import { draftRevision } from './draft-state.js';
 import { draftContent, inlineForwardImages } from './forward-content.js';
 import { richFromHTML } from './rich-text.js';
 import { imapOperation, mailboxMetadata, messageSource } from './mail-sync.js';
 import { ServiceError } from './validation.js';
 import { mailBody } from './mail-body.js';
+import { escapeHTML } from './unicode.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const serverIdentity = account => digest(JSON.stringify([account.imapHost?.toLowerCase(), account.imapPort,
@@ -23,13 +22,10 @@ function mimeHash({ parsed, content }) {
 }
 const matches = (binding, path, validity, uid) => binding?.path === path
   && binding.uidValidity === validity && binding.uid === uid;
-const escape = value => value.replace(/[&<>"']/g,
-  character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
-
 function syncHTML(draft, content) {
   if (draft.forwardedHTML == null && draft.forwardedText == null) return content.html;
-  const editable = draft.bodyHTML || `<div style="white-space:pre-wrap">${escape(draft.body)}</div>`;
-  const forwarded = draft.forwardedHTML || `<div style="white-space:pre-wrap">${escape(draft.forwardedText || '')}</div>`;
+  const editable = draft.bodyHTML || `<div style="white-space:pre-wrap">${escapeHTML(draft.body)}</div>`;
+  const forwarded = draft.forwardedHTML || `<div style="white-space:pre-wrap">${escapeHTML(draft.forwardedText || '')}</div>`;
   return `<div class="boxmail-draft-editable">${editable}</div><div class="boxmail-draft-forwarded">${forwarded}</div>`;
 }
 
@@ -290,15 +286,10 @@ export async function syncRemoteDrafts(repo, account, client, { signal, timeoutM
         continue;
       }
       try {
-        const files = [];
-        let attachmentSize = 0;
-        for (const id of draft.attachmentIds || []) {
-          const { metadata, buffer } = await contentOperation(() => attachmentBytes(repo, id));
-          attachmentSize += buffer.length;
-          if (attachmentSize > 25 * 1024 * 1024)
-            throw new DraftContentError('草稿附件合计超过服务器草稿的 25 MB 上限，已保留本机版本。');
-          files.push({ filename: metadata.name, contentType: metadata.contentType, content: buffer });
-        }
+        const files = await attachmentFiles(repo, draft.attachmentIds, {
+          operation: contentOperation, maxTotalBytes: 25 * 1024 * 1024,
+          tooLarge: () => new DraftContentError('草稿附件合计超过服务器草稿的 25 MB 上限，已保留本机版本。'),
+        });
         signal?.throwIfAborted();
         const content = draftContent(draft), token = randomUUID();
         const messageId = draft.remoteDraft?.messageId || `<${randomUUID()}@boxmail.draft>`;
@@ -347,4 +338,91 @@ export async function syncRemoteDrafts(repo, account, client, { signal, timeoutM
       ? error.message : '服务器草稿同步未完成，本机内容已保留，可再次同步。' });
     throw error;
   } finally { index?.close(); lock?.release(); }
+}
+
+const key = binding => binding && JSON.stringify([binding.path, binding.uidValidity, binding.uid]);
+class Lookup {
+  values = new Map();
+  add(key, id) { if (!key) return; if (!this.values.has(key)) this.values.set(key, new Set()); this.values.get(key).add(id); }
+  remove(key, id) { const ids = this.values.get(key); ids?.delete(id); if (!ids?.size) this.values.delete(key); }
+  ids(key) { return this.values.get(key) || []; }
+}
+// Track concurrent saves/deletes without reparsing all bodies after every await.
+export class DraftSyncIndex {
+  drafts = new Map(); deletions = new Map();
+  uid = new Lookup(); token = new Lookup(); message = new Lookup(); pending = new Lookup();
+  deletedUID = new Lookup(); deletedToken = new Lookup(); deletedMessage = new Lookup();
+  constructor(repo, accountId) {
+    this.repo = repo; this.accountId = accountId;
+    this.reset();
+    this.listener = change => change ? this.update(change.kind, change.id, change.value) : this.reset();
+    repo.recordObservers.add(this.listener);
+  }
+  reset() {
+    for (const id of this.drafts.keys()) this.update('draft', id, null);
+    for (const id of this.deletions.keys()) this.update('draftDeletion', id, null);
+    for (const draft of this.repo.draftSyncHeaders(this.accountId)) this.update('draft', draft.id, draft);
+    for (const deletion of this.repo.list('draftDeletion', { accountId: this.accountId })) this.update('draftDeletion', deletion.id, deletion);
+  }
+  update(kind, id, value) {
+    if (!['draft', 'draftDeletion'].includes(kind)) return;
+    const draft = kind === 'draft', records = draft ? this.drafts : this.deletions;
+    const indexes = draft ? [this.uid, this.token, this.message, this.pending] : [this.deletedUID, this.deletedToken, this.deletedMessage];
+    const keys = record => { const binding = draft ? record.remoteDraft : record;
+      return [key(binding), binding?.token, binding?.messageId, record.remotePending?.token]; };
+    const old = records.get(id);
+    if (old) keys(old).forEach((key, i) => indexes[i]?.remove(key, id));
+    records.delete(id);
+    if (!value || value.accountId !== this.accountId || draft && value.status === 'sent') return;
+    // No body/rich-text copies are retained by the index.
+    const header = draft ? { id, accountId: value.accountId, remoteDraft: value.remoteDraft, remotePending: value.remotePending, status: value.status } : value;
+    records.set(id, header);
+    keys(header).forEach((key, i) => indexes[i]?.add(key, id));
+  }
+  direct(path, validity, uid) { return this.drafts.get([...this.uid.ids(key({path,uidValidity:validity,uid}))][0]); }
+  deletion(path, validity, uid, token, messageId) {
+    const ids = new Set([...this.deletedUID.ids(key({path,uidValidity:validity,uid})), ...this.deletedToken.ids(token), ...this.deletedMessage.ids(messageId)]);
+    return [...ids].map(id => this.deletions.get(id)).find(item => item.path === path);
+  }
+  candidates(token, messageId) { return [...new Set([...this.pending.ids(token), ...this.token.ids(token), ...this.message.ids(messageId)])].map(id => this.drafts.get(id)); }
+  close() { this.repo.recordObservers.delete(this.listener); }
+}
+
+export const DRAFT_READ_RETRY_MS = 60000;
+const MAX_READ_FAILURES = 100;
+const MAX_DELETION_CHECKS = 3;
+
+// IMAP content is immutable for a UID. Cache content failures briefly, bounded
+// by this mailbox identity, so a bad replacement doesn't get parsed every poll.
+export class DraftReadFailures {
+  constructor(saved, serverIdentity, validity, fetched) {
+    this.serverIdentity = serverIdentity;
+    this.validity = validity;
+    const sizes = new Map(fetched.map(remote => [remote.uid, remote.size]));
+    const items = saved?.serverIdentity === serverIdentity && saved?.validity === validity && Array.isArray(saved.items)
+      ? saved.items.slice(0, MAX_READ_FAILURES) : [];
+    this.items = new Map(items.filter(item => sizes.get(item.uid) === item.size
+      && typeof item.error === 'string' && item.error.length <= 2000 && Number.isFinite(item.retryAfter))
+      .map(item => [item.uid, item]));
+  }
+  cached(remote) {
+    const item = this.items.get(remote.uid);
+    return item?.size === remote.size && item.retryAfter > Date.now() ? item : null;
+  }
+  record(remote, error, identity = {}) {
+    const item = { uid: remote.uid, size: remote.size, error: error.slice(0, 2000),
+      retryAfter: Date.now() + DRAFT_READ_RETRY_MS, ...identity };
+    if (!this.items.has(remote.uid) && this.items.size >= MAX_READ_FAILURES) this.items.delete(this.items.keys().next().value);
+    this.items.set(remote.uid, item);
+    return item;
+  }
+  remove(uid) { this.items.delete(uid); }
+  snapshot() { return { serverIdentity: this.serverIdentity, validity: this.validity, items: [...this.items.values()] }; }
+}
+
+export function unresolvedDeletion(repo, deletion) {
+  if (deletion.reviewRequired) return deletion;
+  const checks = Math.min(MAX_DELETION_CHECKS, (deletion.verificationAttempts || 0) + 1);
+  return repo.put('draftDeletion', { ...deletion, verificationAttempts: checks,
+    reviewRequired: checks === MAX_DELETION_CHECKS });
 }

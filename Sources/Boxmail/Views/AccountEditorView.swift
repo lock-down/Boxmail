@@ -54,9 +54,10 @@ struct AccountEditorView: View {
               }
             }
           }
-          field("账户名称", text: $account.name, prompt: "你的姓名")
-          field("邮箱地址", text: $account.email, prompt: "you@example.com")
-          field("登录用户名", text: $account.username, prompt: "留空时使用邮箱地址")
+          SettingsFieldRow(title: "账户名称", text: $account.name, placeholder: "你的姓名")
+          SettingsFieldRow(title: "邮箱地址", text: $account.email, placeholder: "you@example.com")
+          SettingsFieldRow(
+            title: "登录用户名", text: $account.username, placeholder: "留空时使用邮箱地址")
           HStack(spacing: SettingsFormLayout.columnGap) {
             SettingsFormLabel(title: "授权码")
             SecureField("", text: $password).settingsTextInput()
@@ -106,14 +107,6 @@ struct AccountEditorView: View {
           status = error.localizedDescription
         }
       }
-  }
-  private func field(_ title: String, text: Binding<String>, prompt: String = "") -> some View {
-    HStack(spacing: SettingsFormLayout.columnGap) {
-      SettingsFormLabel(title: title)
-      WorkflowTextInput(label: title, placeholder: prompt, text: text, font: UIType.caption)
-        .frame(width: SettingsFormLayout.fieldWidth)
-      Spacer(minLength: 0)
-    }
   }
   private func serverFields(
     _ name: String, host: Binding<String>, port: Binding<Int>, tls: Binding<Bool>,

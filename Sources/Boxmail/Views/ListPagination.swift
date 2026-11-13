@@ -1,5 +1,32 @@
 import SwiftUI
 
+struct RefreshKey<Request: Hashable>: Hashable {
+  let request: Request
+  let revision: Int
+}
+
+struct PageStoreErrorRow: View {
+  let error: String
+  let canRestore: Bool
+  let restore: () -> Void
+  let retry: () -> Void
+  var body: some View {
+    HStack {
+      if canRestore {
+        ActionButton(title: "返回上次结果", icon: "arrow.uturn.backward", action: restore)
+      }
+      Text(error).font(UIType.caption).foregroundStyle(Palette.amber)
+      ActionButton(title: "重试", icon: "arrow.clockwise", action: retry)
+    }
+  }
+}
+
+extension View {
+  func stalePage<ID: Hashable>(_ stale: Bool, id: ID) -> some View {
+    self.id(id).opacity(stale ? 0.55 : 1).disabled(stale)
+  }
+}
+
 struct ListPagination: View {
   let offset, count, total, limit: Int
   let unit, subject: String

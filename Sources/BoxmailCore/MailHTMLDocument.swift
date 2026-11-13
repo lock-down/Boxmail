@@ -30,12 +30,15 @@ public enum MailHTMLDocument {
       ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; border: 0; box-shadow: none; }
       ::-webkit-scrollbar-thumb { background: rgba(32,36,43,.3); border: 0; border-radius: 3px; box-shadow: none; }
       #mail-content .boxmail-recipient-label { width: 1%; min-width: 4em; white-space: nowrap !important; word-break: normal !important; overflow-wrap: normal !important; writing-mode: horizontal-tb !important; vertical-align: top; padding-right: 10px; }
-      #mail-content .boxmail-recipient-list { max-height: 160px; overflow-y: auto; overflow-x: hidden; padding-right: 14px; overflow-wrap: anywhere; scrollbar-width: none; }
-      #mail-content .boxmail-recipient-list::-webkit-scrollbar { display: none; }
-      #mail-content .boxmail-recipient-list:focus-visible { outline: none; background: rgba(53,103,175,.06); }
+      #mail-content li.boxmail-recipient-row { list-style: none; }
+      #mail-content .boxmail-recipient-slot { display: inline-block; vertical-align: top; width: 100%; height: 28px; }
       \(collapseQuotes ? "#mail-content blockquote, #mail-content .gmail_quote, #mail-content .yahoo_quoted { display: none !important; }" : "")
       </style></head><body><div id="mail-content">\(html)</div></body></html>
       """
+  }
+
+  public static func hasRemoteImages(_ html: String) -> Bool {
+    html.range(of: #"(?i)<img\b[^>]*\bsrc="https?://"#, options: .regularExpression) != nil
   }
 
   public static func externalLink(_ url: URL) -> Bool {

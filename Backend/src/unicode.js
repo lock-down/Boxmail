@@ -1,5 +1,14 @@
 import { diagnosticPath, diagnosticRecord, diagnosticReferences } from './diagnostic-values.js';
 
+export function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g,
+    character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+}
+
+export function normalizeSearchText(value) {
+  return String(value || '').normalize('NFKC').toLocaleLowerCase();
+}
+
 // JavaScript offsets count UTF-16 units. Keep display/extraction limits without
 // leaving half a surrogate pair for Foundation's stricter JSON decoder.
 export function textSlice(text, start = 0, end = text.length) {

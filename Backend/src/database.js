@@ -1,4 +1,4 @@
-import { messageHeaderJSON } from './message-header.js';
+import { messageHeaderJSON, messageHeaderProjection, messagePreviewColumns } from './message-header.js';
 import { storeAttachmentArchive, loadAttachmentArchive, migrateAttachmentArchives } from './attachment-archive-store.js';
 import { ServiceError } from './validation.js';
 import { unicodeJSON } from './unicode.js';
@@ -225,13 +225,6 @@ export class Repository {
       .prepare('SELECT * FROM events ORDER BY time DESC LIMIT 100')
       .all();
   }
-  search(query, accountId) {
-    const drafts = draftSearchPage(this, { query, accountId, limit: Number.MAX_SAFE_INTEGER });
-    if (drafts) return drafts.messages;
-    const { where, params } = this.messageWhere({ query, accountId });
-    return this.db.prepare(`SELECT m.data FROM records m WHERE ${where}
-      ORDER BY json_extract(m.data,'$.date') DESC,m.id`).all(...params).map(row => JSON.parse(row.data));
-  }
   messageWhere({ query = '', accountId, folder, filter } = {}) {
     const parsed = parseSearch(query);
     const { clauses, params } = searchWhere(parsed, { accountId, folder, filter, accounts: this.list('account') });
@@ -252,12 +245,12 @@ export class Repository {
   }
   messageHeaders(accountId, { previews = true, ids } = {}) {
     return this.db.prepare(`SELECT ${messageHeaderJSON()} AS data
-      ${previews ? ", substr(json_extract(data,'$.body'),1,8192) AS previewBody, substr(json_extract(data,'$.html'),1,32768) AS previewHTML" : ''}
+      ${previews ? `, ${messagePreviewColumns()}` : ''}
       FROM records WHERE kind='message'${accountId === undefined ? '' : " AND json_extract(data,'$.accountId')=?"}
       ${ids ? 'AND id IN (SELECT value FROM json_each(?))' : ''}
       ORDER BY json_extract(data,'$.date') DESC, id`)
       .all(...(accountId === undefined ? [] : [accountId]), ...(ids ? [JSON.stringify(ids)] : []))
-      .map(row => this.messageHeader(JSON.parse(row.data), { previews, source: {body:row.previewBody,html:row.previewHTML} }));
+      .map(messageHeaderProjection(this, { previews }));
   }
   messageHeader(header, { previews = true, source } = {}) {
     // Only small derived strings are cached, never full bodies. A restored or
@@ -316,14 +309,10 @@ export class Repository {
     const { where, params } = this.messageWhere({ accountId, folder, filter, query });
     const total = this.db.prepare(`SELECT COUNT(*) AS total FROM records m WHERE ${where}`).get(...params).total;
     const rows = this.db.prepare(`SELECT ${messageHeaderJSON('m.data')} AS data,
-      substr(json_extract(m.data,'$.body'),1,8192) AS previewBody, substr(json_extract(m.data,'$.html'),1,32768) AS previewHTML
+      ${messagePreviewColumns('m.data')}
       FROM records m WHERE ${where} ORDER BY json_extract(m.data,'$.date') DESC, m.id LIMIT ? OFFSET ?`)
       .all(...params, limit, offset);
-    const firstTerm = parseSearch(query).terms[0];
-    return { messages: rows.map(row => {
-      const message = this.messageHeader(JSON.parse(row.data), {source:{body:row.previewBody,html:row.previewHTML}});
-      return firstTerm ? { ...message, searchSnippet: this.searchIndex.snippet(message.id, firstTerm) } : message;
-    }),
+    return { messages: rows.map(messageHeaderProjection(this, { query })),
       total, nextOffset: offset + rows.length < total ? offset + rows.length : null };
   }
   close() {

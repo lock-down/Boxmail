@@ -21,25 +21,25 @@ struct AttachmentPageRequest: Hashable {
   }
 }
 
+extension AttachmentPageRequest: PagedRequest {
+  func sameFilters(as other: Self) -> Bool {
+    accountId == other.accountId && query == other.query && type == other.type
+      && sort == other.sort && ascending == other.ascending
+  }
+}
+
 @Observable @MainActor final class AttachmentPageStore {
-  @ObservationIgnored private let backend: BackendService
-  @ObservationIgnored private var generation = UUID()
-  @ObservationIgnored private var loadedRevision: Int?
+  private let paging: PagedListStore<AttachmentPageRequest, AttachmentPage>
   @ObservationIgnored private var loadedFilters:
     (query: String, type: String, sort: [KeyPathComparator<AttachmentPageItem>])?
-  private(set) var page: AttachmentPage?
-  private(set) var loadedRequest: AttachmentPageRequest?
-  private(set) var loading = false
-  private(set) var error: String?
-  var accountId: String { didSet { if accountId != oldValue { offset = 0 } } }
-  var query = "" { didSet { if query != oldValue { offset = 0 } } }
-  var type = "全部" { didSet { if type != oldValue { offset = 0 } } }
+  var accountId: String { didSet { if accountId != oldValue { paging.resetOffset() } } }
+  var query = "" { didSet { if query != oldValue { paging.resetOffset() } } }
+  var type = "全部" { didSet { if type != oldValue { paging.resetOffset() } } }
   var sortOrder = [KeyPathComparator(\AttachmentPageItem.date, order: .reverse)] {
-    didSet { if sortOrder != oldValue { offset = 0 } }
+    didSet { if sortOrder != oldValue { paging.resetOffset() } }
   }
-  private(set) var offset = 0
   init(backend: BackendService, accountId: String) {
-    self.backend = backend
+    self.paging = PagedListStore(backend: backend)
     self.accountId = accountId
   }
   var request: AttachmentPageRequest {
@@ -55,17 +55,20 @@ struct AttachmentPageRequest: Hashable {
     ]
     return .init(
       accountId: accountId, query: query, type: types[type] ?? "all", sort: sort,
-      ascending: sortOrder.first?.order == .forward, offset: offset)
+      ascending: sortOrder.first?.order == .forward, offset: paging.offset)
   }
+  var page: AttachmentPage? { paging.page }
+  var loadedRequest: AttachmentPageRequest? { paging.loadedRequest }
+  var loading: Bool { paging.loading }
+  var error: String? { paging.error }
+  var offset: Int { paging.offset }
   var visiblePage: AttachmentPage? { loadedRequest?.accountId == accountId ? page : nil }
   var items: [AttachmentPageItem] { visiblePage?.items ?? [] }
   var showsPreviousPage: Bool { visiblePage != nil && loadedRequest != request }
-  var canPrevious: Bool { !loading && !showsPreviousPage && offset > 0 }
-  var canNext: Bool {
-    !loading && !showsPreviousPage && visiblePage.map { $0.offset + $0.limit < $0.total } == true
-  }
-  func previous() { if canPrevious { offset = max(0, offset - AttachmentPageRequest.pageSize) } }
-  func next() { if canNext { offset += AttachmentPageRequest.pageSize } }
+  var canPrevious: Bool { paging.canPrevious(showsPreviousPage: showsPreviousPage) }
+  var canNext: Bool { paging.canAdvance(showsPreviousPage: showsPreviousPage) }
+  func previous() { if canPrevious { paging.goPrevious() } }
+  func next() { if canNext { paging.goNext() } }
   var canRestoreLoadedPage: Bool { !loading && showsPreviousPage && error != nil }
   func restoreLoadedPage() {
     guard canRestoreLoadedPage, let loadedRequest, loadedRequest.accountId == accountId,
@@ -74,41 +77,14 @@ struct AttachmentPageRequest: Hashable {
     query = loadedFilters.query
     type = loadedFilters.type
     sortOrder = loadedFilters.sort
-    offset = loadedRequest.offset
-    error = nil
-    generation = UUID()
+    paging.restore(loadedRequest)
   }
   func load(revision: Int, force: Bool = false) async {
     let key = request
     let filters = (query: query, type: type, sort: sortOrder)
-    if !force, loadedRequest == key, loadedRevision == revision { return }
-    let ticket = UUID()
-    generation = ticket
-    loading = true
-    error = nil
-    defer { if generation == ticket { loading = false } }
-    do {
-      if !key.query.isEmpty { try await Task.sleep(for: .milliseconds(180)) }
-      let response: AttachmentPage = try await backend.request(key.path)
-      try Task.checkCancellation()
-      guard generation == ticket, key == request else { return }
-      offset = response.offset
-      page = response
-      loadedRequest = request
-      loadedFilters = filters
-      loadedRevision = revision
-    } catch is CancellationError {
-    } catch {
-      guard !Task.isCancelled, (error as NSError).code != NSURLErrorCancelled,
-        generation == ticket, key == request
-      else { return }
-      self.error = error.localizedDescription
-      if let loadedRequest, loadedRequest.accountId == key.accountId,
-        loadedRequest.query == key.query, loadedRequest.type == key.type,
-        loadedRequest.sort == key.sort, loadedRequest.ascending == key.ascending
-      {
-        offset = loadedRequest.offset
-      }
-    }
+    await paging.load(
+      key, revision: revision, force: force,
+      delay: key.query.isEmpty ? nil : .milliseconds(180), current: { self.request },
+      onSuccess: { _ in self.loadedFilters = filters })
   }
 }

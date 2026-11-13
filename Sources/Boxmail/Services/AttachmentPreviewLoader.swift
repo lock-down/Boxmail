@@ -2,8 +2,31 @@ import BoxmailCore
 import Foundation
 import PDFKit
 
+struct LoadedAttachmentPreview {
+  let file: AttachmentPreviewFile
+  let documentURL: URL?
+}
+
 /// Decode and validate files away from the UI actor; the caller owns the returned directory.
 enum AttachmentPreviewLoader {
+  @MainActor static func load(
+    path: String, isPDF: Bool, isWord: Bool
+  ) async throws -> LoadedAttachmentPreview {
+    let response: FileResponse = try await BackendService.shared.request(path)
+    try Task.checkCancellation()
+    let file = try await prepare(name: response.name, content: response.content, isPDF: isPDF)
+    var keep = false
+    defer { if !keep { file.remove() } }
+    var documentURL: URL?
+    if isWord {
+      documentURL = try await SystemDocumentPreview.prepare(file)
+      try Task.checkCancellation()
+    }
+    try Task.checkCancellation()
+    keep = true
+    return LoadedAttachmentPreview(file: file, documentURL: documentURL)
+  }
+
   nonisolated static func prepare(
     name: String, content: String, isPDF: Bool, root: URL = FileManager.default.temporaryDirectory
   ) async throws

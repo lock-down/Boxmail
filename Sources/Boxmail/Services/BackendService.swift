@@ -304,7 +304,6 @@ import Foundation
 }
 struct EmptyResponse: Decodable {}
 struct APIError: Decodable { let error: String }
-struct IDResponse: Decodable { let id: String }
 struct ModelsResponse: Decodable {
   let models: [String]
   let details: [AIModel]?

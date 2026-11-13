@@ -49,9 +49,11 @@ struct AIProviderSettingsView: View {
       Divider().overlay(Palette.softBorder)
       DisclosureGroup("连接设置", isExpanded: $showingConnection) {
         VStack(alignment: .leading, spacing: 14) {
-          providerField("显示名称", text: $config.activeProvider.name, placeholder: "服务商名称")
-          providerField(
-            "API 地址", text: $config.baseURL, placeholder: config.apiProtocol.addressPlaceholder)
+          SettingsFieldRow(
+            title: "显示名称", text: $config.activeProvider.name, placeholder: "服务商名称")
+          SettingsFieldRow(
+            title: "API 地址", text: $config.baseURL,
+            placeholder: config.apiProtocol.addressPlaceholder)
           HStack(spacing: SettingsFormLayout.columnGap) {
             SettingsFormLabel(title: "API 协议")
             WorkflowSelection(
@@ -83,8 +85,9 @@ struct AIProviderSettingsView: View {
               .textSelection(.enabled)
             Spacer()
             if config.providerId != "default" {
-              Button("移除服务商…", role: .destructive) { removeProvider() }
-                .buttonStyle(.plain).font(UIType.small)
+              ActionButton(title: "移除服务商…", color: Palette.amber, size: .compact, role: .destructive) {
+                removeProvider()
+              }
                 .disabled(config.providers.count <= 1)
             }
           }
@@ -136,16 +139,6 @@ struct AIProviderSettingsView: View {
       }
   }
 
-  private func providerField(_ title: String, text: Binding<String>, placeholder: String)
-    -> some View
-  {
-    HStack(spacing: SettingsFormLayout.columnGap) {
-      SettingsFormLabel(title: title)
-      WorkflowTextInput(label: title, placeholder: placeholder, text: text, font: UIType.caption)
-        .frame(width: SettingsFormLayout.fieldWidth)
-      Spacer(minLength: 0)
-    }
-  }
   private func loadKey() {
     let account = config.credentialAccount
     guard keys[account] == nil else { return }
@@ -184,12 +177,10 @@ struct AIProviderSettingsView: View {
     Task {
       defer { loading = false }
       do {
-        let result: ModelsResponse = try await BackendService.shared.request("/ai/models", method: "POST",
-          body: ["config": ["providerId": requested.providerId, "baseURL": requested.baseURL,
-            "apiProtocol": requested.apiProtocol.rawValue, "model": ""], "apiKey": apiKey])
+        let result = try await AIModelDiscovery.fetch(requested.activeProvider, apiKey: apiKey)
         guard config.catalogScope == requested.catalogScope, catalogRevision == revision else { return }
         catalogRevision += 1
-        candidates = result.catalog
+        candidates = result
         discoveringModels = !candidates.isEmpty
         status = candidates.isEmpty ? "服务商未返回模型，可手动添加。" : "已读取 \(candidates.count) 个模型，请选择加入目录。"
       } catch {

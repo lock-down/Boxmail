@@ -9,10 +9,6 @@ struct AttachmentsView: View {
     _pages = ViewState(
       initialValue: AttachmentPageStore(backend: store.backend, accountId: store.accountId))
   }
-  private struct RefreshKey: Hashable {
-    let request: AttachmentPageRequest
-    let revision: Int
-  }
   var body: some View {
     VStack(alignment: .leading, spacing: 22) {
       HStack {
@@ -45,17 +41,10 @@ struct AttachmentsView: View {
         Text("支持文档、图片和 ZIP 资料包理解").font(UIType.small).foregroundStyle(Palette.muted)
       }
       if let error = pages.error {
-        HStack {
-          if pages.canRestoreLoadedPage {
-            ActionButton(title: "返回上次结果", icon: "arrow.uturn.backward") {
-              pages.restoreLoadedPage()
-            }
-          }
-          Text(error).font(UIType.caption).foregroundStyle(Palette.amber)
-          ActionButton(title: "重试", icon: "arrow.clockwise") {
-            Task { await pages.load(revision: store.workspaceListRevision, force: true) }
-          }
-        }
+        PageStoreErrorRow(
+          error: error, canRestore: pages.canRestoreLoadedPage,
+          restore: { pages.restoreLoadedPage() },
+          retry: { Task { await pages.load(revision: store.workspaceListRevision, force: true) } })
       }
       if let page = pages.visiblePage, !page.items.isEmpty {
         AttachmentListView(
@@ -73,9 +62,7 @@ struct AttachmentsView: View {
             loading: pages.loading || pages.showsPreviousPage,
             previous: { pages.previous() }, next: { pages.next() })
         }
-        .id(pages.loadedRequest)
-        .opacity(pages.showsPreviousPage ? 0.55 : 1)
-        .disabled(pages.showsPreviousPage)
+        .stalePage(pages.showsPreviousPage, id: pages.loadedRequest)
       } else if pages.visiblePage != nil, !pages.loading, pages.error == nil {
         emptyState.frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {

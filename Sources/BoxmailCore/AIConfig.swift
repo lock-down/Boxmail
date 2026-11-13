@@ -56,7 +56,7 @@ public struct AIProvider: Codable, Hashable, Identifiable {
       return "API 地址不能包含凭证、查询参数或片段。"
     }
     if models.count > 500 || ([model] + models.map(\.id)).contains(where: {
-      $0.count > 500 || $0.unicodeScalars.contains { $0.value < 32 || $0.value == 127 }
+      $0.count > 500 || AIModel.hasControls($0)
     }) { return "模型目录最多保留 500 个模型，名称不能含控制字符。" }
     if Set(models.map { $0.id.trimmingCharacters(in: .whitespacesAndNewlines) }).count != models.count { return "同一服务商的模型 ID 不能重复。" }
     if let issue = models.compactMap(\.validationIssue).first { return issue }

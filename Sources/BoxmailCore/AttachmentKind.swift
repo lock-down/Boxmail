@@ -3,32 +3,46 @@ import Foundation
 public enum AttachmentKind {
   case pdf, word, spreadsheet, presentation, image, text, archive, other
 
-  public init(name: String, contentType: String) {
-    switch (name as NSString).pathExtension.lowercased() {
-    case "zip": self = .archive
-    case "pdf": self = .pdf
-    case "doc", "docx", "odt", "rtf": self = .word
-    case "xls", "xlsx", "csv", "ods": self = .spreadsheet
-    case "ppt", "pptx", "pps", "ppsx": self = .presentation
-    case "jpg", "jpeg", "png", "gif", "webp": self = .image
-    case "txt", "md", "json", "log": self = .text
-    default:
-      let mime = contentType.split(separator: ";", maxSplits: 1).first?
-        .trimmingCharacters(in: .whitespaces).lowercased() ?? ""
-      switch mime {
-      case "application/zip", "application/x-zip-compressed": self = .archive
-      case "application/pdf": self = .pdf
-      case "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": self = .word
-      case "application/vnd.ms-excel", "text/csv",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": self = .spreadsheet
-      case "application/vnd.ms-powerpoint",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "application/vnd.openxmlformats-officedocument.presentationml.slideshow": self = .presentation
-      case "image/jpeg", "image/png", "image/gif", "image/webp": self = .image
-      case "text/plain", "text/markdown", "application/json": self = .text
-      default: self = .other
+  // The same JSON table is read by the local service; adding a format updates
+  // both previews and analysis without a second hand-maintained switch.
+  private static let table: (extensions: [String: AttachmentKind], mimes: [String: AttachmentKind]) = {
+    guard let url = Bundle.module.url(forResource: "AttachmentKinds", withExtension: "json"),
+      let data = try? Data(contentsOf: url),
+      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let formats = root["formats"] as? [[String: Any]]
+    else { preconditionFailure("Boxmail attachment kind resource is missing") }
+    var extensions: [String: AttachmentKind] = [:]
+    var mimes: [String: AttachmentKind] = [:]
+    for format in formats {
+      guard let name = format["kind"] as? String, let kind = AttachmentKind(wireName: name) else {
+        continue
       }
+      for extensionName in format["extensions"] as? [String] ?? [] { extensions[extensionName] = kind }
+      for mime in format["mimes"] as? [String] ?? [] { mimes[mime] = kind }
     }
+    return (extensions, mimes)
+  }()
+
+  private init?(wireName: String) {
+    switch wireName {
+    case "pdf": self = .pdf
+    case "word": self = .word
+    case "spreadsheet": self = .spreadsheet
+    case "presentation": self = .presentation
+    case "image": self = .image
+    case "text": self = .text
+    case "archive": self = .archive
+    default: return nil
+    }
+  }
+
+  public init(name: String, contentType: String) {
+    if let kind = Self.table.extensions[(name as NSString).pathExtension.lowercased()] {
+      self = kind
+      return
+    }
+    let mime = contentType.split(separator: ";", maxSplits: 1).first?
+      .trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+    self = Self.table.mimes[mime] ?? .other
   }
 }

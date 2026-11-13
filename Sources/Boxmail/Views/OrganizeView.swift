@@ -16,10 +16,6 @@ struct OrganizeView: View {
     _pages = ViewState(
       initialValue: OrganizationPageStore(backend: store.backend, accountId: store.accountId))
   }
-  private struct RefreshKey: Hashable {
-    let request: OrganizationPageRequest
-    let revision: Int
-  }
   var running: Bool { latest?.status == "running" }
   var hasReview: Bool {
     guard let latest else { return false }
@@ -59,23 +55,16 @@ struct OrganizeView: View {
           ProgressView("正在加载分类邮件…").controlSize(.small)
         }
         if let error = pages.error {
-          HStack {
-            Text(error).font(UIType.caption).foregroundStyle(Palette.amber)
-            if pages.canRestoreLoadedPage {
-              ActionButton(title: "返回上次结果", icon: "arrow.uturn.backward") {
-                pages.restoreLoadedPage()
-              }
-            }
-            ActionButton(title: "重试", icon: "arrow.clockwise") {
-              Task { await pages.load(revision: store.workspaceListRevision, force: true) }
-            }
-          }
+          PageStoreErrorRow(
+            error: error, canRestore: pages.canRestoreLoadedPage,
+            restore: { pages.restoreLoadedPage() },
+            retry: { Task { await pages.load(revision: store.workspaceListRevision, force: true) } })
         }
         if let page = pages.visiblePage {
           if pages.showsPreviousPage {
             Text("保留上次加载的分类邮件").font(UIType.small).foregroundStyle(Palette.muted)
           }
-          WorkspaceList(items: page.items) {
+          WorkspaceList(items: page.items, emptyMessage: "这个分类暂时没有邮件") {
             EmptyView()
           } footer: {
             ListPagination(
@@ -97,12 +86,7 @@ struct OrganizeView: View {
               EmptyView()
             }
           }
-          .id(pages.loadedRequest)
-          .opacity(pages.showsPreviousPage ? 0.55 : 1).disabled(pages.showsPreviousPage)
-          if page.items.isEmpty {
-            Text("这个分类暂时没有邮件").font(UIType.caption).foregroundStyle(Palette.muted)
-              .frame(maxWidth: .infinity).padding(30)
-          }
+          .stalePage(pages.showsPreviousPage, id: pages.loadedRequest)
         } else {
           Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -140,7 +124,7 @@ struct OrganizeView: View {
         }
       }
       Spacer(minLength: 0)
-      WorkflowAction(title: "管理分类", icon: "tag") { managingCategories = true }
+      ActionButton(title: "管理分类", icon: "tag") { managingCategories = true }
         .disabled(running)
     }
   }
@@ -165,7 +149,7 @@ struct OrganizeView: View {
           WorkflowField(title: "处理数量") { limitSelection }.frame(width: 136)
         }
         Spacer(minLength: 0)
-        WorkflowAction(title: "开始整理", icon: "wand.and.stars", color: Palette.blue) {
+        ActionButton(title: "开始整理", icon: "wand.and.stars", color: Palette.blue) {
           store.organize(scope: scope, limit: limit)
         }.disabled(
           running || hasReview || store.busy.contains("organize-control")
@@ -195,8 +179,7 @@ struct OrganizeView: View {
               }
           ).frame(width: 200)
         } else if !pages.category.isEmpty {
-          Button("查看全部") { pages.category = "" }.buttonStyle(.plain).foregroundStyle(
-            Palette.blue)
+          ActionButton(title: "查看全部", color: Palette.blue, size: .compact) { pages.category = "" }
         }
         Text("\(pages.visiblePage?.accountTotal ?? 0) 封邮件").font(.system(size: 11))
           .foregroundStyle(Palette.muted)
@@ -228,7 +211,7 @@ struct OrganizeView: View {
                 )
                 .background(
                   pages.category == value ? Palette.accentSoft : .white,
-                  in: RoundedRectangle(cornerRadius: 8)
+                  in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
                 )
             }.buttonStyle(ControlFeedback(selected: pages.category == value))
               .controlFocus()
@@ -239,7 +222,7 @@ struct OrganizeView: View {
     }
   }
   private func approveButton(_ job: AgentJob) -> some View {
-    WorkflowAction(title: "确认应用分类", icon: "checkmark", color: Palette.blue) {
+    ActionButton(title: "确认应用分类", icon: "checkmark", color: Palette.blue) {
       store.action("approve") {
         try await BackendService.shared.perform("/jobs/\(job.id)/approve")
       }
@@ -290,15 +273,15 @@ struct OrganizeView: View {
         }
         Spacer()
         if running {
-          WorkflowAction(title: "暂停", icon: "pause") { store.pauseOrganization(job) }
+          ActionButton(title: "暂停", icon: "pause") { store.pauseOrganization(job) }
             .disabled(store.busy.contains("organize-control"))
         } else if ["partial", "paused", "failed"].contains(job.status), job.progress != nil {
-          WorkflowAction(title: "继续未完成邮件", icon: "arrow.clockwise", color: Palette.blue) {
+          ActionButton(title: "继续未完成邮件", icon: "arrow.clockwise", color: Palette.blue) {
             store.organize(retry: job)
           }
           .disabled(store.busy.contains("organize-control"))
         } else if job.status == "applied" {
-          WorkflowAction(title: "撤销本次整理", icon: "arrow.uturn.backward") {
+          ActionButton(title: "撤销本次整理", icon: "arrow.uturn.backward") {
             store.action("undo") { try await BackendService.shared.perform("/jobs/\(job.id)/undo") }
           }.disabled(store.busy.contains("undo"))
         }

@@ -25,14 +25,14 @@ struct MailAttachmentSection: View {
     Array(files.filter { $0.canAnalyze && (forceBatch || !$0.isAnalyzed) }.prefix(100).map(\.id))
   }
   private var buttonTitle: String {
-    if running { return "正在批量理解…" }
+    if running { return "正在分别理解…" }
     if job?.status == "paused" { return "继续未完成的附件" }
     if retryable { return "重试失败附件" }
     if message.attachmentIds.count > 100 {
       return unfinished > 0 ? "理解下一批附件（最多 100 个）" : "重新理解一批附件（最多 100 个）"
     }
     if !files.isEmpty && unfinished == 0 && files.contains(where: \.isAnalyzed) { return "重新理解全部附件" }
-    return "理解本封邮件附件"
+    return "分别理解附件"
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -40,16 +40,20 @@ struct MailAttachmentSection: View {
         Label("\(message.attachmentIds.count) 个附件", systemImage: "paperclip")
           .font(.system(size: 12, weight: .semibold))
         Spacer()
-        ActionButton(title: buttonTitle, icon: "sparkles", kind: .ai) {
-          startAnalysis(force: unfinished == 0, retry: retryable ? job : nil)
+        ActionButton(title: "理解整封邮件", icon: "sparkles", color: Palette.accent) {
+          store.generate(task: "summary", message: message)
         }.disabled(running || controlling || store.busy.contains("agent"))
+        IconMenu(icon: "ellipsis", help: "附件独立分析") {
+          Button(buttonTitle) {
+            startAnalysis(force: unfinished == 0, retry: retryable ? job : nil)
+          }.disabled(running || controlling || store.busy.contains("agent"))
+        }
       }
       if let job {
         progress(job)
-      } else {
-        Text(message.attachmentIds.count > 100 ? "每批最多 100 个附件，确认后开始；已有结果会保留。" : "一键理解本封邮件全部附件，已有结果会保留。")
-          .font(UIType.small).foregroundStyle(Palette.muted)
       }
+      Text("整封理解会结合正文与所有可读附件；需要单文件深入分析时，打开附件或使用右侧菜单。")
+        .font(UIType.small).foregroundStyle(Palette.muted)
       if let error = store.attachmentBatchErrors[message.id] {
         Label(error, systemImage: "exclamationmark.circle").font(.system(size: 11))
           .foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
@@ -70,10 +74,9 @@ struct MailAttachmentSection: View {
         }
       }
       if !analyzed.isEmpty {
-        AIResultDisclosure(title: "查看附件理解结果（\(analyzed.count)）", isExpanded: $showResults,
+        AIResultDisclosure(title: "查看独立附件结果（\(analyzed.count)）", isExpanded: $showResults,
           copyHelp: "复制全部附件理解结果", copy: {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(analyzed.map { "\($0.name)\n\($0.analysis ?? "")" }.joined(separator: "\n\n"), forType: .string)
+            NSPasteboard.general.copy(analyzed.map { "\($0.name)\n\($0.analysis ?? "")" }.joined(separator: "\n\n"))
           }
         ) {
           VStack(alignment: .leading, spacing: 8) {
@@ -111,18 +114,19 @@ struct MailAttachmentSection: View {
           .contentTransition(reduceMotion ? .identity : .numericText())
         Spacer()
         if running {
-          Button("暂停") { store.pauseAttachmentBatch(job) }.disabled(controlling)
+          ActionButton(title: "暂停", color: Palette.accent, size: .compact) { store.pauseAttachmentBatch(job) }.disabled(controlling)
         } else if retryable || unfinished > 0 {
-          Button(message.attachmentIds.count > 100 ? "重新理解一批附件" : "重新理解全部") { startAnalysis(force: true) }
+          ActionButton(title: message.attachmentIds.count > 100 ? "重新理解一批附件" : "重新理解全部",
+            color: Palette.accent, size: .compact) { startAnalysis(force: true) }
             .disabled(controlling || store.busy.contains("agent"))
         }
-      }.buttonStyle(.plain).foregroundStyle(Palette.accent)
+      }.foregroundStyle(Palette.accent)
       if running {
         ProgressView(value: Double(items.filter(\.isFinished).count), total: Double(max(1, items.count)))
         if let item = items.first(where: { $0.status == "running" }) {
           Text("正在理解：\(item.name)").lineLimit(1).truncationMode(.middle)
         }
-        Text("逐个保存结果，可继续阅读其他邮件。")
+        Text("逐个保存独立结果，可继续阅读其他邮件。")
       }
       if let error = job.error {
         Text(error).foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
@@ -136,8 +140,8 @@ struct MailAttachmentSection: View {
   private func statusTitle(_ job: AgentJob) -> String {
     let completed = items.filter(\.isAnalyzed).count
     let failed = items.filter { $0.status == "failed" }.count
-    let prefix = running ? "批量理解中" : job.status == "paused" ? "批量理解已暂停"
-      : failed > 0 ? "批量理解部分未完成" : "批量理解完成"
+    let prefix = running ? "独立分析中" : job.status == "paused" ? "独立分析已暂停"
+      : failed > 0 ? "独立分析部分未完成" : "独立分析完成"
     return "\(prefix) · 已理解 \(completed)/\(items.count)" + (failed > 0 ? " · 失败 \(failed)" : "")
   }
 }
@@ -147,8 +151,7 @@ private struct AttachmentAnalysisRow: View {
   @ViewState<Bool> private var isExpanded = false
   var body: some View {
     AIResultDisclosure(title: file.name, isExpanded: $isExpanded, copy: {
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(file.analysis ?? "", forType: .string)
+      NSPasteboard.general.copy(file.analysis ?? "")
     }) {
       if let text = file.analysis { AnalysisDocumentView(text: text) }
     }

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { MailContentWorker } from './mail-content-worker.js';
 import { openArchive } from './archive-service.js';
-import { archiveSummary, archiveSummaryText } from './archive-summary.js';
 import { extractText, modelFile } from './attachments.js';
 import { completion } from './responses.js';
+import { archiveSummary } from './attachment-archive-store.js';
 import { ServiceError } from './validation.js';
 
 export async function runArchiveAnalysis(repo, input, { jobId = randomUUID() } = {}) {
@@ -93,3 +93,14 @@ export async function runArchiveAnalysis(repo, input, { jobId = randomUUID() } =
   repo.put('job', job); publish('资料包理解完成', job.result.text);
   return job;
 }
+export function archiveSummaryText(summary, archive) {
+  const paths = new Map(archive.entries.map(entry => [entry.id, entry.path]));
+  const section = (title, items, field) => items.length ? `\n\n## ${title}\n${items.map(item =>
+    `- ${item[field]}\n  来源：${item.entryIds.map(id => paths.get(id)).join('、')}`).join('\n')}` : '';
+  const done = archive.entries.filter(entry => entry.status === 'completed').length;
+  return `## 资料包总览\n${summary.overview}\n\n已理解 ${done}/${archive.totalFiles} 个文件，未处理 ${archive.totalFiles - done} 个。`
+    + section('文件归类', summary.groups, 'title') + section('关联、差异与待确认事项', summary.findings, 'text')
+    + section('下一步行动', summary.actions, 'text');
+}
+
+export { archiveSummary };

@@ -27,24 +27,14 @@ struct MailReplyView: View {
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      Text("选择回复态度，一键生成预览").font(.system(size: 12, weight: .medium))
-      HStack(spacing: 7) {
+      Text("结合正文与全部附件，选择回复态度或填写要求").font(.system(size: 12, weight: .medium))
+      HStack(spacing: 8) {
         ForEach(ReplyPreset.allCases) { preset in
-          Button {
+          SelectionButton(title: preset.title, selected: selectedPreset == preset,
+            size: .form, fillsWidth: true, surface: Palette.paper) {
             selectedPreset = preset
             generate()
-          } label: {
-            Text(preset.title).font(.system(size: 11, weight: .medium))
-              .foregroundStyle(selectedPreset == preset ? Palette.accent : Palette.ink)
-              .frame(maxWidth: .infinity).frame(height: 34).contentShape(Rectangle())
-              .background(
-                selectedPreset == preset ? Palette.accentSoft : .white,
-                in: RoundedRectangle(cornerRadius: 7)
-              )
-          }.buttonStyle(ControlFeedback(selected: selectedPreset == preset)).help(preset.detail)
-            .controlFocus()
-            .animation(UIMotion.selection(reduceMotion), value: selectedPreset == preset)
-            .accessibilityAddTraits(selectedPreset == preset ? .isSelected : [])
+          }.help(preset.detail)
             .disabled(store.busy.contains("agent"))
         }
       }
@@ -53,12 +43,9 @@ struct MailReplyView: View {
           Palette.muted)
         Spacer()
         if selectedPreset != nil {
-          Button { selectedPreset = nil } label: {
-            Text("改为自定义").font(.system(size: 12, weight: .semibold))
-              .foregroundStyle(Palette.accent)
-              .padding(.horizontal, 6).padding(.vertical, 3)
-              .contentShape(RoundedRectangle(cornerRadius: 5))
-          }.buttonStyle(ControlFeedback(corner: 5)).controlFocus(corner: 5)
+          ActionButton(title: "改为自定义", color: Palette.accent, size: .compact) {
+            selectedPreset = nil
+          }
             .disabled(store.busy.contains("agent"))
         }
       }
@@ -77,7 +64,7 @@ struct MailReplyView: View {
       .focused($requestFocused)
       .animation(UIMotion.feedback(reduceMotion), value: requestFocused)
       HStack {
-        ActionButton(title: "生成回复预览", icon: "sparkles", kind: .ai) { generate() }
+        ActionButton(title: "生成回复预览", icon: "sparkles", color: Palette.accent) { generate() }
           .disabled(
             store.busy.contains("agent")
               || (selectedPreset == nil
@@ -95,19 +82,17 @@ struct MailReplyView: View {
             )
             .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.accent)
             Spacer()
-            CopyButton(help: "复制回复预览") {
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(result.body ?? "", forType: .string)
-            }
+            CopyButton(help: "复制回复预览") { result.body ?? "" }
             IconButton(icon: "xmark", help: "关闭回复预览") { hiddenPreviews.insert(preview.id) }
           }
           Divider()
+          MailAIContextNotice(context: result.context, attachmentCount: message.attachmentIds.count)
           Text(result.subject ?? "").font(.system(size: 12, weight: .medium)).textSelection(
             .enabled)
           Text(result.body ?? "").font(.system(size: 13)).lineSpacing(5).textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
           HStack {
-            ActionButton(title: "使用内容", icon: "square.and.pencil", kind: .ai) {
+            ActionButton(title: "使用内容", icon: "square.and.pencil", color: Palette.accent) {
               store.useReply(preview)
             }
             .disabled(store.busy.contains("agent") || store.busy.contains("use-reply"))

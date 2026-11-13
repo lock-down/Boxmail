@@ -6,7 +6,6 @@ struct AIResultDisclosure<Content: View>: View {
   var copyHelp = "复制理解结果"
   var copy: (() -> Void)? = nil
   @ViewBuilder var content: () -> Content
-  @FocusState private var focused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -20,11 +19,8 @@ struct AIResultDisclosure<Content: View>: View {
             Spacer(minLength: 0)
           }.foregroundStyle(Palette.ink).padding(.horizontal, 12).padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-        }.buttonStyle(ControlFeedback()).focused($focused)
+        }.buttonStyle(ControlFeedback()).controlFocus()
           .accessibilityLabel(title).accessibilityValue(isExpanded ? "已展开" : "已收起").help(title)
-          .overlay(alignment: .bottom) {
-            if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 12) }
-          }
         if let copy { CopyButton(help: copyHelp, action: copy).padding(.trailing, 6) }
       }
       if isExpanded {

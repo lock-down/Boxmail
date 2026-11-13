@@ -26,16 +26,18 @@ struct ContentView: View {
       }
       .sheet(isPresented: $store.showSettings) {
         SettingsView(store: store).borderlessScrollers()
-          .frame(
-            width: min(1000, max(700, geometry.size.width - 24)),
-            height: min(750, max(500, geometry.size.height - 40)))
+          .workspaceSheet(.settings)
       }
       .sheet(item: $store.composer) { draft in
         ComposerView(store: store, initial: draft).borderlessScrollers()
-          .frame(
-            width: min(1080, max(680, geometry.size.width - 24)),
-            height: min(720, max(500, geometry.size.height - 40)))
+          .workspaceSheet(.composer)
       }
+      .sheet(item: $store.previewAttachment) { attachment in
+        AttachmentPreviewView(store: store, attachmentId: attachment.id).borderlessScrollers()
+          .workspaceSheet(.attachment)
+      }
+      .sheet(isPresented: $activity) { ActivityView(store: store).borderlessScrollers() }
+      .environment(\.workspaceViewport, geometry.size)
     }.foregroundStyle(Palette.ink).tint(Palette.blue).background(Palette.canvas).ignoresSafeArea(
       .container, edges: .top
     )
@@ -46,10 +48,6 @@ struct ContentView: View {
     .onChange(of: store.accountId) { _, _ in showingNavigation = false }
     .onChange(of: store.composer?.id) { _, _ in showingNavigation = false }
     .onChange(of: store.showSettings) { _, showing in if showing { showingNavigation = false } }
-    .sheet(item: $store.previewAttachment) { attachment in
-      AttachmentPreviewView(store: store, attachmentId: attachment.id).borderlessScrollers()
-    }
-    .sheet(isPresented: $activity) { ActivityView(store: store).borderlessScrollers() }
     .task(id: store.ready ? store.mailQueryKey : "") {
       guard store.ready else { return }
       if !usedStartupPage {
@@ -68,26 +66,14 @@ struct ContentView: View {
       guard store.ready else { return }
       await store.loadSelectedMessage()
     }
-    .alert(
-      "操作未完成",
-      isPresented: Binding(
-        get: {
-          store.error != nil && !store.showSettings && store.composer == nil
-            && store.previewAttachment == nil
-        }, set: { if !$0 { store.error = nil } })
-    ) {
-      Button("确定") { store.error = nil }
-    } message: {
-      Text(store.error ?? "")
-    }
-    .alert(
-      "Boxmail",
-      isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })
-    ) {
-      Button("确定") { store.notice = nil }
-    } message: {
-      Text(store.notice ?? "")
-    }
+    .storeAlert(
+      "操作未完成", text: { store.error }, isPresented: {
+        store.error != nil && !store.showSettings && store.composer == nil
+          && store.previewAttachment == nil
+      }, dismiss: { store.error = nil })
+    .storeAlert(
+      "Boxmail", text: { store.notice }, isPresented: { store.notice != nil },
+      dismiss: { store.notice = nil })
   }
   @ViewBuilder private var workspace: some View {
     if !store.ready {
@@ -124,7 +110,7 @@ struct ContentView: View {
             store.settingsTab = "高级"
             store.showSettings = true
           }
-          ActionButton(title: "重试", icon: "arrow.clockwise", kind: .primary) {
+          ActionButton(title: "重试", icon: "arrow.clockwise", color: Palette.accent) {
             Task { await store.load() }
           }
         }
@@ -211,7 +197,7 @@ struct ContentView: View {
               Text("AI").font(UIType.small)
             }
           }.foregroundStyle(Palette.muted).padding(.horizontal, 9).frame(height: 32)
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .contentShape(RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
         }.buttonStyle(ControlFeedback()).controlFocus()
           .accessibilityLabel(store.settings.ai.enabled ? "AI 助手已开启" : "AI 助手已关闭")
           .help("打开 AI 设置")
@@ -249,7 +235,7 @@ struct ContentView: View {
         .lineLimit(2).textSelection(.enabled)
       Spacer(minLength: 8)
       if store.mailChange?.undo.isEmpty == false {
-        ActionButton(title: "撤销", icon: "arrow.uturn.backward", kind: .primary) { store.undoMailChange() }
+        ActionButton(title: "撤销", icon: "arrow.uturn.backward", color: Palette.accent) { store.undoMailChange() }
           .disabled(store.mailActionInProgress).help("撤销最近一次邮件操作（Command-Z）")
       }
       IconButton(icon: "xmark", help: "关闭邮件操作提示", size: 24) {

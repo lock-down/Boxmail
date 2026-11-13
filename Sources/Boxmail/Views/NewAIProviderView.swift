@@ -28,7 +28,7 @@ struct NewAIProviderView: View {
   private var issue: String? {
     if takenIDs.contains(provider.id) { return "此 Provider ID 已被使用，请更换。" }
     if let issue = provider.validationIssue { return issue }
-    if key.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) { return "API Key 不能包含控制字符。" }
+    if AIModel.hasControls(key) { return "API Key 不能包含控制字符。" }
     return nil
   }
   var body: some View {
@@ -45,13 +45,15 @@ struct NewAIProviderView: View {
         OverlayScrollView {
           VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
-              row("Provider ID", text: $id, placeholder: "acme-gateway").focused($focused)
+              SettingsFieldRow(title: "Provider ID", text: $id, placeholder: "acme-gateway")
+                .focused($focused)
               Text("以小写字母开头，使用小写字母、数字和连字符；创建后保持不变。")
                 .font(UIType.small).foregroundStyle(Palette.muted)
                 .padding(.leading, SettingsFormLayout.labelWidth + SettingsFormLayout.columnGap)
                 .frame(maxWidth: .infinity, alignment: .leading)
-              row("显示名称", text: $name, placeholder: "例如 工作模型服务")
-              row("API 地址", text: $baseURL, placeholder: apiProtocol.addressPlaceholder)
+              SettingsFieldRow(title: "显示名称", text: $name, placeholder: "例如 工作模型服务")
+              SettingsFieldRow(
+                title: "API 地址", text: $baseURL, placeholder: apiProtocol.addressPlaceholder)
               HStack(spacing: SettingsFormLayout.columnGap) {
                 SettingsFormLabel(title: "API 协议")
                 WorkflowSelection(
@@ -82,7 +84,7 @@ struct NewAIProviderView: View {
             AIModelCatalogEditor(models: $models, selectedModel: $model, apiProtocol: apiProtocol)
             if !status.isEmpty { Text(status).font(UIType.small).foregroundStyle(Palette.muted) }
           }.padding(2)
-        }.frame(height: 470)
+        }
         if !id.isEmpty, let issue, !models.compactMap(\.validationIssue).contains(issue) {
           Text(issue).font(UIType.small).foregroundStyle(Palette.amber).fixedSize(
             horizontal: false, vertical: true)
@@ -99,7 +101,7 @@ struct NewAIProviderView: View {
           .font(UIType.small).foregroundStyle(Palette.muted)
           .fixedSize(horizontal: false, vertical: true)
       }
-    }.frame(width: 680).background(Palette.paper).onAppear { focused = true }
+    }.background(Palette.paper).workspaceSheet(.provider).onAppear { focused = true }
       .sheet(isPresented: $discovering) {
         AIModelDiscoveryView(candidates: candidates, existingIDs: Set(models.map(\.id))) {
           models.append(contentsOf: $0)
@@ -113,21 +115,14 @@ struct NewAIProviderView: View {
     Task {
       defer { fetching = false }
       do {
-        let result: ModelsResponse = try await BackendService.shared.request("/ai/models", method: "POST",
-          body: ["config": ["providerId": requested.id, "baseURL": requested.baseURL,
-            "apiProtocol": requested.apiProtocol.rawValue, "model": ""], "apiKey": apiKey])
-        guard provider.id == requested.id, provider.baseURL == requested.baseURL, provider.apiProtocol == requested.apiProtocol else { return }
-        candidates = result.catalog; discovering = !candidates.isEmpty
+        let result = try await AIModelDiscovery.fetch(requested, apiKey: apiKey)
+        guard provider.id == requested.id, provider.baseURL == requested.baseURL,
+          provider.apiProtocol == requested.apiProtocol
+        else { return }
+        candidates = result
+        discovering = !candidates.isEmpty
         status = candidates.isEmpty ? "服务商未返回模型，可手动添加。" : "选择要加入目录的模型。"
       } catch { status = "获取失败：\(error.localizedDescription)" }
-    }
-  }
-  private func row(_ title: String, text: Binding<String>, placeholder: String) -> some View {
-    HStack(spacing: SettingsFormLayout.columnGap) {
-      SettingsFormLabel(title: title)
-      WorkflowTextInput(label: title, placeholder: placeholder, text: text, font: UIType.caption)
-        .frame(width: SettingsFormLayout.fieldWidth)
-      Spacer(minLength: 0)
     }
   }
 }

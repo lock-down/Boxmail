@@ -1,4 +1,4 @@
-import { textSlice } from './unicode.js';
+import { extractedText, MAX_EXTRACTED_TEXT } from './attachment-text.js';
 import { ParserProcess } from './parser-process.js';
 
 // Keep the public sync helper, but use a process boundary for fatal native errors.
@@ -26,21 +26,23 @@ export async function parseMailContent(task, buffer) {
   }
   if (task === 'docx') {
     const { default: mammoth } = await import('mammoth');
-    return { text: textSlice((await mammoth.extractRawText({ buffer })).value, 0, 200000) };
+    return extractedText((await mammoth.extractRawText({ buffer })).value);
   }
   if (task === 'xlsx') {
     const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
-    let text = '';
+    let text = '', skipped = false;
     for (const sheet of workbook.worksheets) {
       text += `\n[${sheet.name}]\n`;
       sheet.eachRow(row => {
-        if (text.length < 200000) text += row.values.slice(1)
+        if (text.length < MAX_EXTRACTED_TEXT) text += row.values.slice(1)
           .map(value => typeof value === 'object' ? JSON.stringify(value) : (value ?? '')).join('\t') + '\n';
+        else skipped = true;
       });
     }
-    return { text: textSlice(text, 0, 200000) };
+    const result = extractedText(text);
+    return { ...result, textTruncated: skipped || result.textTruncated };
   }
   throw new Error('Unknown parser task');
 }

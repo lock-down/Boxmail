@@ -55,36 +55,25 @@ extension MailStore {
     attachmentBatchPolling = Task {
       defer { attachmentBatchPolling = nil }
       var loadedResults = Set<String>()
-      while !Task.isCancelled {
-        let running = jobs.filter { $0.task == "attachmentBatch" && $0.status == "running" }
-        if running.isEmpty { break }
-        for job in running {
-          do {
-            let updated: AgentJob = try await self.backend.request(
-              "/jobs/\(job.id)", timeout: 10)
-            try Task.checkCancellation()
-            replaceJob(updated)
-            if let messageId = updated.messageId {
-              attachmentBatchErrors[messageId] = nil
-              if messageId == selectedMessageId {
-                for item in updated.attachmentItems ?? [] where item.isAnalyzed {
-                  let key = "\(job.id)-\(item.id)"
-                  if !loadedResults.contains(key) {
-                    await loadAttachment(item.id)
-                    loadedResults.insert(key)
-                  }
-                }
-              }
-            }
-          } catch is CancellationError { return
-          } catch {
-            if let messageId = job.messageId {
-              attachmentBatchErrors[messageId] = "暂时无法获取进度，正在重新连接。"
+      await pollRunningJobs(
+        task: "attachmentBatch", interval: .seconds(1), timeout: 10,
+        onUpdate: { updated in
+          guard let messageId = updated.messageId else { return }
+          attachmentBatchErrors[messageId] = nil
+          guard messageId == selectedMessageId else { return }
+          for item in updated.attachmentItems ?? [] where item.isAnalyzed {
+            let key = "\(updated.id)-\(item.id)"
+            if !loadedResults.contains(key) {
+              await loadAttachment(item.id)
+              loadedResults.insert(key)
             }
           }
-        }
-        try? await Task.sleep(for: .seconds(1))
-      }
+        },
+        onFailure: { job in
+          if let messageId = job.messageId {
+            attachmentBatchErrors[messageId] = "暂时无法获取进度，正在重新连接。"
+          }
+        })
     }
   }
 }

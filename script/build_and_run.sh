@@ -87,6 +87,8 @@ fi
 mkdir -p "$APP_CONTENTS/Resources/Backend/Resources"
 cp Sources/BoxmailCore/Resources/DefaultPrompts.json "$APP_CONTENTS/Resources/Backend/Resources/DefaultPrompts.json"
 cp Sources/BoxmailCore/Resources/ReplyPresets.json "$APP_CONTENTS/Resources/Backend/Resources/ReplyPresets.json"
+cp Sources/BoxmailCore/Resources/AttachmentKinds.json "$APP_CONTENTS/Resources/Backend/Resources/AttachmentKinds.json"
+cp Sources/BoxmailCore/Resources/DiagnosticKnownFields.json "$APP_CONTENTS/Resources/Backend/Resources/DiagnosticKnownFields.json"
 rsync -a --delete "$BUILD_DIR/Boxmail_BoxmailCore.bundle/" "$APP_CONTENTS/Resources/Boxmail_BoxmailCore.bundle/"
 chmod +x "$APP_CONTENTS/MacOS/$APP_NAME" "$APP_CONTENTS/Resources/Runtime/node" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
 BRAND_MARK="Sources/BoxmailCore/Resources/BoxmailMark.png"

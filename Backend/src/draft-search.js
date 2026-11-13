@@ -1,9 +1,8 @@
-import { textSlice } from './unicode.js';
+import { textSlice, normalizeSearchText } from './unicode.js';
 import { parseSearch, searchWhere } from './search-query.js';
 import { mailPreview, mailPreviewText } from './mail-preview.js';
 import { draftContent, upgradeForwardDraft } from './forward-content.js';
 
-const normalize = value => String(value || '').normalize('NFKC').toLocaleLowerCase();
 const prefix = 'draft:';
 export const DRAFT_SEARCH_LIMIT = 65536;
 export function draftPreview(draft, account = {}) {
@@ -56,14 +55,14 @@ export function draftSearchPage(repo, { query = '', accountId, folder, filter, o
         const extra = '\n' + (attachment.get(DRAFT_SEARCH_LIMIT, id)?.text || '');
         text += extra; snippet += extra;
       }
-      const draftSearchText = textSlice(normalize(textSlice(text, 0, DRAFT_SEARCH_LIMIT * 4)), 0, DRAFT_SEARCH_LIMIT * 4);
-      const draftSnippetText = textSlice(normalize(textSlice(snippet, 0, DRAFT_SEARCH_LIMIT * 4)), 0, DRAFT_SEARCH_LIMIT * 4);
+      const draftSearchText = textSlice(normalizeSearchText(textSlice(text, 0, DRAFT_SEARCH_LIMIT * 4)), 0, DRAFT_SEARCH_LIMIT * 4);
+      const draftSnippetText = textSlice(normalizeSearchText(textSlice(snippet, 0, DRAFT_SEARCH_LIMIT * 4)), 0, DRAFT_SEARCH_LIMIT * 4);
       insert.run('message', message.id, JSON.stringify({ ...message, body: '', html: undefined,
         bodyLoaded: false, draftSearchText, draftSnippetText }));
     }
     const { clauses, params } = searchWhere(parsed, { accountId, filter, accounts });
     for (const term of parsed.terms) {
-      clauses.push("instr(json_extract(m.data,'$.draftSearchText'),?)>0"); params.push(normalize(term));
+      clauses.push("instr(json_extract(m.data,'$.draftSearchText'),?)>0"); params.push(normalizeSearchText(term));
     }
     const where = clauses.join(' AND ');
     const total = db.prepare(`SELECT count(*) AS total FROM draft_search m WHERE ${where}`).get(...params).total;
@@ -72,7 +71,7 @@ export function draftSearchPage(repo, { query = '', accountId, folder, filter, o
     return { messages: rows.map(row => {
       const { draftSearchText, draftSnippetText, ...message } = JSON.parse(row.data);
       if (parsed.terms.length) {
-        const term = normalize(parsed.terms[0]);
+        const term = normalizeSearchText(parsed.terms[0]);
         const snippetText = draftSnippetText;
         const position = snippetText.indexOf(term);
         if (position >= 0) message.searchSnippet = textSlice(snippetText, Math.max(0, position - 28), position + 132).replace(/\n/g, ' ');

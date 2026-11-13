@@ -73,7 +73,7 @@ struct RichTextFormatBar: View {
         HStack {
           ActionButton(title: "取消") { showingColor = false }
           Spacer()
-          ActionButton(title: "应用颜色", kind: .primary) {
+          ActionButton(title: "应用颜色", color: Palette.accent) {
             applyCustomColor()
           }.disabled(!validCustomColor)
         }
@@ -96,12 +96,8 @@ struct RichTextFormatBar: View {
   ) -> some View {
     IconButton(
       icon: icon, help: help, color: selected ? Palette.blue : Palette.muted,
-      active: selected, action: action
+      selected: selected, action: action
     )
-    .background(
-      selected ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: UILayout.iconRadius)
-    )
-    .accessibilityAddTraits(selected ? .isSelected : [])
   }
 
   private var linkEditor: some View {
@@ -113,7 +109,7 @@ struct RichTextFormatBar: View {
       HStack {
         ActionButton(title: "取消") { showingLink = false }
         Spacer()
-        ActionButton(title: "插入链接", icon: "link", kind: .primary) { insertLink() }
+        ActionButton(title: "插入链接", icon: "link", color: Palette.accent) { insertLink() }
       }
     }.padding(16).frame(width: 320)
   }

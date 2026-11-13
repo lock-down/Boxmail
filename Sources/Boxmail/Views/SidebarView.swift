@@ -21,23 +21,8 @@ struct SidebarView: View {
         Spacer(minLength: 0)
       }.padding(.horizontal, 22).padding(.top, 38).padding(.bottom, 18)
         .accessibilityElement(children: .combine).accessibilityLabel("Boxmail")
-      Button {
-        store.newDraft()
-      } label: {
-        HStack(spacing: 9) {
-          Image(systemName: "square.and.pencil").font(.system(size: 14))
-            .frame(width: 18)
-          Text("写邮件").font(.system(size: 13, weight: .semibold))
-          Spacer(minLength: 0)
-        }.foregroundStyle(Palette.blue).padding(.horizontal, 10).frame(height: 38)
-          .background(
-            Palette.blueSoft,
-            in: RoundedRectangle(cornerRadius: UILayout.selectionRadius, style: .continuous)
-          )
-          .contentShape(
-            RoundedRectangle(cornerRadius: UILayout.selectionRadius, style: .continuous))
-      }.buttonStyle(ControlFeedback(selected: true, corner: UILayout.selectionRadius))
-        .controlFocus(corner: UILayout.selectionRadius)
+      ActionButton(title: "写邮件", icon: "square.and.pencil", color: Palette.blue,
+        emphasis: .tinted, size: .form, fillsWidth: true, alignment: .leading) { store.newDraft() }
         .padding(.horizontal, 12).padding(.bottom, 16)
       OverlayScrollView {
         VStack(spacing: 4) {
@@ -84,19 +69,19 @@ struct SidebarView: View {
                       .background(
                         account.id == store.accountId ? Palette.blueSoft : .clear,
                         in: RoundedRectangle(
-                          cornerRadius: UILayout.selectionRadius, style: .continuous)
+                          cornerRadius: UILayout.navigationRadius, style: .continuous)
                       )
                       .contentShape(Rectangle())
-                  }.buttonStyle(ControlFeedback(corner: UILayout.selectionRadius))
-                    .controlFocus(corner: UILayout.selectionRadius)
+                  }.buttonStyle(ControlFeedback(corner: UILayout.navigationRadius))
+                    .controlFocus(corner: UILayout.navigationRadius)
                     .accessibilityAddTraits(account.id == store.accountId ? .isSelected : [])
                 }
                 Divider()
-                Button("添加邮箱账号…") {
+                ActionButton(title: "添加邮箱账号…", color: Palette.blue) {
                   showAccounts = false
                   store.settingsTab = "账号"
                   store.showSettings = true
-                }.buttonStyle(.plain).foregroundStyle(Palette.blue)
+                }
               }.padding(12).frame(width: 360)
             }
           sectionTitle("邮箱")
@@ -114,10 +99,10 @@ struct SidebarView: View {
         HStack {
           Text("演示邮箱").font(.system(size: 11, weight: .medium))
           Spacer()
-          Button("添加邮箱") {
+          ActionButton(title: "添加邮箱", color: Palette.blue, size: .compact) {
             store.settingsTab = "账号"
             store.showSettings = true
-          }.buttonStyle(.borderless).font(.system(size: 11)).foregroundStyle(Palette.blue)
+          }
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
       }
       HStack(spacing: 7) {
@@ -128,11 +113,10 @@ struct SidebarView: View {
         ).foregroundStyle(
           store.credentialIssueAccounts.isEmpty ? Palette.success : Palette.amber)
         if !store.credentialIssueAccounts.isEmpty {
-          Button("检查邮箱凭证") {
+          ActionButton(title: "检查邮箱凭证", color: Palette.amber, size: .compact) {
             store.settingsTab = "账号"
             store.showSettings = true
           }
-            .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.amber)
         } else {
           Text(
             store.pendingMutations > 0
@@ -156,9 +140,6 @@ struct SidebarView: View {
     case .sent: return store.cachedMessageCount(accountId: store.accountId, folder: "sent")
     case .attachments: return store.accountAttachments.count
     case .summary: return store.summaryOverviewMessages.count
-    case .replies:
-      return store.drafts.filter { $0.accountId == store.accountId && $0.sourceMessageId != nil }
-        .count
     default: return 0
     }
   }
@@ -184,9 +165,9 @@ struct SidebarView: View {
         .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 36)
         .contentShape(Rectangle()).background(
           selected ? Palette.blueSoft : Color.clear,
-          in: RoundedRectangle(cornerRadius: UILayout.selectionRadius, style: .continuous))
-    }.buttonStyle(ControlFeedback(selected: selected, corner: UILayout.selectionRadius))
-      .controlFocus(corner: UILayout.selectionRadius).accessibilityAddTraits(
+          in: RoundedRectangle(cornerRadius: UILayout.navigationRadius, style: .continuous))
+    }.buttonStyle(ControlFeedback(selected: selected, corner: UILayout.navigationRadius))
+      .controlFocus(corner: UILayout.navigationRadius).accessibilityAddTraits(
       selected ? .isSelected : [])
       .animation(UIMotion.selection(reduceMotion), value: selected)
       .animation(UIMotion.selection(reduceMotion), value: count(destination))

@@ -12,3 +12,7 @@ artifacts/
 .boxmail-signing-identity
 .impeccable/critique/
 .impeccable/review/
+
+# Local regression sources and fixtures
+/Tests/
+/Backend/test/

@@ -51,17 +51,9 @@ public struct ConfigurationImportPlan: Decodable {
       values[provider.credentialAccount] = provider.id == "default" ? archive.credentials.aiKey : archive.credentials.aiProviderKeys?[provider.id]
     }
     for account in plan.accounts { values["mail-\(account.accountId)"] = archive.credentials.mailPasswords[account.sourceId] }
-    var references: [String: String] = [:]
-    do {
-      for logical in values.keys.sorted() where !values[logical]!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        let reference = "configuration-\(UUID().uuidString)"
-        try saveCredential(reference, values[logical]!)
-        references[logical] = reference
-      }
-    } catch {
-      for reference in references.values { removeCredential(reference) }
-      throw error
-    }
+    let references = try CredentialUpdate.stage(
+      values.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
+      save: saveCredential, remove: removeCredential)
     do { return try await commit(references) }
     catch {
       let original = error

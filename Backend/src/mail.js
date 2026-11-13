@@ -5,7 +5,7 @@ import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { setImmediate as yieldToRequests } from 'node:timers/promises';
 import { rm } from 'node:fs/promises';
-import { prepareAttachment, attachmentBytes, copyBorrowedAttachments, reassignAttachments } from './attachments.js';
+import { prepareAttachment, attachmentBytes, attachmentFiles, copyBorrowedAttachments, reassignAttachments } from './attachments.js';
 import { ServiceError, required, recipients } from './validation.js';
 import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
@@ -625,11 +625,11 @@ async function saveSent(account, password, raw) {
   try {
     await client.connect();
     const folders = await client.list();
-    let target =
-      folders.find((f) => f.specialUse === '\\Sent')?.path ||
-      account.folders?.sent;
+    const discovered = { ...account };
+    discoverMailFolders(discovered, folders);
+    let target = discovered.folders?.sent || account.folders?.sent;
     if (!target) {
-      target = 'Boxmail Sent';
+      target = mailFolderNames.sent;
       await client.mailboxCreate(target);
     }
     await client.append(target, raw, ['\\Seen']);
@@ -676,15 +676,7 @@ export async function sendDraft(
         return { ...draft, attachmentIds };
       },
     });
-    const attachments = [];
-    for (const id of draft.attachmentIds || []) {
-      const a = await attachmentBytes(repo, id);
-      attachments.push({
-        filename: a.metadata.name,
-        content: a.buffer,
-        contentType: a.metadata.contentType,
-      });
-    }
+    const attachments = await attachmentFiles(repo, draft.attachmentIds);
     transport = transportFor(account, password);
     content = draftContent(draft);
     options = {

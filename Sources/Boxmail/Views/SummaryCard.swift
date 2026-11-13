@@ -25,7 +25,7 @@ struct SummaryCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack(spacing: 7) {
-        Label("AI 已为您总结", systemImage: "sparkles")
+        Label(summary.context == nil ? "AI 已为您总结" : "整封邮件理解", systemImage: "sparkles")
           .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.accent)
         if message.accountId == "demo" {
           Text("演示示例").font(UIType.small).foregroundStyle(Palette.muted)
@@ -34,10 +34,7 @@ struct SummaryCard: View {
         IconButton(icon: "arrow.clockwise", help: "重新生成总结") {
           store.generate(task: "summary", message: message)
         }.disabled(store.busy.contains("agent"))
-        CopyButton(help: "复制总结") {
-          NSPasteboard.general.clearContents()
-          NSPasteboard.general.setString(summary.plainText, forType: .string)
-        }
+        CopyButton(help: "复制总结") { summary.plainText }
         if embedded && store.destination != .summary {
           IconButton(icon: "xmark", help: "收起 AI 面板") { store.mailAITab = nil }
         } else if allowsCollapse {
@@ -49,6 +46,7 @@ struct SummaryCard: View {
         Text(error).font(UIType.caption).foregroundStyle(Palette.amber)
       }
       if !collapsed {
+        MailAIContextNotice(context: summary.context, attachmentCount: message.attachmentIds.count)
         SummaryContentLayout {
           overview.layoutValue(key: SummarySectionKey.self, value: .overview)
           followUp.layoutValue(key: SummarySectionKey.self, value: .followUp)
@@ -71,7 +69,7 @@ struct SummaryCard: View {
   }
   private var overview: some View {
     VStack(alignment: .leading, spacing: 9) {
-      Text("内容概要").font(.system(size: 12, weight: .semibold))
+      sectionTitle("内容概要")
       Text(AITextStyle.inline(summary.overviewText)).font(AITextStyle.body).lineSpacing(6)
         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -87,7 +85,7 @@ struct SummaryCard: View {
           Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium))
             .rotationEffect(.degrees(showKeyInfo ? 0 : -90)).foregroundStyle(Palette.muted)
             .accessibilityHidden(true)
-        }.foregroundStyle(Palette.ink).padding(.vertical, 3).contentShape(Rectangle())
+        }.foregroundStyle(Palette.ink).controlLabel(size: .compact, fillsWidth: true)
       }.buttonStyle(ControlFeedback()).controlFocus()
         .accessibilityLabel("关键信息，\(summary.keyInfo.count) 项")
         .accessibilityValue(showKeyInfo ? "已展开" : "已收起")
@@ -100,14 +98,15 @@ struct SummaryCard: View {
             }.fixedSize(horizontal: false, vertical: true)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
-        }.textSelection(.enabled).transition(UIMotion.reveal(reduceMotion))
+        }.padding(.horizontal, UIControlSize.compact.horizontalInset)
+          .textSelection(.enabled).transition(UIMotion.reveal(reduceMotion))
       }
     }.animation(UIMotion.disclosure(reduceMotion), value: showKeyInfo)
   }
   private var followUp: some View {
     VStack(alignment: .leading, spacing: 18) {
       VStack(alignment: .leading, spacing: 8) {
-        Text("待处理").font(.system(size: 12, weight: .semibold))
+        sectionTitle("待处理")
         ForEach(summary.todos) { todo in
           Button { store.toggleTodo(message: message, todo: todo) } label: {
             HStack(alignment: .top, spacing: 9) {
@@ -125,8 +124,8 @@ struct SummaryCard: View {
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 2)
                 }
               }.frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading)
-            }.font(AITextStyle.body).lineSpacing(4).padding(.vertical, 5)
-              .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.font(AITextStyle.body).lineSpacing(4)
+              .controlLabel(size: .compact, verticalInset: 5, fillsWidth: true, alignment: .leading)
           }.buttonStyle(ControlFeedback()).controlFocus()
             .disabled(store.busy.contains("todo"))
             .accessibilityLabel(todo.title).accessibilityValue(todo.done ? "已完成" : "待处理")
@@ -138,7 +137,7 @@ struct SummaryCard: View {
       }
       if let steps = summary.nextSteps, !steps.isEmpty {
         VStack(alignment: .leading, spacing: 5) {
-          Text("您可继续").font(.system(size: 12, weight: .semibold)).padding(.bottom, 3)
+          sectionTitle("您可继续").padding(.bottom, 3)
           ForEach(steps) { step in
             if ["reply", "attachments"].contains(step.action) {
               Button { store.followSummary(step, in: message) } label: {
@@ -149,7 +148,7 @@ struct SummaryCard: View {
                   Spacer(minLength: 0)
                   Image(systemName: "arrow.up.right").font(.system(size: 9, weight: .medium))
                 }.font(UIType.caption).foregroundStyle(Palette.accent).multilineTextAlignment(.leading)
-                  .padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                  .controlLabel(size: .compact, verticalInset: 6, fillsWidth: true, alignment: .leading)
               }.buttonStyle(ControlFeedback()).controlFocus().help(step.title)
                 .disabled(store.busy.contains("agent"))
             } else {
@@ -160,5 +159,10 @@ struct SummaryCard: View {
         }
       }
     }
+  }
+
+  private func sectionTitle(_ title: String) -> some View {
+    Text(title).font(.system(size: 12, weight: .semibold))
+      .frame(minHeight: UIControlSize.compact.height, alignment: .leading)
   }
 }

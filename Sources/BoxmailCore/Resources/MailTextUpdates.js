@@ -11,9 +11,10 @@ const texts = root => {
 };
 const root = document.getElementById('mail-content');
 if (!root || !previous || !next || JSON.stringify(signature(previous)) !== JSON.stringify(signature(next))) return false;
-const currentText = texts(root), nextText = texts(next);
+const currentText = window.boxmailMailTextNodes || texts(root), nextText = texts(next);
 if (currentText.length !== nextText.length) return false;
 currentText.forEach((node, index) => {
   if (node.nodeValue !== nextText[index].nodeValue) node.nodeValue = nextText[index].nodeValue;
 });
+window.boxmailUpdateRecipients?.();
 return true;

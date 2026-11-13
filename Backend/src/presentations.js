@@ -10,14 +10,11 @@ import { convert } from 'html-to-text';
 import JSZip from 'jszip';
 import { Readable } from 'node:stream';
 import { ServiceError } from './validation.js';
+import { presentationExtensions, presentationMimes } from './attachment-kind.js';
 
 const execute = promisify(execFile);
-const extensions = new Set(['.ppt', '.pptx', '.pps', '.ppsx']);
-const mimeExtensions = {
-  'application/vnd.ms-powerpoint': '.ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-  'application/vnd.openxmlformats-officedocument.presentationml.slideshow': '.ppsx',
-};
+const extensions = presentationExtensions;
+const mimeExtensions = presentationMimes;
 const packagedRenderer = fileURLToPath(new URL('../../Runtime/BoxmailPresentationRenderer', import.meta.url));
 const developmentRenderer = fileURLToPath(new URL('../../.build/debug/BoxmailPresentationRenderer', import.meta.url));
 const xcodeRenderer = fileURLToPath(new URL('../../.build/out/Products/Debug/BoxmailPresentationRenderer', import.meta.url));

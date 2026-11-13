@@ -3,15 +3,32 @@ import BoxmailCore
 import SwiftUI
 import WebKit
 
-struct HTMLMailBodyView: NSViewRepresentable {
+struct HTMLMailBodyView: View {
   let html: String
   let fontSize: Int
   let allowRemoteImages: Bool
   @Binding var height: CGFloat
   var collapseQuotes = false
   var updatesTextOnly = false
+  @ViewState private var recipients = MailRecipientState()
 
-  func makeCoordinator() -> Coordinator { Coordinator(height: $height) }
+  var body: some View {
+    WebKitMailBody(html: html, fontSize: fontSize, allowRemoteImages: allowRemoteImages,
+      height: $height, collapseQuotes: collapseQuotes, updatesTextOnly: updatesTextOnly, recipients: recipients)
+      .overlay(alignment: .topLeading) { MailRecipientOverlay(state: recipients) }
+  }
+}
+
+private struct WebKitMailBody: NSViewRepresentable {
+  let html: String
+  let fontSize: Int
+  let allowRemoteImages: Bool
+  @Binding var height: CGFloat
+  var collapseQuotes = false
+  var updatesTextOnly = false
+  let recipients: MailRecipientState
+
+  func makeCoordinator() -> Coordinator { Coordinator(height: $height, recipients: recipients) }
 
   func makeNSView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
@@ -35,6 +52,8 @@ struct HTMLMailBodyView: NSViewRepresentable {
         injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
     let webView = MailBodyWebView(frame: .zero, configuration: configuration)
     context.coordinator.webView = webView
+    recipients.webView = webView
+    webView.recipients = recipients
     webView.navigationDelegate = context.coordinator
     return webView
   }
@@ -71,7 +90,8 @@ struct HTMLMailBodyView: NSViewRepresentable {
     var updating = false
     var textOnly = false
     fileprivate weak var webView: MailBodyWebView?
-    init(height: Binding<CGFloat>) { self.height = height }
+    let recipients: MailRecipientState
+    init(height: Binding<CGFloat>, recipients: MailRecipientState) { self.height = height; self.recipients = recipients }
 
     func update(_ next: String, layoutKey: String, textOnly: Bool) {
       document = next
@@ -100,7 +120,7 @@ struct HTMLMailBodyView: NSViewRepresentable {
 
     private func load(_ next: String) {
       loading = true
-      webView?.recipientRegions = []
+      recipients.reset()
       renderedDocument = next
       renderedLayoutKey = layoutKey
       webView?.loadHTMLString(next, baseURL: nil)
@@ -122,9 +142,10 @@ struct HTMLMailBodyView: NSViewRepresentable {
       _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
     ) {
       if message.name == "mailRecipientScrollRegions", message.frameInfo.isMainFrame,
-        let regions = message.body as? [[String: Double]]
+        let data = try? JSONSerialization.data(withJSONObject: message.body),
+        let regions = try? JSONDecoder().decode([MailRecipientRegion].self, from: data)
       {
-        webView?.recipientRegions = regions
+        recipients.regions = regions
         return
       }
       guard message.frameInfo.isMainFrame, let value = message.body as? NSNumber else { return }
@@ -152,6 +173,18 @@ struct HTMLMailBodyView: NSViewRepresentable {
   }
 }
 
+struct RemoteImagesBanner: View {
+  let text: String
+  let buttonTitle: String
+  let load: () -> Void
+  var body: some View {
+    HStack(spacing: 10) {
+      Text(text).font(UIType.small).foregroundStyle(Palette.muted)
+      ActionButton(title: buttonTitle) { load() }
+    }
+  }
+}
+
 struct MailBodyView: View {
   let message: MailMessage
   let preferences: Preferences
@@ -163,10 +196,9 @@ struct MailBodyView: View {
   var body: some View {
     if let html = message.html, !html.isEmpty {
       VStack(alignment: .leading, spacing: 12) {
-        if message.hasRemoteImages == true && preferences.blockRemoteImages && !loadRemoteImages {
-          HStack(spacing: 10) {
-            Text("此邮件包含外部图片").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            ActionButton(title: "加载本封邮件图片") { loadRemoteImages = true }
+        if message.hasRemoteImages == true, preferences.blockRemoteImages, !loadRemoteImages {
+          RemoteImagesBanner(text: "此邮件包含外部图片", buttonTitle: "加载本封邮件图片") {
+            loadRemoteImages = true
           }
         }
         HTMLMailBodyView(
@@ -178,10 +210,8 @@ struct MailBodyView: View {
       }.frame(maxWidth: .infinity, alignment: .leading)
     } else {
       let visible = collapseQuotes ? QuotedMailText.split(message.body).visible : message.body
-      Text(visible.isEmpty ? "这封邮件没有可展示的正文，或正文仅包含引用内容。" : visible)
-        .font(.system(size: CGFloat(preferences.fontSize))).lineSpacing(7).textSelection(.enabled)
-        .fixedSize(horizontal: false, vertical: true).frame(
-          maxWidth: .infinity, alignment: .leading)
+      RecipientTextBodyView(text: visible.isEmpty ? "这封邮件没有可展示的正文，或正文仅包含引用内容。" : visible,
+        font: .system(size: CGFloat(preferences.fontSize)), lineSpacing: 7)
     }
   }
 }

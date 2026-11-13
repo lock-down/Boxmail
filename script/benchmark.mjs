@@ -40,8 +40,8 @@ try {
     });
   });
   const target = repo.list('message').filter(item => item.accountId === 'a0');
-  await measure('indexFlushMs', () => repo.searchIndex.flush(), 1);
-  assert.equal(repo.search('项目资料').length, count);
+  await measure('indexDrainMs', () => repo.searchIndex.drain(), 1);
+  assert.equal(repo.messagePage({ query: '项目资料' }).total, count);
   const contactCount = Math.min(8, new Set(target.map(item => item.senderEmail)).size);
   await measure('contactsMs', () => assert.equal(contactSuggestions(repo, 'a0', '联系人').contacts.length, contactCount));
   await measure('conversationMs', () => assert.equal(conversation(repo, target[0].id).total, target.length));

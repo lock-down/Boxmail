@@ -23,7 +23,7 @@ struct CategoryManagerView: View {
         Divider().overlay(Palette.softBorder)
         editor.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
-    }.frame(width: 760, height: 520).background(Palette.paper).tint(Palette.blue)
+    }.background(Palette.paper).tint(Palette.blue).workspaceSheet(.categories)
       .disabled(saving)
       .alert("删除分类？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), presenting: deleting) { category in
         Button("取消", role: .cancel) { deleting = nil }
@@ -38,7 +38,7 @@ struct CategoryManagerView: View {
       HStack {
         Text("\(store.categories.count) 个分类").font(UIType.small).foregroundStyle(Palette.muted)
         Spacer()
-        WorkflowAction(title: "新增", icon: "plus", color: Palette.blue) { reset() }
+        ActionButton(title: "新增", icon: "plus", color: Palette.blue) { reset() }
           .help("新增分类").accessibilityLabel("新增分类")
       }.padding(.horizontal, 16).padding(.top, 12)
       ScrollViewReader { proxy in
@@ -59,9 +59,9 @@ struct CategoryManagerView: View {
                   }
                 }.frame(maxWidth: .infinity, alignment: .leading)
               }.foregroundStyle(Palette.ink).padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                .background(editingID == category.id ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 7))
-                .contentShape(RoundedRectangle(cornerRadius: 7))
-            }.buttonStyle(ControlFeedback(selected: editingID == category.id))
+                .background(editingID == category.id ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+            }.buttonStyle(ControlFeedback(selected: editingID == category.id)).controlFocus()
               .accessibilityLabel("\(category.id == "unclassified" ? "查看" : "编辑")分类 \(category.name)")
               .accessibilityAddTraits(editingID == category.id ? .isSelected : [])
               .id(category.id)
@@ -101,11 +101,11 @@ struct CategoryManagerView: View {
         }
         HStack(spacing: 12) {
           if let category = selected {
-            WorkflowAction(title: "删除分类", icon: "trash", color: Palette.amber) { deleting = category }
+            ActionButton(title: "删除分类", icon: "trash", color: Palette.amber) { deleting = category }
           }
           Spacer(minLength: 0)
-          if editingID != nil { WorkflowAction(title: "取消编辑") { reset() } }
-          WorkflowAction(title: saving ? "正在保存…" : editingID == nil ? "添加分类" : "保存修改", icon: "checkmark", color: Palette.blue) { save() }
+          if editingID != nil { ActionButton(title: "取消编辑") { reset() } }
+          ActionButton(title: saving ? "正在保存…" : editingID == nil ? "添加分类" : "保存修改", icon: "checkmark", color: Palette.blue) { save() }
             .disabled(saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 32 || description.count > 500)
             .keyboardShortcut("s", modifiers: .command)
         }

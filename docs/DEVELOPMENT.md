@@ -1,6 +1,6 @@
 # 开发与维护
 
-本文适用于 Boxmail 0.1.8（build 47），覆盖 ZIP 理解、共用列表与分页、原生窗口缩放、草稿同步及备份恢复；发布范围见[变更记录](../CHANGELOG.md)。项目启动及文档入口见 [README](../README.md)，操作行为见 [使用指南](USER_GUIDE.md)，路由和数据契约见 [后端接口](../Backend/README.md)。日常开发保持 SwiftUI、本机 Node.js 和 SQLite 的结构。
+本文以 Boxmail 0.1.9（build 48）为发布基线，记录共享实现、整封 AI 上下文和收件人交互。最新变化与验证见[本版变更](../CHANGELOG.md#019--2026-11-13)，历史发布范围保留在对应版本条目中。项目启动及文档入口见 [README](../README.md)，操作行为见 [使用指南](USER_GUIDE.md)，路由和数据契约见 [后端接口](../Backend/README.md)。日常开发保持 SwiftUI、本机 Node.js 和 SQLite 的结构。
 
 ## 源码入口
 
@@ -10,13 +10,20 @@
 | `Sources/Boxmail/Views/` | 邮件、写信、搜索、附件和设置界面 |
 | `Sources/Boxmail/Support/` | 设计系统、动效、滚动及原生预览桥接 |
 | `Sources/Boxmail/Stores/MailStore.swift` 及扩展 | 状态、后端调用、分页、缓存、AI 输出流和任务轮询 |
-| `Sources/Boxmail/Stores/AttachmentPageStore.swift`、`OrganizationPageStore.swift` | 附件与分类邮件当前页、筛选请求、取消、迟到响应和刷新版本 |
+| `Sources/Boxmail/Stores/PagedListStore.swift`、`AttachmentPageStore.swift`、`OrganizationPageStore.swift` | 共用分页状态机；具体 Store 提供请求与筛选差异 |
+| `Sources/Boxmail/Support/SettingsActionState.swift`、`Views/SettingsActionFeedback.swift` | 设置动作进度、结果状态与统一反馈 |
+| `Sources/Boxmail/Views/RecipientDetailsView.swift`、`RecipientAddressList.swift`、`Support/ScrollEventRouting.swift` | 邮件头与引用共用收件信息展示、原生滚动及指针命中 |
+| `Sources/Boxmail/Support/ControlStyle.swift`、`Views/ActionButton.swift`、`IconButton.swift`、`SelectionButton.swift` | 共用控件尺寸、对称标签边界、圆角、主次外观、指针反馈、焦点与选中语义 |
+| `Sources/Boxmail/Views/TableSortButton.swift`、`MailSourceButton.swift` | 紧凑排序标题、列内容对齐及长来源名称的省略 |
+| `Sources/Boxmail/Views/SelectionControlButton.swift`、`SettingsSelectionMenu.swift`、`WorkflowControls.swift` | 原生下拉的表面、字体居中、菜单跟踪与键盘操作 |
 | `Sources/Boxmail/Views/WorkspaceList.swift`、`ListPagination.swift` | 共用列表滚动边界、行反馈与分页栏 |
+| `Sources/Boxmail/Support/WorkspaceSheetLayout.swift`、`AttachmentListLayout.swift` | 主窗口及嵌套弹窗的尺寸边界、附件表格的列宽与窄窗口断点 |
 | `Sources/Boxmail/Support/WindowTitlebarRegion.swift`、`MainWindowLayout.swift` | 主窗口标题区域交互、原生缩放及默认／最小尺寸 |
 | `Sources/Boxmail/Services/` | 后端生命周期、本机凭证和配置迁移 |
 | `Sources/BoxmailCore/` | 数据模型、配置归档、存储迁移、后端进程与目录锁、文本与日期逻辑 |
-| `Sources/BoxmailCore/Resources/` | 共享提示词、回复态度、收件人布局及客户端品牌图片 |
-| `Tests/BoxmailTests/` | 客户端导航、列表选择、邮件与附件分页状态，以及 AppKit 编辑器行为 |
+| `Sources/BoxmailCore/Resources/` | 双端附件类型、诊断词表、提示词、回复态度、正文脚本及品牌图片 |
+| `Tests/`、`Backend/test/`（本地，不跟踪） | Swift 与后端回归、合成样例 |
+| `Backend/src/mail-ai-context.js`、`attachment-text.js` | 整封上下文准备、文件覆盖与文字提取标记 |
 | `Sources/BoxmailPresentationRenderer/` | WebKit / PDFKit 幻灯片页面生成 |
 | `Backend/src/` | 协议、HTTP、任务、持久化、索引及备份 |
 
@@ -26,18 +33,20 @@
 
 ## 构建与测试
 
-在仓库根目录执行，依赖及工具链要求见 README。
+在仓库根目录执行，依赖及工具链要求见 README。普通源码检出可以直接构建：
 
 ```bash
-./script/test.sh
+swift build
 git diff --check
 ```
+
+`Tests/` 与 `Backend/test/` 及其样例仅保留在本地，不进入 Git。`Package.swift` 只在对应本地目录存在时声明 Swift 测试目标；新检出不含测试仍能构建 App。准备好三个本地测试目录后执行 `./script/test.sh`，缺少任一目录时脚本明确退出，避免把未执行回归当作通过。
 
 构建、测试和后端启动均要求 Node.js 24.22.2 LTS 或更新的 LTS 版本，最低版本以 `Backend/package.json` 的 `engines.node` 为准，`Backend/src/check-node.js` 同时检查版本下限和 LTS 标记。构建在关闭 App 前完成检查，并按二进制内容更新内置 Node.js，避免文件时间导致旧运行时被保留。
 
 `test.sh` 检查运行时后构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、附件及分类邮件分页、后台预览清理、富文本连续编辑，以及窗口原生缩放与默认还原。最新测试数量、原生验收和真实服务验证范围统一记录在 [CHANGELOG](../CHANGELOG.md#018--2026-11-12)，历史发布基线保留在各版本条目中。新增回归不得替换同名旧测试。
+当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、附件及分类邮件分页、后台预览清理、富文本连续编辑、窗口原生缩放与默认还原，以及控件对齐、附件表格与面板适配。最新源码测试数量、原生验收和真实服务验证范围统一记录在 [CHANGELOG 的本版条目](../CHANGELOG.md#019--2026-11-13)，历史发布基线保留在各版本条目中。新增回归不得替换同名旧测试。
 
 真实 HTTP/SQLite/Swift 回归包含六账户、12,001 封合成邮件及 4,135 个附件的加载、正文与 HTML 保留、设置保存和同目录重启。HTTP 夹具按会话隔离，正式测试继续覆盖凭证文件权限、手工修改、迁移、ZIP 排除密钥、WAL 强制退出、磁盘容量不足、事务回滚、网络期限与取消、JSON 主线程隔离及客户端旧响应竞态。大邮箱用例一次补齐 12073 封收件箱与 543 封已发送；AppKit/WebKit 用例检查定位、选择、分页、收件人滚动和转发预览。搜索派生索引在后台逐封处理，测试等待索引就绪，搜索请求本身不能触发全量 flush。发布时另验证正式包的图标、资源、源码、签名、首次启动及退出清理。
 
@@ -50,13 +59,14 @@ git diff --check
 | Swift 核心逻辑 | `swift test`；若宏插件未加载，使用测试脚本中的插件参数 |
 | 客户端导航与选择 | `swift test --filter BoxmailTests`；宏插件参数同上 |
 | 分页、正文点击与窗口缩放 | 分别以 `swift test --filter <测试名>` 执行 `AttachmentPageStoreTests`、`OrganizationPageStoreTests`、`ComposerTextHitTestingTests` 或 `WindowZoomTests`；宏插件参数同上 |
+| 控件、表格与面板布局 | 分别执行 `swift test --filter ControlLayoutTests` 与 `swift test --filter WorkspaceLayoutTests`；宏插件参数同上 |
 | 全量编译 | `swift build`，同时编译客户端与 PPT 可执行目标 |
 | App 构建与启动 | `./script/build_and_run.sh --verify` |
 | 调试启动 | `./script/build_and_run.sh --debug` |
 
 App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进程存活，不能代替界面及真实服务联调。单独后端启动参数见后端文档。
 
-正式回归测试保留在 `Backend/test/`、`Tests/BoxmailCoreTests/` 和 `Tests/BoxmailTests/`，使用临时目录、模拟 IMAP / AI 和本机 TLS SMTP，不访问真实邮箱、不发送外部邮件、不调用云端 AI。SMTP 测试需要系统 `openssl`。测试应验证数据契约、故障处理或用户行为，避免重复实现细节。
+本地回归测试保留在 `Backend/test/`、`Tests/BoxmailCoreTests/` 和 `Tests/BoxmailTests/`，使用临时目录、模拟 IMAP / AI 和本机 TLS SMTP，不访问真实邮箱、不发送外部邮件、不调用云端 AI。SMTP 测试需要系统 `openssl`。测试应验证数据契约、故障处理或用户行为，避免重复实现细节。
 
 孤立后端夹具通过 Node.js 的 `detached` 子进程建立独立会话和进程组，匹配 Foundation 启动后端的隔离方式，避免启动器退出后的进程组清理干扰断言；原运行时及覆盖后的运行时均要求实际回收并释放目录锁。
 
@@ -126,23 +136,29 @@ swiftc -O -D INCREMENTAL \
 
 ### ZIP 资料包与附件预览
 
-`archive-reader.js` 使用精确锁定的 yauzl 3.4.0，通过 `ParserProcess` 读取目录和有界解压，校验实际大小与 CRC；文件从不解压到其提供的路径。`archive-service.js` 负责父附件、内容指纹与包内读取，`archive-analysis.js` 复用普通文件的 `extractText`、`modelFile` 与模型请求，`archive-summary.js` 校验结构化来源。目录、子文件结果和汇总以父附件 ID 独立保存为 archive 记录，附件仅保存 archiveInfo 轻量投影，SQLite 结构版本仍为 2；详情读取再按需组合，备份恢复校验并重建投影。邮件批量任务将 ZIP 作为一项，内部逐文件保存，暂停、重启和重试沿用任务恢复流程。附件列表搜索包含已读取的清单路径与整体分析，不扫描逐文件理解结果。
+`archive-reader.js` 使用精确锁定的 yauzl 3.4.0，通过 `ParserProcess` 读取目录和有界解压，校验实际大小与 CRC；文件从不解压到其提供的路径。`archive-service.js` 负责父附件、内容指纹与包内读取，`archive-analysis.js` 复用普通文件的 `extractText`、`modelFile` 与模型请求，并校验结构化汇总来源。目录、子文件结果和汇总以父附件 ID 独立保存为 archive 记录，附件仅保存 archiveInfo 轻量投影，SQLite 结构版本仍为 2；详情读取再按需组合，备份恢复校验并重建投影。邮件批量任务将 ZIP 作为一项，内部逐文件保存，暂停、重启和重试沿用任务恢复流程。附件列表搜索包含已读取的清单路径与整体分析，不扫描逐文件理解结果。
 
 ZIP 缓存按路径、设备、inode、大小和 mtime／ctime 核对文件身份，稳定命中不重读原包；实际读取包内文件及理解仍使用原始字节。新写入、旧缓存迁移和读取均验证清单，先解码文件名再校验安全路径。备份校验重新派生或移除每份附件的 `archiveInfo`，启动也防护详情缺失；损坏时仅丢弃派生缓存，保留邮件、原附件及有效结果。完整备份从只读 SQLite 快照查询计数和附件 id／name／path，避免水合全部附件与归档详情；恢复前重新派生草稿富文本并清洗转发 HTML。
 
 `AttachmentPreviewLoader` 在后台解码、写入独立临时文件及验证 PDF，界面只接收完成结果，取消和失败都清理文件。普通预览、ZIP 容器和单文件预览分别由独立视图负责。
 
+### 整封邮件 AI 上下文
+
+`mail-ai-context.js` 为单封 `summary` 与 `reply` 共用正文、附件及 ZIP 子项的原始上下文；`attachment-text.js` 维护文字提取及截断信息。`agent.js` 编排任务与持久化，`responses.js` 负责协议及任务规则。客户端通过后台 Job、流式进度与 `MailAIContextNotice` 展示结果和文件覆盖，旧结果的可选字段保持兼容。
+
+数据流、解析与模型窗口边界见 [上下文设计](MAIL_AI_CONTEXT.md)，HTTP 字段见 [后端接口](../Backend/README.md#ai-与任务)，操作见 [使用指南](USER_GUIDE.md#邮件-ai-与分类)。
+
 ### 共用列表与分页
 
-`WorkspaceListSurface` 统一圆角、边框和滚动边界：header 与 footer 固定，只有 content 滚动；`WorkspaceList` 在其上提供数据行映射与分隔。附件、分类邮件、分类建议和摘要集合共用这一表面，避免页面外层再套纵向滚动。`SummaryOverviewView` 将流式输出、摘要行和空态放在同一列表视口中，标题、统计和操作固定；账户、列表范围或恢复版本变化时只重建列表，展开及多选不会重置滚动位置。
+`WorkspaceListSurface` 统一圆角、边框和滚动边界：header 与 footer 固定，只有 content 滚动；外层、滚动内容和行堆栈明确靠左，防止滚动视口变窄时将固定列宽的内容居中挤偏。`WorkspaceList` 在其上提供数据行映射、分隔及容器内的空态提示。附件、分类邮件、分类建议和摘要集合共用这一表面，避免页面外层再套纵向滚动。`SummaryOverviewView` 将流式输出、摘要行和空态放在同一列表视口中，标题、统计和操作固定；账户、列表范围或恢复版本变化时只重建列表，展开及多选不会重置滚动位置。
 
 附件中心通过 `GET /attachments` 每次读取 50 条轻量记录；`attachment-page.js` 在 SQLite 中对当前账户的全部附件进行搜索、类型筛选和排序，只返回当前页及精简原邮件信息，正文、完整分析与 ZIP 目录按需读取。搜索只读取已保存的数据，不触发提取或模型请求。主状态 `/state?compact=1&previews=0` 仍保留全部轻量附件头部，供邮件引用及侧栏计数使用；分页限制的是表格数据和每次列表请求，并未移除全量轻量头部。
 
-`AttachmentPageStore` 管理页码、请求代次、取消、错误重试与数据刷新；条件或账户变化重置页码，附件删除导致越界时服务端回退到末页。`MailStore.workspaceListRevision` 在成功刷新后递增，使当前页重新读取；旧账户、旧条件或已取消请求的响应不能覆盖当前页。附件和智能整理都复用 `WorkspaceList`、`WorkspaceListRow` 与 `ListPagination`；共用组件管理圆角、边框、分隔及行反馈，行区域在内部滚动，表头与分页栏固定，附件视图仅管理列内容、排序和预览/原邮件/下载动作。移除附件专用 Table 外观桥接及重复分页视图；表头与数据行共用计算后的列宽，附件仍每页只渲染 50 条。
+`AttachmentPageStore` 管理页码、请求代次、取消、错误重试与数据刷新；条件或账户变化重置页码，附件删除导致越界时服务端回退到末页。`MailStore.workspaceListRevision` 在成功刷新后递增，使当前页重新读取；旧账户、旧条件或已取消请求的响应不能覆盖当前页。附件和智能整理都复用 `WorkspaceList`、`WorkspaceListRow` 与 `ListPagination`；共用组件管理圆角、边框、分隔及行反馈，行区域在内部滚动，表头与分页栏固定，附件视图仅管理列内容、排序和预览/原邮件/下载动作。移除附件专用 Table 外观桥接及重复分页视图；表头与数据行共用 `AttachmentListLayout` 的列宽，附件仍每页只渲染 50 条。`TableSortButton` 将标签内边距后的起点作为 leading 对齐线，反馈保持紧凑且两侧对称；表头文字统一使用辅助色，排序方向由箭头表达。表格可用宽度不足 960 pt 时合并来源列，不足 760 pt 时继续合并理解状态，字段与三项操作仍保留。
 
 智能整理的 `GET /organization/messages` 由 `organization-page.js` 在 SQLite 中按账户、收件箱及分类筛选，稳定按日期倒序 / ID 升序排序，最多返回 100 条（客户端固定 50）。先从已有 message_scope 索引取得计数和当前页 ID，再按 ID 投影当前页头部，避免排序或分组时解析所有正文 JSON。返回 items、total、offset、limit、accountTotal、categoryCounts；正文、HTML 和 AI 分析不进入列表，打开原邮件再读取详情。分类计数覆盖完整收件箱；空分类按“未分类”计算。`OrganizationPageStore` 独立管理取消、旧响应、失败恢复及末页调整，不依赖主状态中的全部邮件头部进行筛选。主状态的轻量缓存用途不变，不能据分页声称 App 只持有 50 封邮件。`OrganizationReviewList` 接收建议、流式输出、页码绑定和邮件操作回调，将流式文字与已完成建议放在同一有界视口内，分页栏固定。分类建议任务本身最多 200 封，UI 在任务已有结果上每页显示 50 条，确认仍应用全部建议。`OrganizeView` 使用固定页面布局，分类邮件与建议分别复用列表内部滚动；分页栏放在对应共用列表的 footer 中，页请求或建议页码变化只重建对应列表，不滚动整页。页面根据可用高度及运行／审阅状态切换紧凑布局：复用相同范围、数量和分类绑定，收紧说明与任务状态，将分类卡片改为原生菜单；窄窗口也保留独立列表视口。
 
-列表状态回归入口为 `Backend/test/attachment-page.test.js`、`organization-page.test.js`、`AttachmentPageStoreTests.swift` 和 `OrganizationPageStoreTests.swift`。布局尺寸和窄窗口规则见 [UI 规范](DESIGN.md#附件中心与资料包)。
+列表状态回归入口为 `Backend/test/attachment-page.test.js`、`organization-page.test.js`、`AttachmentPageStoreTests.swift` 和 `OrganizationPageStoreTests.swift`。`ControlLayoutTests.swift` 比较排序标题在各状态下的颜色与位置，以 `NSHostingView` 渲染完整附件表格，检查 664、900、1246 pt 宽度下的列起点及操作列中心，并覆盖视口收缩。`WorkspaceLayoutTests.swift` 检查列宽总量、面板边界、嵌套弹窗和长来源名称。界面变更应同时检查控件内部与整表对齐，不能只验证按钮宽度；尺寸规则见 [UI 规范](DESIGN.md#附件中心与资料包)。
 
 ### 主窗口缩放
 
@@ -207,11 +223,12 @@ Swift 仅对这项可缺省的描述字段提供回退，附件身份、大小�
 | 阅读与会话 | HTML / CID / 远程图片开关、时间线及引用折叠、逐封回复和原身份、恢复及取消归档的来源 |
 | 写信 | 空收件人／抄送／密送的鼠标与 Tab 切换、关键词联系人浮层、中文输入法、键盘和跨字段去重、字号与颜色、列表标记继承及撤销、聚焦下划线、签名置底、正文空白点击定位及签名编辑撤销、粘贴文件及图片、草稿恢复 |
 | 附件中心与 ZIP | 50 条分页、首尾页与越界回退、跨页搜索与全局排序、条件和账户切换、错误重试、侧栏顺序、表头与操作对齐、浅蓝选中底、包内预览、逐文件理解、暂停继续及来源跳转 |
-| 智能整理 | 全收件箱分类计数、50 封分页、切换分类与账户、迟到响应及失败恢复、建议翻页与整批确认 |
+| 智能整理 | 全收件箱分类计数、50 封分页、切换分类与账户、迟到响应及失败恢复、建议翻页与整批确认、空分类提示与分页栏 |
+| 共用控件与摘要 | 对称内边距、文字与图标垂直居中、状态切换不移动内容、摘要三栏标题基线、关键信息展开与长待办换行 |
 | AI | 总结、三种回复态度、显式使用和草稿复用、翻译持久化、批量附件暂停与失败恢复、分类确认与撤销 |
 | 搜索 | 中文、附件内容、组合条件、跨账户、草稿编辑身份、日期边界、闰年及翻月后保留条件 |
 | 设置与数据 | 模型列表重启和失败保留、配置合并及凭证引用、跨目录完整备份恢复、原排版译文及总结收录状态、附件字节与重启、校验及回滚、目录迁移和外置盘缺失 |
-| 布局与预览 | 顶部双击的原生最大化／还原动画、初始最大化默认还原、小屏及多屏、宽窄窗口、294 pt 邮件栏、四项筛选、紧凑列表、原生多选、快捷键与撤销、年月菜单、PDF / Word / XLSX / PPT 原文件及无轨道滚动条 |
+| 布局与预览 | 顶部双击的原生最大化／还原动画、初始最大化默认还原、小屏及多屏、宽窄及低高度窗口、嵌套面板、固定底栏、294 pt 邮件栏、四项筛选、紧凑列表、原生多选、快捷键与撤销、年月菜单、PDF / Word / XLSX / PPT 原文件及无轨道滚动条 |
 | 生命周期 | 退出时子进程和文件锁释放、任务中断状态、再次启动后的数据和凭证行为 |
 
 结果不确定的发送先核对实际投递，不能自动重试；永久清空只在明确可丢弃的测试邮箱中执行。新增操作保留现有发送确认、分类审阅和撤销机制。
@@ -228,30 +245,16 @@ Swift 仅对这项可缺省的描述字段提供回退，附件身份、大小�
 
 ### 界面约定
 
-完整的颜色、字体、尺寸、共用组件、交互状态、动效与界面验收要求见 [UI 规范](DESIGN.md)。本节保留操作语义和实现约定；修改共用界面规则时同步更新规范与对应源码。
+颜色、字体、尺寸、断点、外观和动效统一维护在 [UI 规范](DESIGN.md)，本节只保留状态与原生桥接约定。
 
-- 系统字体、SF Symbols、蓝色强调；次要操作采用无描边图标文字，键盘焦点用细下划线，写邮件入口及选中筛选使用浅蓝底。
-- 设置按常用、账号、AI 助手、高级和开发者分组；宽度不足 900 pt 时用顶部分类标签替代左导航。五类共用“取消／保存”底栏，保存成功后关闭，失败保留当前输入和错误。账号编辑拥有独立保存／取消窗口，移除操作位于更多菜单。模型连接细节与目录按需展开，任务提示词独立切换。设置和写信面板尺寸跟随主窗口可用空间。
-- 设置及账号、服务商、模型、配置导入面板共用 SettingsActionBar，底栏高 64 pt、按钮高 34 pt、连续圆角 10 pt；取消使用浅色边框，主操作使用纯蓝底色。悬停、按下、键盘焦点和禁用状态由同一按钮样式处理，保留 Escape 与默认动作快捷键。
-- 设置表单共用 34 pt 控件高度、88 pt 标签列与 280 pt 常规字段宽度；名称、地址、密钥、模型和推理映射按同一字段列对齐，操作紧邻字段。超时、端口及数值容量保留短数值框，签名与提示词保留多行编辑区。添加、测试和获取等文字操作使用蓝色强调，控件图标使用统一槽位和文字基线。
-- 设置中的折叠分组共用 SettingsDisclosureStyle，标题、箭头与右侧留白组成整行按钮，高度至少 36 pt，统一悬停和键盘焦点反馈；无障碍值说明已展开或已收起。
-- Logo 位于全高侧栏的窗口按钮下方，写邮件固定在其下；主窗口最小 720 × 600 pt，宽度不足 1080 pt 时侧栏改为导航浮层；邮件栏允许 294 至 560 pt 拖动调整，聚合展开槽位压缩但保持行文本对齐。邮件四项筛选高 32 pt、间距 6 pt，窄分栏仍完整显示。邮件行使用三层文字与单行预览，多选时原位替换筛选为批量操作，阅读区的邮件操作栏高 44 pt，AI 总结、翻译和 AI 回复以独立按钮平铺在其下方的 36 pt 操作栏；附件理解只在附件区域显示；分页跟随列表滚动，缓存计数收进同步详情。
-- 收件箱使用原生 List 的连续／离散选择与方向键导航。邮件快捷键通过 FocusedValue 限定在列表；文字输入继续使用编辑器按键。手动单封与批量操作共用 /messages/batch，在事务中提交，UndoManager 注册最近一次操作；自动标记已读不占用手动撤销记录。撤销带 expected 字段，遇到后续冲突整体拒绝，避免覆盖其他操作。备份恢复后清除旧撤销与选择。
-- List 的 Binding 只提交当前查询的用户选择，程序跳转和列表刷新直接协调状态，不再通过选择变化观察器反向触发点击。目标列表未载入时保留 openMail 指定的邮件与 AI 面板；分页响应按返回时的当前选择处理，过期查询和列表回调直接丢弃。openMail 每次生成独立 MailRevealRequest，目标行就绪后由 ScrollViewReader 滚动至可见位置并消费该请求；重复打开、页外目标及用户后续选择分别处理，普通刷新不反复抢回滚动位置。
-- 邮件行的可访问名称包含已读状态、日期、附件数量、星标、总结与分类；预览作为提示，原生列表负责宣布选中状态。图标菜单用带文字的原生 Label 提供名称，避免只宣布符号含义。
-- 下拉菜单保留原生菜单跟踪、键盘与无障碍操作；按钮和输入框共用 34 pt 高度、10 pt 圆角、浅色边框和蓝色焦点轮廓。筛选、侧栏选中底色使用 12 pt 连续圆角，紧凑筛选使用 10 pt；AI 分区切换使用浅底槽和白色选中面板。长值可悬停查看，选择变化不应挤动输入列。
-- 日期面板宽 360 pt，年月分配独立槽位、组间距 24 pt，文字和箭头整体居中；翻月、菜单及回填保持原生操作。
-- 普通滚动区域沿用无描边浮层细滑块。长收件人名单显式保留原生滚动条，溢出时持续可见，全局外观刷新不会重新隐藏它。MailBodyWebView 根据受信任脚本报告的收件人区域绘制独立 NSScroller，并将位置变化传回隔离客户端世界；切换文档清理旧滚动条。引用标题单独约束不换行与顶部对齐，原 HTML 和邮件脚本、联网限制不变。
-- HTML 转发草稿以 forwardedHTML / forwardedText 保存原文快照，body 仅保存可编辑说明和签名；旧的完整未编辑引用在展示或保存时恢复快照，已编辑引用保持原样。发送合并 HTML 与纯文本，并将 data 图片转换为 CID MIME 资源；本机已发送副本保留可独立阅读的原 HTML。草稿搜索、备份和重开保留快照，无需原邮件仍在。
-- 写信默认收起空白抄送和密送，已有地址的字段保持可见；AI 助手按需展开，窄面板使用浮层。未编辑的新邮件关闭不落盘为空草稿。联系人浮层不改变字段与正文坐标；短正文签名置底的留白不写入邮件。`PlaceholderTextView` 根据签名实际显示位置校正插入点，原生鼠标跟踪完成后，将签名前留白中的普通单击定位到正文末行；非空选区、拖选和 Shift 选择继续由原生处理。直接点击签名仍正常编辑，撤销恢复的布局属性会先还原再计算置底间距。正文、提示词和签名编辑器保留输入法、撤销及 Binding。
-- `RecipientEntryView` 的 AppKit 输入仅在 `isEnabled` 真正变化时赋值，避免焦点刷新重复触发系统自动填充空面板。空关键词不打开联系人建议；输入、中文组合、鼠标和 Tab 焦点交接保持原生行为。`RecipientEntryTests.swift` 通过真实共享编辑器和 KVO 检查空框切换不重复通知，同时验证真正的启用和禁用仍传到每个输入框。
-- AI 生成内容经认证的 `/ai/events` SSE 逐步显示，共用 Markdown 组件；中间预览不写入数据库，完整校验后才提交。断线重连先接收活动快照，结束及退出时清理连接；分类确认、草稿使用等操作等待完整结果。
-- 翻译通过原邮件文字节点 ID 对齐，后端只替换文字并转义模型内容；保留代码、链接属性、图片及样式。`translation` 继续用于搜索与复制，`translationHTML` 保存原排版译文，紧凑列表不含这两个正文大字段。WebKit 在隔离客户端世界更新文本节点，邮件脚本和联网限制继续生效。
-- 完成后的 AI 结果标题整行可展开、复制独立；阅读区摘要按宽度在三列、两列与纵向间切换，长待办和期限自然换行，关键信息默认展开；摘要集合使用概要、最多两项未完成待办和按项展开的详情，展开后关键信息仍可单独打开。
-- 顶部搜索始终以“邮件搜索”标明范围，侧栏不继续高亮原页面；返回入口清除搜索。辅助工作区在搜索期间保留视图身份与局部筛选，避免返回后丢失附件搜索、类型或滚动位置。附件空态区分无数据与筛选无结果，后者提供清除筛选。
-- 摘要列表使用邮件元数据 `summaryHidden` 记录收录状态，缺省为收录；移除、多选和清空仅更新此标记，不删除 `summary`。状态按账户隔离并随同步和完整备份保留，重新生成总结时重新收录。列表、已移除和撤销共用 `/summaries/visibility`；侧栏“摘要集合”计数按收录项计算，单封总结直接从“AI 总结”按钮进入，邮件的“AI 已总结”标签及筛选仍按实际总结判断。
-- 设置导航、参数展开和摘要列表增减使用短状态过渡，不为逐个流式字符添加布局动画；系统减少动态效果时关闭位移及展开动画，保留必要状态反馈。
-- 动效跟随系统“减少动态效果”；界面维护以 UI 规范及其关联的 SwiftUI／AppKit 源码为准。
+- 设置与编辑面板复用 `SettingsActionBar`、`SettingsFieldRow`、`SettingsTransferRow` 和 `.workspaceSheet()`。已有输入在失败时保留，配置确认期间继续锁定父设置页；动作状态由 `SettingsActionState` 管理。
+- 邮件列表的 Binding 只提交当前查询中的用户选择，跳转和刷新独立协调。`MailRevealRequest` 由目标行消费，重复打开可重新定位，普通刷新不抢回滚动位置。快捷键由 `FocusedValue` 限定在列表，文字编辑沿用原生行为。
+- 手动单封与批量操作共用 `/messages/batch`，撤销按 `expected` 核对冲突；自动已读不占用手动撤销记录，恢复备份后清空旧撤销与选择。
+- `RecipientDetailsView` 共用邮件头、HTML 与纯文本引用、转发及草稿搜索的收件信息。`RecipientAddressList` 负责只读文字和滚动，`ScrollEventRouting` 按当前鼠标位置及 `bounds` 与 `visibleRect` 的交集命中；移到正文立即交还外层，避免可见矩形越界或旧事件目标占用滚轮。HTML 脚本只识别字段和报告占位，SwiftUI 组件回填高度，切换文档重置状态；文字更新保留原始节点映射。
+- `RecipientEntryView` 只在 `isEnabled` 真正变化时赋值，避免焦点刷新重复触发系统自动填充。空关键词不显示联系人浮层，输入法、选区、鼠标与 Tab 交接保持原生行为。
+- HTML 转发以 `forwardedHTML` / `forwardedText` 保存快照，编辑正文只含说明和签名；未编辑的旧引用可恢复原排版，已编辑内容保留。预览折叠不写回快照，发送合并两种正文并转换 data 图片为 CID。
+- AI 通过认证的 `/ai/events` SSE 逐步显示，中间输出不持久化，结束后校验再提交；分类确认和草稿采用等待完整结果。译文按文字节点 ID 更新并转义，链接、图片、样式、邮件脚本和联网限制保持原策略。
+- 摘要显隐只更新 `summaryHidden`，不删除 `summary`；列表、已移除与撤销共用 `/summaries/visibility`。单封结果从“整封理解”进入，“AI 已总结”筛选仍按实际结果判断。搜索期间保留辅助工作区的视图身份和局部筛选。
 
 ## 本机凭证与签名
 
@@ -284,7 +287,7 @@ codesign --verify --deep --strict dist/Boxmail.app
 | `Backend/package.json`、`Backend/package-lock.json` | 后端包版本，可用 `npm version <版本> --prefix Backend --no-git-tag-version` |
 | `BUILD` | 构建号来源，构建脚本校验并写入 `CFBundleVersion`；打包读取同次构建的 Info.plist |
 | `CHANGELOG.md`、`README.md` | 发布日期、变化、验证范围及当前版本 |
-| `docs/USER_GUIDE.md`、`docs/DESIGN.md`、`docs/DEVELOPMENT.md`、`docs/ROADMAP.md`、`Backend/README.md` | 适用版本、当前操作、UI 规范、接口契约、回归基线及已发布范围 |
+| `docs/USER_GUIDE.md`、`docs/DESIGN.md`、`docs/DEVELOPMENT.md`、`docs/ROADMAP.md`、`docs/CODE_REVIEW.md`、`docs/MAIL_AI_CONTEXT.md`、`Backend/README.md` | 适用版本、当前操作、UI 规范、接口契约、回归基线及已发布范围 |
 
 1. 完成适用的回归、编译和原生联调，检查差异，不提交个人数据。
 2. 提交源码和文档后建立 `v<版本>` 标签，从干净标签或独立检出执行 `./script/package_app.sh`。脚本拒绝未提交及未跟踪的源码修改。
@@ -298,8 +301,19 @@ codesign --verify --deep --strict dist/Boxmail.app
 
 ## 文档与本地产物
 
-产品文档以项目入口、使用指南、UI 规范、开发说明、后端接口、开发路线和变更记录为主。操作与限制更新到对应指南，审查修复结论及验证范围合并到 CHANGELOG，避免另存过时的源码行号、重复发布状态和一次性验收报告。发件人聚合与开发者设置的稳定界面约定已合并到本文，已移除的协作文档、诊断记录和界面快照不再作为当前约定来源。未发布变化明确标为当前源码或日常开发版，不改写历史发布版本的功能与测试基线；删除文档时同步移除或替换引用。
+[README](../README.md) 维护项目入口与文档目录；[使用指南](USER_GUIDE.md) 维护操作和限制，[UI 规范](DESIGN.md) 维护视觉及交互尺寸，本文维护实现与开发流程，[后端接口](../Backend/README.md) 维护数据契约。[代码审查](CODE_REVIEW.md) 保留已完成合并及明确保留的边界，[整封 AI 上下文](MAIL_AI_CONTEXT.md) 维护联合资料的数据流。路线图只记录完成范围和候选，版本变化、测试数量、性能口径与验收边界集中在 [CHANGELOG](../CHANGELOG.md)。
 
-`.build/`、`dist/`、`Backend/node_modules/`、`artifacts/`、`.scratch/`、`.impeccable/critique/`、数据库、日志、环境变量及签名配置均不提交 Git；Impeccable 的项目配置保留在 `.impeccable/config.json`。临时测试 App、构建副本、探针、基准 JSON 和合成数据完成验证后可清理；正式回归、附件样例和可复现的性能脚本保留。真实数据的安全备份与测试结果分开管理，不随报告清理。历史发布日志和截图可留在 `artifacts/release-*/` 等本机目录，不作为运行依赖。
+未发布变化明确标注为当前源码或日常开发版，不改写历史安装包的能力与验证基线；删除章节或移动内容时同步修复相对链接和锚点，不再维护旧行号及重复进度报告。
 
-当前本机测试与历史原生验收不能代替真实外部投递、其他邮件或 AI 服务商、大邮箱性能、最低系统、Intel、屏幕阅读器及正式分发验证。具体发布时的范围保留在 CHANGELOG。
+| 本地内容 | 维护方式 |
+| --- | --- |
+| `Tests/`、`Backend/test/` | 保留本地回归源码与样例，已移出 Git 索引并由 `.gitignore` 排除；构建不依赖其存在 |
+| `.build/` | Swift 编译缓存，可清理，下次构建自动重建 |
+| `dist/Boxmail.app` | 日常开发版，保留供运行；发布 ZIP 和 SHA-256 文件独立保留 |
+| `artifacts/`、`.scratch/` | 验收 App、发布解压副本及临时编译物验证后可删除；日志、截图、真实数据副本及备份单独保留 |
+| `Backend/node_modules/` | 本机依赖，不提交 Git；缺少时通过 `npm ci --prefix Backend` 重建 |
+| 数据库、`.env`、日志和签名配置 | 不提交 Git；真实数据与凭证不随构建清理 |
+
+`.impeccable/critique/` 和 `.impeccable/review/` 不提交 Git，项目配置保留在 `.impeccable/config.json`。测试目录不再上传不等于删除已有 Git 历史，本次不改写历史提交。
+
+本机回归不能代替真实外部投递、其他邮件或 AI 服务商、大邮箱长期性能、最低系统、Intel、屏幕阅读器及正式分发验证，实际验证范围见变更记录。

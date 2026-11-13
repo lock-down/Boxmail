@@ -1,7 +1,6 @@
-import { textSlice } from './unicode.js';
+import { textSlice, normalizeSearchText } from './unicode.js';
 import { mailPreviewText } from './mail-preview.js';
 
-const normalize = text => String(text || '').normalize('NFKC').toLocaleLowerCase();
 const INDEX_VERSION = 4;
 export const MAX_INDEX_TEXT = 262144;
 function humanText(value) {
@@ -82,7 +81,7 @@ export class SearchIndex {
         if (text.length >= MAX_INDEX_TEXT) break;
         text += '\n' + (row.kind === 'attachment' ? row.text || '' : humanText(row.text ? JSON.parse(row.text) : null));
       }
-      text = textSlice(normalize(textSlice(text, 0, MAX_INDEX_TEXT)), 0, MAX_INDEX_TEXT);
+      text = textSlice(normalizeSearchText(textSlice(text, 0, MAX_INDEX_TEXT)), 0, MAX_INDEX_TEXT);
       db.prepare('INSERT INTO mail_fts(rowid,message_id,text,grams) VALUES(?,?,?,?)').run(key.rowid, id, text, grams(text).join(' '));
     } else if (key) db.prepare('DELETE FROM search_documents WHERE rowid=?').run(key.rowid);
     db.prepare('DELETE FROM search_dirty WHERE message_id=?').run(id);
@@ -157,16 +156,16 @@ export class SearchIndex {
   snippet(id, term) {
     let text = this.repo.db.prepare('SELECT text FROM mail_fts WHERE rowid=(SELECT rowid FROM search_documents WHERE message_id=?)').get(id)?.text;
     if (!text) return undefined;
-    let position = text.indexOf(normalize(term));
+    let position = text.indexOf(normalizeSearchText(term));
     if (position < 0) return undefined;
     const message = this.message(id);
     if (message?.body) {
-      const prefix = normalize([message.subject, message.sender, message.senderEmail, message.to, message.cc,
-        message.bcc].filter(Boolean).join('\n'));
+      const prefix = normalizeSearchText([message.subject, message.sender, message.senderEmail, message.to,
+        message.cc, message.bcc].filter(Boolean).join('\n'));
       const bodyStart = prefix ? prefix.length + 1 : 0;
-      if (position >= bodyStart && position < bodyStart + normalize(message.body).length) {
-        text = normalize(mailPreviewText(message));
-        position = text.indexOf(normalize(term));
+      if (position >= bodyStart && position < bodyStart + normalizeSearchText(message.body).length) {
+        text = normalizeSearchText(mailPreviewText(message));
+        position = text.indexOf(normalizeSearchText(term));
         if (position < 0) return undefined;
       }
     }
@@ -177,7 +176,7 @@ export class SearchIndex {
   }
   where(terms) {
     if (!terms.length) return { clause: null, params: [] };
-    const normalized = terms.map(normalize);
+    const normalized = terms.map(normalizeSearchText);
     const tokens = [...new Set(normalized.flatMap(term => grams(term, 16)))];
     const clauses = ['message_id NOT IN (SELECT message_id FROM search_dirty)'], params = [];
     if (tokens.length) { clauses.push('mail_fts MATCH ?'); params.push(tokens.join(' AND ')); }

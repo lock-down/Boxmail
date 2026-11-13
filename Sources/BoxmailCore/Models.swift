@@ -61,8 +61,7 @@ public struct MailMessage: Codable, Identifiable, Hashable {
     "取消归档，回到\(folderTitle(unarchiveFolder))"
   }
   private func folderTitle(_ folder: String?) -> String {
-    folder == "spam" ? "垃圾邮件"
-      : MailDestination(rawValue: folder ?? "inbox")?.title ?? "收件箱"
+    MailDestination.title(forFolder: folder) ?? "收件箱"
   }
 }
 public struct MailSummary: Codable, Hashable {
@@ -71,6 +70,7 @@ public struct MailSummary: Codable, Hashable {
   public var keyInfo: [KeyInfo]
   public var overview: String?
   public var nextSteps: [SummaryNextStep]?
+  public var context: MailAIContext?
 }
 public struct SummaryNextStep: Codable, Hashable, Identifiable {
   public var title, action, prompt: String
@@ -246,6 +246,7 @@ public enum MailAITab: String, CaseIterable, Identifiable {
   }
 }
 public struct AgentResult: Codable {
+  public var context: MailAIContext?
   public var subject, body, draftId, text: String?
   public var items: [Classification]?
   public var progress, openItems, conversationNextSteps: [ConversationFinding]?
@@ -306,6 +307,11 @@ public struct MailSyncSnapshot: Codable {
   public var folders: [MailSyncFolder]
   public var results: [MailSyncResult]
 }
+extension MailDestination {
+  public static func title(forFolder folder: String?) -> String? {
+    MailDestination(rawValue: folder ?? "")?.title
+  }
+}
 public enum MailDestination: String, CaseIterable, Identifiable {
   case inbox, starred, drafts, sent, attachments, trash, summary, replies, organize, analysis,
     archive, spam
@@ -343,4 +349,34 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     }
   }
   public var isAI: Bool { [.summary, .replies, .organize, .analysis].contains(self) }
+}
+
+extension MailAccount {
+  public var sidebarName: String {
+    let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !label.isEmpty && label.caseInsensitiveCompare(email) != .orderedSame { return label }
+    let host = email.split(separator: "@").last.map(String.init)?.lowercased() ?? ""
+    if host == "qq.com" || host.hasSuffix(".qq.com") { return "QQ 邮箱" }
+    if host == "163.com" || host == "126.com" || host == "yeah.net" { return "网易邮箱" }
+    if host == "gmail.com" { return "Gmail" }
+    if ["outlook.com", "hotmail.com", "live.com"].contains(host) { return "Outlook" }
+    return host.isEmpty ? "邮箱账户" : host
+  }
+}
+
+extension MailSummary {
+  public var overviewText: String {
+    let text = overview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return text.isEmpty ? points.joined(separator: " ") : text
+  }
+  public var plainText: String {
+    var sections = ["内容概要：\(overviewText)"]
+    let pending = todos.map { todo in
+      "\(todo.done ? "[x]" : "[ ]") \(todo.title)" + (todo.due.isEmpty ? "" : "（\(todo.due)）")
+    }
+    sections.append("待处理：\n" + (pending.isEmpty ? "暂无明确待办。" : pending.joined(separator: "\n")))
+    if let nextSteps, !nextSteps.isEmpty { sections.append("您可继续：\n" + nextSteps.map { "- \($0.title)" }.joined(separator: "\n")) }
+    if !keyInfo.isEmpty { sections.append("关键信息：\n" + keyInfo.map { "\($0.label)：\($0.value)" }.joined(separator: "\n")) }
+    return sections.joined(separator: "\n\n")
+  }
 }

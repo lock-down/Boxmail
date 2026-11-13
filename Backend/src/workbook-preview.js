@@ -1,5 +1,6 @@
 import { ServiceError } from './validation.js';
 import { ParserProcess } from './parser-process.js';
+import { escapeHTML } from './unicode.js';
 
 export async function workbookPreview(buffer, options = {}) {
   const parser = new ParserProcess(options);
@@ -7,7 +8,6 @@ export async function workbookPreview(buffer, options = {}) {
   finally { await parser.close(); }
 }
 
-const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const themes = ['#ffffff','#000000','#e7e6e6','#44546a','#4472c4','#ed7d31','#a5a5a5','#ffc000','#5b9bd5','#70ad47'];
 function color(value, fallback) {
   if (value?.argb && /^[0-9a-f]{6,8}$/i.test(value.argb)) return `#${value.argb.slice(-6)}`;
@@ -47,8 +47,8 @@ function valueText(cell) {
   return cell.text;
 }
 function cellContent(cell) {
-  if(cell.value?.richText)return cell.value.richText.map(run=>`<span style="${escape(fontStyle(run.font))}">${escape(run.text)}</span>`).join('');
-  return escape(valueText(cell));
+  if(cell.value?.richText)return cell.value.richText.map(run=>`<span style="${escapeHTML(fontStyle(run.font))}">${escapeHTML(run.text)}</span>`).join('');
+  return escapeHTML(valueText(cell));
 }
 
 export async function renderWorkbookPreview(buffer) {
@@ -86,7 +86,7 @@ export async function renderWorkbookPreview(buffer) {
         const merge=merges.get(cell.address);
         const content = cellContent(cell);
         if (content.length > 32768) throw new ServiceError('工作簿单元格内容过长，请在原应用中查看。');
-        table+=consume(`<td${merge?` colspan="${merge.colspan}" rowspan="${merge.rowspan}"`:''} style="${escape(cellStyle(cell))};${widths[col-1]===0?'display:none':''}">${content}</td>`);
+        table+=consume(`<td${merge?` colspan="${merge.colspan}" rowspan="${merge.rowspan}"`:''} style="${escapeHTML(cellStyle(cell))};${widths[col-1]===0?'display:none':''}">${content}</td>`);
       }
       table+='</tr>';
     }
@@ -101,7 +101,7 @@ export async function renderWorkbookPreview(buffer) {
       const height=image.range.ext?.height??position(image.range.br,'row')-top;
       graphics+=consume(`<img alt="工作簿内嵌图片" src="data:image/${extension==='jpg'?'jpeg':extension};base64,${data}" style="position:absolute;left:${left}px;top:${top}px;width:${Math.max(1,width)}px;height:${Math.max(1,height)}px">`);
     }
-    sheets.push(`<section><h2>${escape(sheet.name)}</h2><div class="sheet-scroll"><div class="sheet" style="width:${x.at(-1)}px;min-height:${y.at(-1)}px"><table style="width:${x.at(-1)}px">${table}</table>${graphics}</div></div></section>`);
+    sheets.push(`<section><h2>${escapeHTML(sheet.name)}</h2><div class="sheet-scroll"><div class="sheet" style="width:${x.at(-1)}px;min-height:${y.at(-1)}px"><table style="width:${x.at(-1)}px">${table}</table>${graphics}</div></div></section>`);
   }
   const notice=limited?'预览最多显示前 10 个工作表、各表前 400 行和 60 列；部分内容超出预览范围，请打开原文件查看。':'复杂图表、条件格式及打印分页请在原应用中查看。';
   const scrollbars='::-webkit-scrollbar{width:6px;height:6px;background:transparent}::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent;border:0;box-shadow:none}::-webkit-scrollbar-thumb{background:rgba(32,36,43,.3);border:0;border-radius:3px;box-shadow:none}';

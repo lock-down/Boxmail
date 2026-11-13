@@ -119,25 +119,11 @@ struct SettingsSelectionMenu: NSViewRepresentable {
 
     override func draw(_ dirtyRect: NSRect) {
       drawSelectionSurface()
-      let paragraph = NSMutableParagraphStyle()
-      paragraph.lineBreakMode = .byTruncatingMiddle
       let font = NSFont.systemFont(ofSize: 12)
-      let y = (bounds.height - 16) / 2
-      (model as NSString).draw(
-        in: NSRect(x: 12, y: y, width: bounds.width - (effort.isEmpty ? 40 : 100), height: 18),
-        withAttributes: [
-          .font: font,
-          .foregroundColor: NSColor(Palette.ink).withAlphaComponent(isEnabled ? 1 : 0.4),
-          .paragraphStyle: paragraph,
-        ])
-      paragraph.alignment = .right
-      (effort as NSString).draw(
-        in: NSRect(x: bounds.width - 76, y: y, width: 42, height: 18),
-        withAttributes: [
-          .font: font,
-          .foregroundColor: NSColor(Palette.muted).withAlphaComponent(isEnabled ? 1 : 0.4),
-          .paragraphStyle: paragraph,
-        ])
+      drawSelectionText(model, x: 12, width: bounds.width - (effort.isEmpty ? 40 : 100),
+        font: font, color: Palette.ink)
+      drawSelectionText(effort, x: bounds.width - 76, width: 42, font: font,
+        color: Palette.muted, alignment: .right)
       drawSelectionIndicator(x: bounds.width - 21)
     }
   }

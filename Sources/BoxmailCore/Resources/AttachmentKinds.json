@@ -1,0 +1,228 @@
+{
+  "formats": [
+    {
+      "extensions": [
+        "zip"
+      ],
+      "mimes": [
+        "application/zip",
+        "application/x-zip-compressed"
+      ],
+      "kind": "archive"
+    },
+    {
+      "extensions": [
+        "pdf"
+      ],
+      "mimes": [
+        "application/pdf"
+      ],
+      "kind": "pdf",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "doc"
+      ],
+      "mimes": [
+        "application/msword"
+      ],
+      "kind": "word"
+    },
+    {
+      "extensions": [
+        "docx"
+      ],
+      "mimes": [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ],
+      "kind": "word",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "odt"
+      ],
+      "mimes": [],
+      "kind": "word"
+    },
+    {
+      "extensions": [
+        "rtf"
+      ],
+      "mimes": [],
+      "kind": "word"
+    },
+    {
+      "extensions": [
+        "xls"
+      ],
+      "mimes": [
+        "application/vnd.ms-excel"
+      ],
+      "kind": "spreadsheet"
+    },
+    {
+      "extensions": [
+        "xlsx"
+      ],
+      "mimes": [
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      ],
+      "kind": "spreadsheet",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "csv"
+      ],
+      "mimes": [
+        "text/csv"
+      ],
+      "kind": "spreadsheet",
+      "archive": true,
+      "text": true
+    },
+    {
+      "extensions": [
+        "ods"
+      ],
+      "mimes": [],
+      "kind": "spreadsheet"
+    },
+    {
+      "extensions": [
+        "ppt"
+      ],
+      "mimes": [
+        "application/vnd.ms-powerpoint"
+      ],
+      "kind": "presentation",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "pptx"
+      ],
+      "mimes": [
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      ],
+      "kind": "presentation",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "pps"
+      ],
+      "mimes": [
+        "application/vnd.ms-powerpoint"
+      ],
+      "kind": "presentation",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "ppsx"
+      ],
+      "mimes": [
+        "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+      ],
+      "kind": "presentation",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "jpg"
+      ],
+      "mimes": [
+        "image/jpeg"
+      ],
+      "kind": "image",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "jpeg"
+      ],
+      "mimes": [
+        "image/jpeg"
+      ],
+      "kind": "image",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "png"
+      ],
+      "mimes": [
+        "image/png"
+      ],
+      "kind": "image",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "gif"
+      ],
+      "mimes": [
+        "image/gif"
+      ],
+      "kind": "image",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "webp"
+      ],
+      "mimes": [
+        "image/webp"
+      ],
+      "kind": "image",
+      "archive": true
+    },
+    {
+      "extensions": [
+        "txt"
+      ],
+      "mimes": [
+        "text/plain"
+      ],
+      "kind": "text",
+      "archive": true,
+      "text": true
+    },
+    {
+      "extensions": [
+        "md"
+      ],
+      "mimes": [
+        "text/markdown"
+      ],
+      "kind": "text",
+      "archive": true,
+      "text": true
+    },
+    {
+      "extensions": [
+        "json"
+      ],
+      "mimes": [
+        "application/json"
+      ],
+      "kind": "text",
+      "archive": true,
+      "text": true
+    },
+    {
+      "extensions": [
+        "log"
+      ],
+      "mimes": [
+        "text/plain"
+      ],
+      "kind": "text",
+      "archive": true,
+      "text": true
+    }
+  ]
+}

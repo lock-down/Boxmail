@@ -38,7 +38,7 @@ struct SearchFiltersView: View {
       if let choosingDate {
         VStack(alignment: .leading, spacing: 12) {
           HStack(spacing: 12) {
-            WorkflowAction(title: "返回", icon: "chevron.left") { self.choosingDate = nil }
+            ActionButton(title: "返回", icon: "chevron.left") { self.choosingDate = nil }
               .keyboardShortcut(.cancelAction)
             Text(choosingDate == "after" ? "选择起始日期" : "选择截止日期").font(UIType.heading)
             Spacer()
@@ -100,10 +100,10 @@ struct SearchFiltersView: View {
       if let error { WorkflowNotice(text: error, icon: "exclamationmark.circle", color: Palette.amber) }
       Divider().overlay(Palette.softBorder)
       HStack {
-        WorkflowAction(title: "清除搜索", icon: "arrow.uturn.backward") { store.search = ""; store.searchAllAccounts = false; dismiss() }
+        ActionButton(title: "清除搜索", icon: "arrow.uturn.backward") { store.search = ""; store.searchAllAccounts = false; dismiss() }
         Spacer()
         if working { ProgressView().controlSize(.small) }
-        WorkflowAction(title: working ? "正在搜索…" : "搜索邮件", icon: "magnifyingglass", color: Palette.blue) { apply() }
+        ActionButton(title: working ? "正在搜索…" : "搜索邮件", icon: "magnifyingglass", color: Palette.blue) { apply() }
           .disabled(working)
       }
     }.padding(24).frame(width: 520).background(Palette.paper).tint(Palette.blue)

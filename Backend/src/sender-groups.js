@@ -1,5 +1,4 @@
-import { messageHeaderJSON } from './message-header.js';
-import { parseSearch } from './search-query.js';
+import { messageHeaderJSON, messageHeaderProjection, messagePreviewColumns } from './message-header.js';
 
 function identity(row) {
   const address = (row.senderEmail || '').trim().toLowerCase();
@@ -47,16 +46,11 @@ export function senderMessagePage(repo, { accountId, folder, filter, query = '',
   limit = 100, senderGroup, revealId } = {}) {
   const { where, params } = repo.messageWhere({ accountId, folder, filter, query });
   const { metadata, groups } = senderSnapshot(repo, where, params);
-  const firstTerm = parseSearch(query).terms[0];
   const header = repo.db.prepare(`SELECT ${messageHeaderJSON()} AS data,
-    substr(json_extract(data,'$.body'),1,8192) AS previewBody,
-    substr(json_extract(data,'$.html'),1,32768) AS previewHTML
+    ${messagePreviewColumns()}
     FROM records WHERE kind='message' AND id=?`);
-  const project = row => {
-    const projected = header.get(row.id);
-    const message = repo.messageHeader(JSON.parse(projected.data), { source: { body: projected.previewBody, html: projected.previewHTML } });
-    return firstTerm ? { ...message, searchSnippet: repo.searchIndex.snippet(message.id, firstTerm) } : message;
-  };
+  const projectHeader = messageHeaderProjection(repo, { query });
+  const project = row => projectHeader(header.get(row.id));
   if (senderGroup) {
     const members = groups.get(senderGroup)?.members || [];
     const rows = members.slice(offset, offset + limit);

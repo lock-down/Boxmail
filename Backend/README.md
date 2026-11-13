@@ -1,10 +1,10 @@
 # 本机后端与 API
 
-后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.8（build 47），内置 Node.js 26.13.0 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。富文本字号、颜色与列表标记按语义正文派生，继续保留服务器草稿同步及会话 AI，主状态仍仅返回草稿轻量头部，完整编辑内容由 `GET /drafts/:id` 读取，配置与恢复结果含 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.9（build 48），内置 Node.js 26.13.1 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。富文本字号、颜色与列表标记按语义正文派生，继续保留服务器草稿同步及会话 AI，主状态仍仅返回草稿轻量头部，完整编辑内容由 `GET /drafts/:id` 读取，配置与恢复结果含 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
 
-0.1.8 包含 ZIP 资料包、附件及智能整理分页接口，以及草稿同步和备份恢复修复。它们沿用现有 JSON 记录存储，SQLite 结构版本保持为 2。
+本文接口对应当前源码。0.1.9 发布整封理解与 AI 回复共用的原始附件上下文及文件覆盖元数据；原任务名称、独立附件分析和旧结果保持兼容。共享模块的维护边界见 [代码审查](../docs/CODE_REVIEW.md)，验证范围见 [本版变更](../CHANGELOG.md#019--2026-11-13)。
 
-HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件人标题与滚动条处理仅用于展示，不写回 forwardedHTML，也不改变发送内容。
+HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件信息折叠与按指针位置滚动仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
 ## 独立启动
 
@@ -19,9 +19,7 @@ export BOXMAIL_DEMO=1
 npm start
 ```
 
-服务启动后输出端口，按 Ctrl+C 关闭，联调数据保留。完整回归从仓库根目录执行 `./script/test.sh`；直接 `npm test` 在缺少原生渲染组件时会跳过 PPT 渲染测试。合成样例及依赖说明统一见开发说明。
-
-ZIP 与工作区分页回归位于 `test/archive.test.js`、`test/attachment-page.test.js` 和 `test/organization-page.test.js`。当前测试数量、历史发布基线及客户端验证范围统一见[变更记录](../CHANGELOG.md)。
+服务启动后输出端口，按 Ctrl+C 关闭，联调数据保留。`test/` 与根目录 `Tests/` 仅保留在本地，不进入 Git；准备好本地测试后，从仓库根目录执行 `./script/test.sh` 运行完整回归。直接 `npm test` 在缺少原生渲染组件时会跳过 PPT 渲染测试，不能当作完整回归。合成样例、模块检查命令和依赖说明见 [开发说明](../docs/DEVELOPMENT.md#构建与测试)。
 
 | 环境变量 | 用途 |
 | --- | --- |
@@ -79,7 +77,7 @@ ZIP 与工作区分页回归位于 `test/archive.test.js`、`test/attachment-pag
 
 服务端先对整个账户筛选、搜索与排序，再分页。`q` 最多取 4000 字符，按字面子串匹配名称、已保存的提取文本、整体分析和 ZIP 清单路径，不使用邮件高级查询语法，不触发文件提取或模型请求。ZIP 逐文件理解结果不参与附件搜索，随归档详情按需读取。返回 `items`、`total`、`offset`、`limit`、`accountTotal`、`analyzedTotal`：`total` 是筛选后的匹配总数，后两项分别为当前账户未经筛选的附件总数和已有非空分析的附件数。
 
-每项仅含轻量 `attachment` 和 `source`（原邮件 ID、主题、发件人与日期）。`attachment.text` 为空，使用 `hasExtractedText`、`hasAnalysis`、`hasPartialAnalysis` 表示已有内容及 ZIP 部分理解状态，省略完整分析、ZIP 清单、绝对文件路径及原邮件正文。缺少账户时返回空页，没有所属邮件的附件不进入列表，越界偏移回退到当前末页。旧搜索 ID 接口继续兼容。主状态 `/state?compact=1&previews=0` 仍返回全部轻量附件头部，分页接口限制列表请求及表格当前页，不替代主状态的邮件引用和计数用途。
+每项仅含轻量 `attachment` 和 `source`（原邮件 ID、主题、发件人与日期）。`attachment.text` 为空，使用 `hasExtractedText`、`hasAnalysis`、`hasPartialAnalysis` 表示已有内容及 ZIP 部分理解状态，省略完整分析、ZIP 清单、绝对文件路径及原邮件正文。缺少账户时返回空页，没有所属邮件的附件不进入列表，越界偏移回退到当前末页。旧搜索 ID 接口继续兼容。主状态 `/state?compact=1&previews=0` 仍返回全部轻量附件头部，分页接口限制列表请求及表格当前页，不替代主状态的邮件引用和计数用途。客户端在窄表格中将来源及理解状态移入文件名下方，只调整展示位置，不改变页大小、账户范围或 `sort`／`direction` 的语义。
 
 富文本 `richText.blocks[].runs[]` 的可选 `fontSize` 使用 8 至 72 pt，最多两位小数；可选 `color` 使用不透明 sRGB `#RRGGBB`，默认 14 pt / `#232D3D` 省略。与粗体、斜体及链接属性一起规范化，派生 HTML 仅输出白名单字号和颜色。服务器草稿导入支持继承的 pt / px 字号、十六进制及 RGB 颜色和常见旧式 font 标签，不保留任意 CSS；列表标记样式写入 `li`，片段明确自身默认样式以保留混合字号，旧草稿无需迁移。
 
@@ -138,6 +136,10 @@ ZIP 读取和流式解压在隔离解析进程中执行，限制为 100 个文�
 | POST | `/todos` | `messageId`、`todoId`、`done`；更新摘要待办 |
 
 字段以 [Swift 模型](../Sources/BoxmailCore/Models.swift)、[AI 配置](../Sources/BoxmailCore/AIConfig.swift)、[客户端状态与调用](../Sources/Boxmail/Stores/MailStore.swift) 和 [server.js](src/server.js) 为准。新增字段需同步两端及相关契约测试。
+
+`summary` 与 `reply` 通过 `mail-ai-context.js` 共用本地准备的正文与全部可读附件，包括 ZIP 子项及模型支持的 PDF/PPT 页面和图片；每个任务只发起一次整体模型分析，不依赖逐附件 AI 结果。请求中的 `imageIndices` 从 1 起映射平铺的输入图片。文字不再截取前 16,000 字符，现有解析上限和模型窗口检查保持有效。
+
+结果与邮件摘要增加可选 `context: { attachments, partial }`，每项包含 `id/name/status/reason`，ZIP 可含 `entries`；状态为 `included/partial/unavailable`。覆盖信息由本地准备生成，模型不能自行声明已读取文件。旧结果缺少该字段仍兼容。桌面端的单封理解与回复使用既有 `background: true` Job 和轮询，模型协议、旧的独立附件分析 API、翻译及会话 AI 保持原职责；详见[上下文设计](../docs/MAIL_AI_CONTEXT.md)。
 
 `GET /messages?groupBy=sender` 的 `messages` 仅包含各组的最新邮件，`senderGroups` 返回不透明的组 ID、accountId、规范化 senderEmail、latestMessageId、count、unreadCount；`total` 是匹配邮件数，`groupTotal` 是发件人数，`nextOffset` 按发件人计算。归组使用完整匹配结果的轻量元数据，只为当前页生成预览；地址忽略首尾空白和大小写，账户各自独立，空地址逐封保留。组间和组内按实际日期倒序，同一时刻按 ID 确定顺序。
 

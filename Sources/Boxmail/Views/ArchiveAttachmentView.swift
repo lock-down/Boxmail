@@ -37,7 +37,7 @@ struct ArchiveAttachmentView: View {
         } else {
           ActionButton(
             title: retryable ? "继续未完成文件" : document?.summary == nil ? "理解压缩包" : "重新理解压缩包",
-            icon: "sparkles", kind: .ai
+            icon: "sparkles", color: Palette.accent
           ) {
             guard let mail else { return }
             store.analyzeAttachments(
@@ -189,7 +189,7 @@ private struct ArchiveSummaryView: View {
             }.font(UIType.caption).foregroundStyle(Palette.blue)
               .frame(maxWidth: .infinity, alignment: .leading).frame(height: 32)
               .padding(.horizontal, 8).contentShape(Rectangle())
-          }.buttonStyle(ControlFeedback(corner: 6))
+          }.buttonStyle(ControlFeedback()).controlFocus()
             .help("查看来源：\(entry.path)").accessibilityLabel("查看来源：\(entry.path)")
         }
       }

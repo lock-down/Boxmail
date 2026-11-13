@@ -58,7 +58,7 @@ struct AttachmentPreviewView: View {
                     HStack {
                       ActionButton(
                         title: attachment.isAnalyzed ? "重新理解这个附件" : "理解这个附件",
-                        icon: "sparkles", kind: .ai
+                        icon: "sparkles", color: Palette.accent
                       ) {
                         store.generate(task: "attachment", message: mail, attachment: attachment)
                       }
@@ -83,15 +83,12 @@ struct AttachmentPreviewView: View {
                       Label("附件理解", systemImage: "sparkles").font(
                         .system(size: 17, weight: .semibold))
                       Spacer()
-                      CopyButton(help: "复制理解结果") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(analysis, forType: .string)
-                      }
+                      CopyButton(help: "复制理解结果") { analysis }
                     }
                     AnalysisDocumentView(text: analysis).transition(UIMotion.reveal(reduceMotion))
                   } else {
                     EmptyState(
-                      title: "还没有理解结果", subtitle: "可理解这个附件，或在原邮件中一键批量理解全部附件。",
+                      title: "还没有独立理解结果", subtitle: "可深入理解这个附件，或在原邮件中结合正文与全部附件进行整封理解。",
                       icon: "doc.text.magnifyingglass")
                   }
                 }
@@ -101,7 +98,7 @@ struct AttachmentPreviewView: View {
           }
         }
       }
-    }.frame(width: 1080, height: 720).background(.white).tint(Palette.blue)
+    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white).tint(Palette.blue)
       .animation(UIMotion.disclosure(reduceMotion), value: tab)
       .task(id: attachmentId) {
         tab = "原文件预览"
@@ -128,11 +125,11 @@ struct AttachmentPreviewView: View {
   }
   @ViewBuilder private func originalPreview(_ attachment: MailAttachment) -> some View {
     if let workbookHTML {
-      WorkbookAttachmentView(html: workbookHTML).frame(maxWidth: .infinity, maxHeight: .infinity)
+      SandboxedWebPreview(source: .html(workbookHTML)).frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if let previewFile {
       Group {
         if let documentPreviewURL {
-          DocumentAttachmentView(url: documentPreviewURL)
+          SandboxedWebPreview(source: .file(documentPreviewURL))
         } else {
           OriginalAttachmentView(url: previewFile.url, isPDF: attachment.isPDF)
         }
@@ -164,21 +161,12 @@ struct AttachmentPreviewView: View {
         workbookHTML = preview.html
         return
       }
-      let file: FileResponse = try await BackendService.shared.request(
-        "/attachments/\(attachmentId)")
+      let loaded = try await AttachmentPreviewLoader.load(
+        path: "/attachments/\(attachmentId)", isPDF: attachment?.isPDF == true,
+        isWord: attachment?.kind == .word)
       try Task.checkCancellation()
-      let saved = try await AttachmentPreviewLoader.prepare(name: file.name, content: file.content,
-        isPDF: attachment?.isPDF == true)
-      var keep = false
-      defer { if !keep { saved.remove() } }
-      if attachment?.kind == .word {
-        let url = try await SystemDocumentPreview.prepare(saved)
-        try Task.checkCancellation()
-        documentPreviewURL = url
-      }
-      try Task.checkCancellation()
-      previewFile = saved
-      keep = true
+      documentPreviewURL = loaded.documentURL
+      previewFile = loaded.file
     } catch is CancellationError {
     } catch { previewError = error.localizedDescription }
   }

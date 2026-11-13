@@ -1,18 +1,11 @@
-import { attachmentKind } from './attachment-kind.js';
+import { attachmentKind, archiveFormats } from './attachment-kind.js';
 import yauzl from 'yauzl';
 import path from 'node:path';
 import { crc32 } from 'node:zlib';
 import { ServiceError } from './validation.js';
 
 export const ARCHIVE_LIMITS = Object.freeze({ files: 100, entries: 2048, fileBytes: 25 * 1024 * 1024, totalBytes: 100 * 1024 * 1024 });
-const formats = new Map(Object.entries({
-  '.txt': 'text/plain', '.md': 'text/markdown', '.csv': 'text/csv', '.json': 'application/json', '.log': 'text/plain',
-  '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.ppt': 'application/vnd.ms-powerpoint', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.pps': 'application/vnd.ms-powerpoint', '.ppsx': 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
-}));
+const formats = new Map(Object.entries(archiveFormats));
 export function isArchive(file) {
   return attachmentKind(file.name, file.contentType) === 'archive';
 }

@@ -2,6 +2,10 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+if [[ ! -d Tests/BoxmailCoreTests || ! -d Tests/BoxmailTests || ! -d Backend/test ]]; then
+  echo "测试源码仅保留在本地。请先准备 Tests/BoxmailCoreTests、Tests/BoxmailTests 和 Backend/test，再运行回归。" >&2
+  exit 2
+fi
 node Backend/src/check-node.js
 if [[ ! -d Backend/node_modules ]]; then
   npm ci --prefix Backend --no-fund --no-audit

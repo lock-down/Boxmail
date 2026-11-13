@@ -10,17 +10,7 @@ import Foundation
     current: () async throws -> (Result, [String: String])
   ) async throws -> Result {
     guard !values.isEmpty else { return try await commit([:]) }
-    var references: [String: String] = [:]
-    do {
-      for logical in values.keys.sorted() {
-        let reference = "configuration-\(UUID().uuidString)"
-        try save(reference, values[logical]!)
-        references[logical] = reference
-      }
-    } catch {
-      for reference in references.values { remove(reference) }
-      throw error
-    }
+    let references = try stage(values, save: save, remove: remove)
     do { return try await commit(references) } catch {
       let failure = error
       let state: (Result, [String: String])
@@ -31,6 +21,22 @@ import Foundation
       if references.allSatisfy({ state.1[$0.key] == $0.value }) { return state.0 }
       // The original request may still be in flight, so do not delete its staged credentials.
       throw failure
+    }
+  }
+
+  static func stage(_ values: [String: String], save: (String, String) throws -> Void,
+    remove: (String) -> Void) throws -> [String: String] {
+    var references: [String: String] = [:]
+    do {
+      for logical in values.keys.sorted() {
+        let reference = "configuration-\(UUID().uuidString)"
+        try save(reference, values[logical]!)
+        references[logical] = reference
+      }
+      return references
+    } catch {
+      for reference in references.values { remove(reference) }
+      throw error
     }
   }
 }

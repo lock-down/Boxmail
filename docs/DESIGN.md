@@ -24,14 +24,16 @@ typography:
 rounded:
   surface: "12pt"
   control: "10pt"
-  selection: "12pt"
+  navigation: "12pt"
+  icon: "8pt"
+  segment: "14pt"
 spacing:
   page-inset: "28pt"
   settings-inset: "24pt"
   section-inset: "20pt"
   section-content-gap: "16pt"
   form-column-gap: "12pt"
-  filter-gap: "6pt"
+  filter-gap: "4pt"
 components:
   settings-action-primary:
     backgroundColor: "{colors.blue}"
@@ -42,14 +44,14 @@ components:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.ink}"
     rounded: "{rounded.control}"
-    height: "34pt"
+    height: "36pt"
     padding: "0 10pt"
   filter-bar-selected:
     backgroundColor: "{colors.blue-soft}"
     textColor: "{colors.blue}"
-    rounded: "{rounded.selection}"
+    rounded: "{rounded.control}"
     height: "32pt"
-    padding: "0 10pt"
+    padding: "0 12pt"
   section-card:
     backgroundColor: "{colors.paper}"
     rounded: "{rounded.surface}"
@@ -64,9 +66,9 @@ components:
 
 Boxmail 是原生 macOS AI 邮件客户端。界面围绕查找、阅读、撰写和处理邮件组织，采用紧凑列表、清楚的内容层级、系统字体和蓝灰配色。AI 能力放在邮件及附件的操作上下文中。
 
-本规范于 2026-11-09 从现有 SwiftUI / AppKit 实现及开发说明整理，2026-11-12 同步当前源码，用于新增界面、维护共用组件和界面验收。风格描述是对现有实现的归纳。当前主窗口与系统设置场景固定使用浅色外观；深色主题尚未建立对应的颜色与组件规范。
+本规范于 2026-11-09 从现有 SwiftUI / AppKit 实现及开发说明整理，2026-11-13 同步当前源码，用于新增界面、维护共用组件和界面验收。风格描述是对现有实现的归纳。当前主窗口与系统设置场景固定使用浅色外观；深色主题尚未建立对应的颜色与组件规范。
 
-本文适用于 Boxmail 0.1.8（build 47），覆盖收件人焦点、富文本、服务器草稿及会话 AI，以及附件、智能整理和摘要集合的共用列表、ZIP 资料包、原生窗口缩放和写信交互；对应发布变化见[变更记录](../CHANGELOG.md)。
+本文以 Boxmail 0.1.9（build 48）为基线，覆盖收件人焦点、富文本、服务器草稿及会话 AI，以及附件、智能整理和摘要集合的共用列表、ZIP 资料包、原生窗口缩放和写信交互。控件复用、列表对齐、窄表格、嵌套弹窗、整封 AI 覆盖和收件信息滚动规则均随 0.1.9 发布；最新变化与验证见[本版变更](../CHANGELOG.md#019--2026-11-13)。
 
 本文数值均为原生界面的逻辑点（pt），不按截图像素换算。邮件 HTML 正文使用 WebKit 的 CSS 单位，单独遵循正文规则。顶部 YAML 提供可读取的现有设计值；`system` 表示系统字体，不指定字体文件。运行时仍由下表中的 Swift 常量和组件实现提供样式；修改共用设计值时应同步更新源码与本文。
 
@@ -74,10 +76,14 @@ Boxmail 是原生 macOS AI 邮件客户端。界面围绕查找、阅读、撰�
 
 | 范围 | 实现依据 |
 | --- | --- |
-| 颜色、字体、基础尺寸、按钮、标签、卡片、空态 | [DesignSystem.swift](../Sources/Boxmail/Support/DesignSystem.swift) |
-| 动效、减少动态效果、通用焦点 | [UIMotion.swift](../Sources/Boxmail/Support/UIMotion.swift) |
+| 颜色、字体、基础尺寸、标签、卡片、空态 | [DesignSystem.swift](../Sources/Boxmail/Support/DesignSystem.swift) |
+| 动效与减少动态效果 | [UIMotion.swift](../Sources/Boxmail/Support/UIMotion.swift) |
+| 表格列宽、排序控件和弹窗尺寸 | [AttachmentListLayout.swift](../Sources/Boxmail/Support/AttachmentListLayout.swift)、[TableSortButton.swift](../Sources/Boxmail/Views/TableSortButton.swift)、[WorkspaceSheetLayout.swift](../Sources/Boxmail/Support/WorkspaceSheetLayout.swift) |
+| 按钮尺寸、外观、反馈与焦点 | [ControlStyle.swift](../Sources/Boxmail/Support/ControlStyle.swift)、[ActionButton.swift](../Sources/Boxmail/Views/ActionButton.swift)、[IconButton.swift](../Sources/Boxmail/Views/IconButton.swift)、[SelectionButton.swift](../Sources/Boxmail/Views/SelectionButton.swift) |
 | 主窗口、缩放、分栏、面板尺寸与搜索上下文 | [BoxmailApp.swift](../Sources/Boxmail/App/BoxmailApp.swift)、[ContentView.swift](../Sources/Boxmail/Views/ContentView.swift)、[WindowTitlebarRegion.swift](../Sources/Boxmail/Support/WindowTitlebarRegion.swift)、[MainWindowLayout.swift](../Sources/Boxmail/Support/MainWindowLayout.swift) |
 | 设置布局、表单、底栏和折叠分组 | [SettingsView.swift](../Sources/Boxmail/Views/SettingsView.swift)、[SettingsFormControls.swift](../Sources/Boxmail/Views/SettingsFormControls.swift)、[SettingsActionBar.swift](../Sources/Boxmail/Views/SettingsActionBar.swift)、[SettingsDisclosureStyle.swift](../Sources/Boxmail/Views/SettingsDisclosureStyle.swift) |
+| 会话依据、收件人展开与摘要标题 | [MailSourceButton.swift](../Sources/Boxmail/Views/MailSourceButton.swift)、[RecipientDetailsView.swift](../Sources/Boxmail/Views/RecipientDetailsView.swift)、[SummaryCard.swift](../Sources/Boxmail/Views/SummaryCard.swift) |
+| 收件信息与滚动命中 | [RecipientAddressList.swift](../Sources/Boxmail/Views/RecipientAddressList.swift)、[MailRecipientOverlay.swift](../Sources/Boxmail/Views/MailRecipientOverlay.swift)、[ScrollEventRouting.swift](../Sources/Boxmail/Support/ScrollEventRouting.swift) |
 | 原生菜单、流程操作与输入框 | [SelectionControlButton.swift](../Sources/Boxmail/Views/SelectionControlButton.swift)、[SettingsSelectionMenu.swift](../Sources/Boxmail/Views/SettingsSelectionMenu.swift)、[WorkflowControls.swift](../Sources/Boxmail/Views/WorkflowControls.swift) |
 | 邮件、写信与 AI 布局 | [MailListView.swift](../Sources/Boxmail/Views/MailListView.swift)、[MailDetailView.swift](../Sources/Boxmail/Views/MailDetailView.swift)、[ComposerView.swift](../Sources/Boxmail/Views/ComposerView.swift)、[SummaryContentLayout.swift](../Sources/Boxmail/Support/SummaryContentLayout.swift) |
 | 共用列表、附件分页与 ZIP 预览 | [AttachmentsView.swift](../Sources/Boxmail/Views/AttachmentsView.swift)、[AttachmentListView.swift](../Sources/Boxmail/Views/AttachmentListView.swift)、[WorkspaceList.swift](../Sources/Boxmail/Views/WorkspaceList.swift)、[SummaryOverviewView.swift](../Sources/Boxmail/Views/SummaryOverviewView.swift)、[OrganizationReviewList.swift](../Sources/Boxmail/Views/OrganizationReviewList.swift)、[ListPagination.swift](../Sources/Boxmail/Views/ListPagination.swift)、[ArchiveAttachmentView.swift](../Sources/Boxmail/Views/ArchiveAttachmentView.swift) |
@@ -152,14 +158,17 @@ SwiftUI 使用 `Font.system`，AppKit 使用 `NSFont.systemFont`，中文由系�
 
 侧栏依次放置品牌、写邮件、账户、邮箱导航、智能工具和底部本机状态。邮件操作栏与 AI 操作栏保持分层；附件理解放在附件区。
 
-### 设置与写信面板
+### 弹窗与写信面板
 
-`ContentView` 中的 `W`、`H` 为主内容可用宽高，面板尺寸按以下规则计算；这两个面板使用各自的可用宽度决定内部导航。
+`WorkspaceSheetLayout` 统一计算主要面板尺寸，`W`、`H` 为呈现该面板的可用宽高。主窗口通过环境传递可用尺寸；嵌套弹窗继承当前面板的实际尺寸，内容滚动，底部操作固定。
 
 | 面板 | 宽度 | 高度 | 内部适配 |
 | --- | --- | --- | --- |
 | 设置 | `min(1000, max(700, W - 24))` | `min(750, max(500, H - 40))` | 达到 900 pt 显示 190 pt 左导航；不足时使用顶部分类标签 |
 | 写信 | `min(1080, max(680, W - 24))` | `min(720, max(500, H - 40))` | AI 展开且宽度达到 940 pt 时显示 300 pt 辅栏；不足时使用 320 pt 浮层 |
+| 附件预览 | `min(1080, max(640, W - 24))` | `min(720, max(480, H - 40))` | 顶部文件操作与预览导航固定，原件及结果在内容区滚动 |
+| 分类管理 | `min(760, max(640, W - 24))` | `min(520, max(480, H - 40))` | 分类列表与编辑区各自保留可用空间 |
+| 自定义模型 API | `min(680, max(640, W - 24))` | `min(720, max(480, H - 40))` | 表单按可用高度滚动，取消与添加固定在底部 |
 
 设置内容宽度上限为 720 pt，内容内边距为 24 pt，顶部栏高 54 pt，底栏高 64 pt。写信中的收件人建议以独立浮层显示，不能推移字段和正文。
 
@@ -167,7 +176,7 @@ SwiftUI 使用 `Font.system`，AppKit 使用 `NSFont.systemFont`，中文由系�
 
 ### 间距与表单对齐
 
-现有间距按角色复用，不建立源码中不存在的统一倍数网格。
+控件尺寸与间距按角色复用，按钮及选择组件使用 4 pt 步长；原有正文与列表排版保持各自的阅读密度。
 
 | 角色 | 值 | 对应实现 |
 | --- | --- | --- |
@@ -177,8 +186,8 @@ SwiftUI 使用 `Font.system`，AppKit 使用 `NSFont.systemFont`，中文由系�
 | 表单标签列 / 列间距 | 88 / 12 pt | `SettingsFormLayout` |
 | 常规字段 / 行内操作列 | 280 / 112 pt | `SettingsFormLayout` |
 | 短菜单 / 端口框 | 132 / 72 pt | `SettingsFormLayout` |
-| 单行控件高度 | 34 pt | 输入框、下拉框与设置底栏按钮 |
-| 普通筛选间距 / 高度 | 6 / 32 pt | `FilterBar` |
+| 紧凑 / 常规 / 表单控件高度 | 28 / 32 / 36 pt | `UIControlSize`；表单输入、下拉和底栏按钮共用 36 pt |
+| 普通筛选间距 / 高度 | 4 / 32 pt | `FilterBar` |
 | 紧凑筛选间距 / 高度 | 4 / 28 pt | `FilterBar(compact: true)` |
 
 表单标签、字段、邻接操作按同一列对齐。超时、端口和数值参数保留短字段；签名和提示词使用多行编辑区。较窄的布局优先调整导航与辅助面板，不压缩文字到不可读字号。
@@ -189,17 +198,17 @@ SwiftUI 使用 `Font.system`，AppKit 使用 `NSFont.systemFont`，中文由系�
 
 分段选择的白色选中面板使用轻阴影：黑色不透明度 0.07、半径 2 pt、偏移 `(0, 1)`。原生菜单、浮层、Sheet 和警告框沿用系统的浮层关系，不把它们的阴影复制到普通内容卡片。
 
-悬停和按下以局部底色变化为主，具体透明度复用按钮样式。聚焦使用下划线、边框或外轮廓，不依赖阴影表示焦点。
+悬停和按下以局部底色变化为主，具体透明度复用按钮样式。SwiftUI 按钮聚焦时显示蓝色外轮廓，原生输入及菜单使用边框，不依赖阴影表示焦点。
 
 ## Shapes
 
 | 角色 | 圆角 | 规则 |
 | --- | --- | --- |
 | 通用卡片 | 12 pt | `UILayout.radius` |
-| 输入、下拉、底栏按钮、紧凑筛选 | 10 pt | `UILayout.controlRadius` |
-| 导航选中、写邮件、普通筛选 | 12 pt | `UILayout.selectionRadius` |
-| 默认图标按钮 | 7 pt | `IconButton` 与 `ControlFeedback` 默认值 |
-| 流程文字操作 | 6 pt | `WorkflowAction` |
+| 文字动作、主次按钮、筛选、日期、回复预设、输入及下拉 | 10 pt | `UILayout.controlRadius`；背景、点击区域与反馈层采用同一圆角 |
+| 导航选中 | 12 pt | `UILayout.navigationRadius` |
+| 图标按钮与格式菜单 | 8 pt | `UILayout.iconRadius` |
+| 分段选择外槽 | 14 pt | `UILayout.segmentRadius`，与 4 pt 内边距、10 pt 内层圆角配合 |
 | 搜索框 | 8 pt | `SearchField` |
 | 小标签 | 4 pt | `Tag` |
 
@@ -211,25 +220,29 @@ SwiftUI 使用 `Font.system`，AppKit 使用 `NSFont.systemFont`，中文由系�
 
 | 组件 | 使用场景 | 现行外观与交互 |
 | --- | --- | --- |
-| `WorkflowAction` / `ActionButton` | 回复、发送、AI、重试、导出等流程操作 | 无描边文字，可配 SF Symbol；高 32 pt，12 pt medium，横向内边距 8 pt，图标槽宽 14 pt |
+| `ActionButton` | 回复、发送、AI、重试、导出及底栏提交 | 常规高 32 pt、12 pt medium、横向内边距 12 pt；图标为 14 pt regular，槽宽 16 pt，与文字间距 8 pt |
+| `SettingsInlineAction` | 表单操作列 | 仅包装 `ActionButton` 的表单尺寸、112 pt 列宽与左对齐 |
+| `SelectionButton` | 独立筛选、AI 工具栏、回复预设及分段选择项 | 共用尺寸、10 pt 圆角、选中语义、焦点和反馈；分组可传入同一高亮命名空间 |
 | `IconButton` / `IconMenu` | 工具栏与次要菜单 | 默认 32 × 32 pt、图标 14 pt；局部已有 28 pt 按钮；必须提供说明及可访问名称 |
 | `SettingsActionBar` | 设置、账户、服务商、模型及导入面板的提交 | 底栏高 64 pt、横向内边距 24 pt；取消在前，主操作在后 |
-| 底栏主按钮 | 保存、确认等提交动作 | 蓝底白字，最小 72 × 34 pt、横向内边距 16 pt、圆角 10 pt |
+| 底栏主按钮 | 保存、确认等提交动作 | 蓝底白字，最小 72 × 36 pt、横向内边距 16 pt、圆角 10 pt |
 | 底栏取消按钮 | 取消编辑 | 白底深色文字、1 pt `border` 边框，与主按钮对齐 |
 
-`ActionButton.kind` 的 `.primary`、`.ai`、`.softAI` 当前都映射为蓝色文字的 `WorkflowAction`；只有设置底栏的提交按钮使用上述实心蓝底。新增调用不能仅凭枚举名推断外观。
+文字动作、选择项、排序和来源等控件复用 `controlLabel()` 的标签边界：紧凑、常规和表单尺寸默认保留对称的 8、12、12 pt 横向内边距，内容在控件内垂直居中，背景、指针反馈与焦点使用同一边界。长待办和下一步操作可自然增高；不要只设置单侧内边距，也不要让文字或箭头贴住反馈层边缘。原生下拉的文字绘制复用 `drawSelectionText()`，按实际字体高度居中。
+
+`ActionButton` 用 `color` 表达文字颜色，用 `emphasis` 明确外观：`.plain` 为文字动作，`.tinted` 为浅蓝底入口，`.secondary` 为白底描边，`.primary` 为蓝底白字。AI 与普通动作按同一规则配置；`SettingsActionBar` 直接使用该组件，不再维护独立按钮样式。
 
 所有按钮保留以下状态，优先复用现有样式，不在页面内重写一套：
 
-- 默认、悬停、按下：`ControlFeedback` 通过局部覆盖色反馈；普通非填充按钮悬停不透明度为 0.045、按下为 0.08。底栏按钮使用自己的主次按钮反馈。
+- 默认、悬停、按下：`ControlFeedback` 通过局部覆盖色反馈；普通非填充按钮悬停不透明度为 0.045、按下为 0.08。主按钮悬停为 0.08、按下为 0.16；SwiftUI 与 AppKit 共用 `ControlStateAppearance` 中的反馈参数。
 - 选中：筛选和导航使用浅蓝底、蓝色文字与选中语义；不能只用悬停色表示持久选择。
-- 聚焦：文字操作显示下划线，图标和筛选显示底部细线；输入框显示蓝色边框，底栏按钮显示外轮廓。
-- 禁用：`ControlFeedback` 整体不透明度为 0.45，底栏按钮为 0.4，并通过原生禁用状态阻止操作。
+- 聚焦：SwiftUI 按钮统一使用 `controlFocus()` 的 2 pt 蓝色外轮廓；原生字段保留 1.5 pt 焦点边框，原生格式菜单使用 2 pt 内轮廓，避免绘制被控件边界裁切。
+- 禁用：SwiftUI 按钮整体不透明度统一为 0.45，禁用时不显示悬停与焦点反馈，并通过原生禁用状态阻止操作。
 - 处理中：显示进度或“正在保存…”等文字，并禁用冲突操作；异步任务结束后恢复可用状态。
 
 ### 输入、选择与折叠
 
-- 单行设置输入复用 `.settingsTextInput()`：高 34 pt、圆角 10 pt、横向内边距 10 pt、`canvas` 底；1 pt 边框从 `softBorder` 切换为聚焦时的蓝色。
+- 单行设置输入复用 `.settingsTextInput()`：高 36 pt、圆角 10 pt、横向内边距 10 pt、`canvas` 底；1 pt 边框从 `softBorder` 切换为聚焦时的蓝色。
 - 下拉选择复用 `WorkflowSelection`、`SettingsSelectionMenu` 与 `SelectionControlButton`。菜单跟踪、键盘及无障碍由原生 `NSPopUpButton` 保持；焦点边框为 1.5 pt，静止边框为 1 pt。
 - 长选项保持字段列宽稳定，通过省略、菜单和悬停查看完整值；占位文字不能替代字段的可访问标签。
 - 设置折叠使用 `SettingsDisclosureStyle`：整行可点击，最小高 36 pt；箭头与文字共同表达状态，并提供“已展开／已收起”的无障碍值。
@@ -239,7 +252,7 @@ SwiftUI 使用 `Font.system`，AppKit 使用 `NSFont.systemFont`，中文由系�
 
 ### 导航、筛选与邮件列表
 
-侧栏当前页、筛选项和设置分类均提供选中反馈。邮箱区域顺序固定为收件箱、星标邮件、草稿箱、已发送、已删除、已归档、垃圾邮件、附件中心。`FilterBar` 用于一组选项，`FilterButton` 用于独立筛选；`SegmentedSelection` 使用浅底槽和白色选中面板。邮件列表四项筛选在最小 294 pt 分栏内保持完整显示。
+侧栏当前页、筛选项和设置分类均提供选中反馈。邮箱区域顺序固定为收件箱、星标邮件、草稿箱、已发送、已删除、已归档、垃圾邮件、附件中心。`FilterBar` 与独立筛选均复用 `SelectionButton`；`SegmentedSelection` 同样复用该组件，使用浅底槽和白色选中面板，外槽内边距与项间距均为 4 pt。邮件列表四项筛选在最小 294 pt 分栏内保持完整显示。
 
 列表使用原生 `List(selection:)`。上下键切换邮件，左右键展开或折叠发件人；Shift 连续选择、Command 点击离散多选、Command-A 仅全选已加载邮件。多选时在原位置将筛选替换为批量操作栏，阅读区说明已选数量。
 
@@ -249,19 +262,21 @@ SwiftUI 使用 `Font.system`，AppKit 使用 `NSFont.systemFont`，中文由系�
 
 ### 附件中心与资料包
 
-附件中心位于侧栏“垃圾邮件”下方，与智能整理共用 `WorkspaceList` / `WorkspaceListRow`，使用 10 pt 圆角、轻边框、白色表面、水平分隔及 `ControlFeedback` 悬停/按下反馈，以 `LazyVStack` 显示后端分页结果，每页 50 条。底部固定 40 pt 分页栏，显示当前范围、总数、页码及前后翻页按钮；首尾页和加载期间禁用对应按钮。搜索、类型、排序或账户变化回到第一页，筛选与排序覆盖整个账户；默认按原邮件日期倒序，同日期按文件名自然排序。表头与数据使用同一套 `AttachmentListColumns` 宽度，图标独立成列，各列标题与内容统一左对齐，操作标题与按钮组统一左对齐。表头使用 11 pt 常规字重且不显示竖向分隔线；当前排序列在标题右侧 4 pt 显示上箭头或下箭头。选中行复用收件列表的 `blueSoft` 浅蓝底，保留原文字和图标颜色，以及行按钮的选中与无障碍语义，支持上下键移动选择、回车预览。文件名使用 13 pt medium，元数据使用 11 至 12 pt，ZIP 已有结果但仍有未完成文件时显示“部分理解”，长文件名中间省略并通过悬停显示完整值。名称、大小、日期可排序，行内保留 32 pt 图标操作，双击或回车预览。
+附件中心位于侧栏“垃圾邮件”下方，与智能整理共用 `WorkspaceList` / `WorkspaceListRow`，使用 10 pt 圆角、轻边框、白色表面、水平分隔及 `ControlFeedback` 悬停/按下反馈，以 `LazyVStack` 显示后端分页结果，每页 50 条。底部固定 40 pt 分页栏，显示当前范围、总数、页码及前后翻页按钮；首尾页和加载期间禁用对应按钮。搜索、类型、排序或账户变化回到第一页，筛选与排序覆盖整个账户；默认按原邮件日期倒序，同日期按文件名自然排序。表头与数据使用同一套 `AttachmentListLayout` 宽度，图标独立成列，各列标题与内容统一左对齐，操作标题在整组按钮上方居中。表头使用 11 pt 常规字重且不显示竖向分隔线；`TableSortButton` 高 28 pt，宽度随文字、4 pt 间距、12 pt 箭头槽及左右各 8 pt 内边距确定，列宽由外部容器分配；悬停和焦点反馈不铺满整列。箭头槽始终保留，切换排序时不挤动标题；所有表头文字保持相同的辅助色，当前排序列通过上下箭头表达方向；排序按钮的 leading 对齐线位于内边距之后，使标题文字与数据列对齐，辅助功能值同时标明升序或降序。选中行复用收件列表的 `blueSoft` 浅蓝底，保留原文字和图标颜色，以及行按钮的选中与无障碍语义，支持上下键移动选择、回车预览。文件名使用 13 pt medium，元数据使用 11 至 12 pt，ZIP 已有结果但仍有未完成文件时显示“部分理解”，长文件名中间省略并通过悬停显示完整值。名称、大小、日期可排序，行内保留 32 pt 图标操作，双击或回车预览。
 
-可用宽度达到 900 pt 时独立显示原邮件与发件人列，大小、日期、状态和操作列分别为 96、112、96、104 pt，保证大小与日期之间有清楚留白；扣除固定列、16 pt 水平内边距与 20 pt 列间距后，名称列理想宽度为余量的 48%，上限 520 pt，原邮件列承接余量。不足 900 pt 时将原邮件主题并入文件名下方，元数据列分别使用 64、84、72、104 pt。搜索和类型筛选保留，ZIP 使用独立筛选项，列表保持白色整行表面与轻水平分隔线。
+表格可用宽度达到 960 pt 时独立显示原邮件与发件人列，大小、日期、状态和操作列分别为 96、112、96、104 pt；扣除固定列、16 pt 水平内边距与 20 pt 列间距后，名称列理想宽度为余量的 48%，上限 520 pt，原邮件列承接余量。不足 960 pt 时将原邮件主题并入文件名下方，大小、日期、状态和操作列分别为 64、84、72、104 pt。不足 760 pt 时，理解状态也并入文件名下方，移除独立状态列，给长文件名保留空间。表头和数据行共用列宽与间距，最小窗口不靠横向溢出容纳固定列；搜索、类型筛选、排序和三项附件操作保留。
 
 ZIP 预览使用“文件目录／整体整理”切换。文件目录左侧按包内路径显示文件、大小与理解状态，右侧查看单文件结果或原文件；加密、不支持、超限及嵌套压缩包说明原因。整体整理按总览、文件归类、关联差异与下一步行动呈现，来源按钮可定位到对应包内文件。未处理文件和理解覆盖数量始终可见。包内文件不增加邮件顶层附件数量。
 
-智能整理的收件箱分类也使用相同列表容器和行反馈，每页 50 封，分类计数覆盖当前账户完整收件箱；切换分类或账户回到第一页。页面标题、整理操作和分类筛选固定，只有列表行区域滚动；分类邮件及建议的分页栏各自固定在对应列表底部，翻页后只重置该列表的滚动位置。分类建议每页 50 条，“确认应用分类”作用于本次任务全部建议，不随当前页缩小范围。可用内容高度不足 720 pt，或任务正在运行／等待审阅时，收紧标题、操作和进度区，分类卡片改为带完整计数的原生菜单；保留列表空间及全部整理操作。
+智能整理的收件箱分类也使用相同列表容器和行反馈，每页 50 封，分类计数覆盖当前账户完整收件箱；切换分类或账户回到第一页。页面标题、整理操作和分类筛选固定，只有列表行区域滚动；分类邮件及建议的分页栏各自固定在对应列表底部，翻页后只重置该列表的滚动位置。空分类提示位于列表内容区内，与底部分页保持在同一容器。共用列表的外层、滚动内容和行堆栈均明确靠左，视口因滚动条收缩时不把固定列宽的行居中挤偏。分类建议每页 50 条，“确认应用分类”作用于本次任务全部建议，不随当前页缩小范围。可用内容高度不足 720 pt，或任务正在运行／等待审阅时，收紧标题、操作和进度区，分类卡片改为带完整计数的原生菜单；保留列表空间及全部整理操作。
 
 ### 内容卡片、标签与 AI 结果
 
+会话历史中的回复、原邮件跳转及归档／恢复操作按可用宽度换行。会话依据使用 `MailSourceButton`，长发件人名称中间省略，日期保持完整，悬停与可访问名称保留完整来源说明；不能用强制保持完整宽度的普通动作标签承载无界来源名称。
+
 `SectionCard` 用于设置与工作区内容分组。`Tag` 使用 11 pt medium、横向 7 pt / 纵向 3 pt 内边距；普通标签为灰色浅底，AI 标签为蓝色浅底。头像属于辅助视觉，不重复朗读姓名。
 
-阅读区 AI 总结、翻译、AI 回复、会话 AI 分别提供入口，附件理解在正文附件区出现。流式内容使用 `AIStreamingView` 和共用 Markdown 展示，显示当前阶段与已有内容；分类确认、采用草稿等依赖完整结果的动作等待生成完成。
+阅读区整封理解、翻译、AI 回复、会话 AI 分别提供入口；附件区的主要理解动作同样进入整封理解，单文件深入分析保留在预览与附件菜单中。整封结果和回复预览共用 `MailAIContextNotice` 显示文件覆盖范围，未完整纳入时使用提醒色，并可展开核对 ZIP 子项。流式内容使用 `AIStreamingView` 和共用 Markdown 展示，显示当前阶段与已有内容；分类确认、采用草稿等依赖完整结果的动作等待生成完成。
 
 写信正文采用 36 pt 格式栏，顺序为粗体、文字颜色、字号、项目符号、编号与链接。原生字号菜单为 64 × 32 pt，使用 12 pt regular 辅助色文字，提供 8 至 72 pt 常用字号；文字与箭头整体居中，悬停、按下及焦点反馈与图标按钮一致。混合字号在入口显示“混合”，菜单与无障碍值保留“混合字号”。图标控件统一为 32 × 32 pt、14 pt regular SF Symbol，同组间距为 4 pt，复用 `UILayout.iconControl`、`iconSize`、`iconGap` 与 `iconRadius`，不插入额外的分隔留白。粗体与列表选中时使用浅蓝底、蓝色图标及选中语义。颜色入口使用同尺寸的字母图标配 14 × 2 pt 色条，原生菜单使用 12 pt 系统字体，以非模板色样保留每项真实 sRGB 颜色，同时提供名称与选中状态；文字橙色预设为 `#BF5700`，与状态琥珀色分开，菜单色样、入口色条及正文保持一致；支持恢复默认与自定不透明颜色，自定颜色在 260 pt 浮层中预览并明确应用。混合字号和颜色以文字提供无障碍反馈。链接输入使用 320 pt 浮层。列表编号与符号跟随该项开头文字的字号和颜色，折行缩进按标记宽度计算。正文以原生 TextKit 编辑，选区格式与后续输入格式分开处理，保留选区、撤销与中文输入法，视觉签名留白不进入保存内容。
 
@@ -269,7 +284,7 @@ ZIP 预览使用“文件目录／整体整理”切换。文件目录左侧按�
 
 草稿同步状态以“本机草稿／等待同步服务器／已同步服务器／需要处理同步冲突”显示。冲突说明自然换行，本机副本提供“同步为新草稿”；旧编辑保存失败时提供“另存为新草稿”。会话总结按进展、未决事项、下一步排布，每项依据复用带信封图标的文字按钮；过期结果使用琥珀色说明，并禁用采用旧回复。
 
-完成结果使用 `AIResultDisclosure`，标题整行可展开，最小高 44 pt，复制按钮独立。摘要中的待办和期限自然换行，关键信息默认展开。摘要集合与附件中心、智能整理共用列表滚动表面，顶部标题、统计及操作固定，只有摘要内容区域滚动；切换“列表／已移除”或账户时回到列表开头。先显示概要和最多两项未完成待办，再按项展开完整详情；移除总结收录项与删除邮件使用不同动作和说明。
+完成结果使用 `AIResultDisclosure`，标题整行可展开，最小高 44 pt，复制按钮独立。摘要中的待办和期限自然换行，关键信息默认展开。关键信息展开入口至少高 28 pt，左右各留 8 pt，文字与尾部箭头垂直居中；字段内容沿用相同横向内边距；相邻“内容概要”和“待处理”标题使用相同的 28 pt 标题行，保持三栏基线一致。收件人展开、摘要待办和下一步操作也使用对称的标签边界。摘要集合与附件中心、智能整理共用列表滚动表面，顶部标题、统计及操作固定，只有摘要内容区域滚动；切换“列表／已移除”或账户时回到列表开头。先显示概要和最多两项未完成待办，再按项展开完整详情；移除总结收录项与删除邮件使用不同动作和说明。
 
 ### 搜索、空态与错误反馈
 
@@ -281,7 +296,7 @@ ZIP 预览使用“文件目录／整体整理”切换。文件目录左侧按�
 
 ### 滚动、键盘与可访问性
 
-普通滚动区复用 `OverlayScrollView` 与 `.borderlessScrollers()`，使用无描边细滑块。收件人与抄送长名单是显式例外：内容溢出时保留可见的原生滚动条；全局外观刷新不能抹掉该例外。
+普通滚动区复用 `OverlayScrollView` 与 `.borderlessScrollers()`，使用无描边细滑块。收件人、抄送和密送共用 `RecipientDetailsView`：收起时显示单行摘要，展开长名单高 240 pt，短名单按内容高度显示；内容溢出时保留可见的原生滚动条，全局外观刷新不能抹掉该例外。鼠标位于名单内时，滚轮由名单消费；移到正文后立即滚动正文，无需先滚完名单，名单内到达边界后也可交还外层；保留原生文字选择与复制。邮件头、HTML 与纯文本引用、转发预览和草稿搜索详情使用相同组件，HTML 的发件人、日期、主题及其余正文保持原排版。
 
 图标按钮有 `.help` 和可访问名称，装饰图标隐藏；折叠和选择提供状态语义。焦点提示不遮挡内容，键盘操作复用原生菜单、列表和编辑器。列表快捷键经 `FocusedValue` 限定作用域，编辑文字时继续使用编辑器的选择、删除与撤销。常用快捷键以[使用指南](USER_GUIDE.md)中的清单为准。
 
@@ -298,13 +313,13 @@ ZIP 预览使用“文件目录／整体整理”切换。文件目录左侧按�
 | `disclosure` | `smooth`，0.26 秒，`extraBounce: 0` | 无展开动画 |
 | `reveal` | 透明度与纵向 -6 pt 位移组合 | 仅透明度 |
 
-选中底板可使用 `matchedGeometryEffect`，减少动态效果时使用静态选中底；数字替换、图标替换及弹跳也跟随系统偏好。流式生成不为每个新增字符触发布局动画。按压缩放只在共用样式的填充模式下启用，减少动态效果时关闭。
+选中底板可使用 `matchedGeometryEffect`，减少动态效果时使用静态选中底；数字替换、图标替换及弹跳也跟随系统偏好。流式生成不为每个新增字符触发布局动画。按钮按下只改变覆盖色，不改变内容尺寸或位置。
 
 ## Do's and Don'ts
 
 ### 应当
 
-- 新增界面先查找现有组件，优先复用 `Palette`、`UIType`、`UILayout`、`SettingsFormLayout` 和 `UIMotion`。
+- 新增界面先查找现有组件，优先复用 `Palette`、`UIType`、`UILayout`、`UIControlSize`、`SettingsFormLayout` 和 `UIMotion`；文字动作、选择项、图标及排序分别使用对应共用控件。
 - 让主要内容、次级说明、操作与状态在密集界面中仍可区分；通过留白、背景和轻分隔组织结构。
 - 每个异步区域明确加载、完成、失败及可恢复路径，保存失败保留用户输入。
 - 变更设计值或组件行为时，同步更新本文、受影响的使用指南和开发说明，避免仅修改文档中的数字。
@@ -324,7 +339,9 @@ ZIP 预览使用“文件目录／整体整理”切换。文件目录左侧按�
 - [ ] 主窗口核对 1440 × 900 pt 与 720 × 600 pt、1080 pt 侧栏切换，以及顶部双击缩放的原生动画、历史尺寸恢复和初始最大化默认还原。
 - [ ] 邮件列表核对 294、380、560 pt，包含四项筛选、长主题、聚合展开、多选和加载失败。
 - [ ] 设置核对 900 pt、写信核对 940 pt 切换前后；底栏、字段、已有抄送和密送保持可见。
-- [ ] 核对默认、悬停、按下、聚焦、选中、禁用、处理中、空态和错误状态。
+- [ ] 核对默认、悬停、按下、聚焦、选中、禁用、处理中、空态和错误状态，确认标签与反馈两侧留白对称、垂直居中且状态切换不移动内容。
+- [ ] 附件表格核对 760、960 pt 两侧的展示变化、标题与数据的列起点、操作列中心，以及排序刷新和视口收缩后的整排对齐；对应自动化覆盖 664、900、1246 pt 表格宽度。
+- [ ] 摘要核对三栏标题基线、关键信息展开及长待办；主要面板核对小窗口与嵌套呈现、独立表单滚动和固定底栏。
 - [ ] 用键盘完成相关流程，检查中文输入法、长收件人、长文件名、长错误文字和 VoiceOver 语义。
 - [ ] 开启系统“减少动态效果”，确认位移、展开、底板移动和符号动效按规范降级。
 - [ ] 使用开发说明中的隔离验收方式记录受影响场景及验证边界；只对受影响行为运行相应回归。

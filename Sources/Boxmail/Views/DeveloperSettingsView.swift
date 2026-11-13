@@ -4,9 +4,7 @@ import SwiftUI
 
 struct DeveloperSettingsView: View {
   @Bindable var store: MailStore
-  @ViewState<Bool> private var exporting = false
-  @ViewState<String?> private var status = nil
-  @ViewState<String?> private var failure = nil
+  @ViewState private var action = SettingsActionState()
 
   var body: some View {
     VStack(spacing: 16) {
@@ -17,17 +15,11 @@ struct DeveloperSettingsView: View {
           .font(UIType.caption).foregroundStyle(Palette.muted).fixedSize(
             horizontal: false, vertical: true)
         ActionButton(
-          title: exporting ? "正在导出…" : "导出诊断日志…", icon: "square.and.arrow.up", kind: .primary
+          title: action.isWorking ? "正在导出…" : "导出诊断日志…", icon: "square.and.arrow.up", color: Palette.accent
         ) {
           export()
-        }.disabled(exporting)
-        if exporting { ProgressView().controlSize(.small) }
-        if let status {
-          WorkflowNotice(text: status, icon: "checkmark.circle", color: Palette.success)
-        }
-        if let failure {
-          WorkflowNotice(text: failure, icon: "exclamationmark.circle", color: Palette.amber)
-        }
+        }.disabled(action.isWorking)
+        SettingsActionFeedback(action: action)
         Text("账户使用匿名标识。导出不含授权码、API Key、邮件正文、主题、附件或请求正文。日志从安装此版本后开始记录。")
           .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(
             horizontal: false, vertical: true)
@@ -47,13 +39,9 @@ struct DeveloperSettingsView: View {
   private func export() {
     Task { @MainActor in
       guard let destination = await DiagnosticExportService.chooseDestination() else { return }
-      exporting = true
-      status = nil
-      failure = nil
-      defer { exporting = false }
-      let backend = store.backend
-      let directory = backend.dataDirectory
-      do {
+      action.run {
+        let backend = store.backend
+        let directory = backend.dataDirectory
         if backend.hasExited { store.markSyncServiceExited() }
         let manifest = try DiagnosticArchive.manifest(
           version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
@@ -65,8 +53,8 @@ struct DeveloperSettingsView: View {
         try await Task.detached(priority: .utility) {
           try DiagnosticArchive.export(from: directory, to: destination, manifest: manifest)
         }.value
-        status = "诊断日志已导出：\n\(destination.path)"
-      } catch { failure = error.localizedDescription }
+        return .success("诊断日志已导出：\n\(destination.path)")
+      }
     }
   }
 }

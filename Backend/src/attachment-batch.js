@@ -5,13 +5,14 @@ import { aiConfig, ServiceError } from './validation.js';
 import { runAgent } from './agent.js';
 import { isPresentation } from './presentations.js';
 import { unicodeJSON, textSlice } from './unicode.js';
+import { imageMimes, modelExtensions } from './attachment-kind.js';
 
 const finished = new Set(['completed', 'existing', 'unsupported']);
 export const MAX_BATCH_ATTACHMENTS = 100;
-const imageTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 function supported(file) {
-  return isArchive(file) || !!file.text?.trim() || isPresentation(file) || file.contentType === 'application/pdf' || imageTypes.has(file.contentType)
-    || ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(path.extname(file.name).toLowerCase());
+  return isArchive(file) || !!file.text?.trim() || isPresentation(file)
+    || file.contentType === 'application/pdf' || imageMimes.has(file.contentType)
+    || Object.hasOwn(modelExtensions, path.extname(file.name).toLowerCase());
 }
 function publicError(error) {
   if (error instanceof ServiceError) return error.message;

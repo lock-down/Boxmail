@@ -43,7 +43,7 @@ struct ArchiveEntryView: View {
         }
       } else if let file {
         if let documentURL {
-          DocumentAttachmentView(url: documentURL)
+          SandboxedWebPreview(source: .file(documentURL))
         } else {
           OriginalAttachmentView(url: file.url, isPDF: entry.contentType == "application/pdf")
         }
@@ -58,19 +58,13 @@ struct ArchiveEntryView: View {
       loading = true
       defer { loading = false }
       do {
-        let response: FileResponse = try await BackendService.shared.request(
-          "/attachments/\(attachmentId)/archive/\(entry.id)")
+        let loaded = try await AttachmentPreviewLoader.load(
+          path: "/attachments/\(attachmentId)/archive/\(entry.id)",
+          isPDF: entry.contentType == "application/pdf",
+          isWord: AttachmentKind(name: entry.name, contentType: entry.contentType) == .word)
         try Task.checkCancellation()
-        let preview = try await AttachmentPreviewLoader.prepare(name: response.name, content: response.content,
-          isPDF: entry.contentType == "application/pdf")
-        var keep = false
-        defer { if !keep { preview.remove() } }
-        if AttachmentKind(name: entry.name, contentType: entry.contentType) == .word {
-          documentURL = try await SystemDocumentPreview.prepare(preview)
-        }
-        try Task.checkCancellation()
-        file = preview
-        keep = true
+        documentURL = loaded.documentURL
+        file = loaded.file
       } catch is CancellationError {
       } catch { self.error = error.localizedDescription }
     }.onDisappear {

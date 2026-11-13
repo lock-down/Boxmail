@@ -1,7 +1,6 @@
 import { mailBody } from './mail-body.js';
-import { archiveProjection } from './attachment-archive-store.js';
+import { archiveProjection, validateArchiveDocument } from './attachment-archive-store.js';
 import { accountInput, aiConfig, ServiceError } from './validation.js';
-import { validateArchiveDocument } from './archive-summary.js';
 import { richContent, richFromHTML } from './rich-text.js';
 
 const strings = (value, names) => names.every(name => typeof value[name] === 'string');

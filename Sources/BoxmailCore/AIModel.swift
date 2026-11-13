@@ -86,7 +86,9 @@ public struct AIModel: Codable, Hashable, Identifiable, ExpressibleByStringLiter
     }
     return nil
   }
-  private static func hasControls(_ value: String) -> Bool { value.unicodeScalars.contains { $0.value < 32 || $0.value == 127 } }
+  public static func hasControls(_ value: String) -> Bool {
+    value.unicodeScalars.contains { $0.value < 32 || $0.value == 127 }
+  }
   public static func parseCapacity(_ text: String) -> Int? {
     let text = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard text.range(of: "^([0-9]+(?:\\.[0-9]+)?)([km])?$", options: .regularExpression) != nil else { return nil }

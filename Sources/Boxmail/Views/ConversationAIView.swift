@@ -23,7 +23,7 @@ struct ConversationAIView: View {
       HStack(spacing: 12) {
         ActionButton(
           title: latest("conversationSummary") == nil ? "总结会话" : "刷新会话总结", icon: "sparkles",
-          kind: .ai
+          color: Palette.accent
         ) {
           store.generate(task: "conversationSummary", message: message)
         }.disabled(store.busy.contains("agent"))
@@ -46,7 +46,7 @@ struct ConversationAIView: View {
       Divider().overlay(Palette.softBorder)
       WorkflowTextInput(label: "会话回复要求", placeholder: "补充回复要求（可选）", text: $request, lines: 3)
       HStack(spacing: 12) {
-        ActionButton(title: "生成会话回复", icon: "arrowshape.turn.up.left", kind: .ai) {
+        ActionButton(title: "生成会话回复", icon: "arrowshape.turn.up.left", color: Palette.accent) {
           store.generate(
             task: "conversationReply", message: message, prompt: request, preview: true)
         }.disabled(store.busy.contains("agent"))
@@ -63,7 +63,7 @@ struct ConversationAIView: View {
         if result.partial == true {
           WorkflowNotice(text: "回复基于部分缓存内容，请核对历史与事实后使用。", color: Palette.amber)
         }
-        ActionButton(title: "使用为回复草稿", icon: "square.and.pencil", kind: .primary) {
+        ActionButton(title: "使用为回复草稿", icon: "square.and.pencil", color: Palette.accent) {
           store.useReply(job)
         }
         .disabled(
@@ -95,9 +95,7 @@ struct ConversationAIView: View {
   private func sourceLinks(_ ids: [String], sources: [ConversationSource]) -> some View {
     WrappingFlowLayout(spacing: 6) {
       ForEach(sources.filter { ids.contains($0.id) }) { source in
-        ActionButton(
-          title: "\(source.sender) · \(displayTime(source.date))", icon: "envelope", kind: .primary
-        ) {
+        MailSourceButton(sender: source.sender, date: source.date, subject: source.subject) {
           let revision = store.restoreRevision
           let anchor = store.selectedMessageId
           Task {
@@ -109,7 +107,7 @@ struct ConversationAIView: View {
               store.openMail(mail, tab: .conversation)
             } catch { store.mailAIErrors[message.id] = error.localizedDescription }
           }
-        }.help(source.subject)
+        }
       }
     }
   }

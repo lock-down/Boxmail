@@ -14,7 +14,7 @@ struct MailDetailView: View {
             store.restoreMessages([message])
           }.help(message.folder == "trash" ? message.restoreTitle : message.unarchiveTitle)
         } else {
-          ActionButton(title: "回复", icon: "arrowshape.turn.up.left", kind: .softAI) {
+          ActionButton(title: "回复", icon: "arrowshape.turn.up.left", color: Palette.accent) {
             store.newDraft(reply: message)
           }
         }
@@ -43,14 +43,11 @@ struct MailDetailView: View {
           }
         }
         IconButton(icon: message.starred ? "star.fill" : "star", help: message.starred ? "取消星标" : "添加星标",
-          color: message.starred ? Palette.amber : Palette.muted, size: 28, active: message.starred) {
+          color: message.starred ? Palette.amber : Palette.muted, size: 28, selected: message.starred) {
           store.update(message, ["starred": !message.starred])
         }
         IconMenu(icon: "ellipsis", help: "更多邮件操作") {
-          Button("复制邮件正文") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(message.body, forType: .string)
-          }
+          Button("复制邮件正文") { NSPasteboard.general.copy(message.body) }
           Button(message.unread ? "标记已读" : "标记未读") {
             store.update(message, ["unread": !message.unread])
           }
@@ -113,10 +110,7 @@ struct MailDetailView: View {
         Rectangle().fill(Palette.softBorder).frame(height: 1)
         if store.isShowingTranslation(message) {
           if message.translation != nil || store.aiOutput(task: "translate", messageId: message.id)?.text.isEmpty == false {
-            CopyButton(help: "复制译文") {
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(store.translatedMessage(message).body, forType: .string)
-            }
+            CopyButton(help: "复制译文") { store.translatedMessage(message).body }
           }
           if let output = store.aiOutput(task: "translate", messageId: message.id), output.status == "running" {
             ProgressView().controlSize(.mini)
@@ -166,9 +160,8 @@ struct AttachmentCard: View {
           }
         }
         Spacer(minLength: 0)
-      }.padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 9)).contentShape(
-        RoundedRectangle(cornerRadius: 8))
-    }.buttonStyle(ControlFeedback(corner: 8)).controlFocus(corner: 8)
+      }.padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+    }.buttonStyle(ControlFeedback()).controlFocus()
   }
   private func itemTitle(_ item: AttachmentBatchItem) -> String {
     switch item.status {

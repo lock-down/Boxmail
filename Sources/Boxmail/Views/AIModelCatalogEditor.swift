@@ -59,11 +59,12 @@ private struct AIModelEditorRow: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .top, spacing: 8) {
-        Button { selectedModel = model.id.trimmingCharacters(in: .whitespacesAndNewlines) } label: {
-          Image(systemName: !model.id.isEmpty && selectedModel == model.id ? "checkmark.circle.fill" : "circle")
-            .foregroundStyle(!model.id.isEmpty && selectedModel == model.id ? Palette.accent : Palette.muted)
-        }.buttonStyle(ControlFeedback(corner: 6)).frame(width: 28, height: 32)
-          .controlFocus(corner: 6).help("使用此模型").accessibilityLabel("使用模型 \(model.id)")
+        IconButton(
+          icon: !model.id.isEmpty && selectedModel == model.id ? "checkmark.circle.fill" : "circle",
+          help: "使用模型 \(model.id)",
+          color: !model.id.isEmpty && selectedModel == model.id ? Palette.accent : Palette.muted,
+          selected: !model.id.isEmpty && selectedModel == model.id
+        ) { selectedModel = model.id.trimmingCharacters(in: .whitespacesAndNewlines) }
           .disabled(model.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         VStack(alignment: .leading, spacing: 8) {
           WorkflowTextInput(

@@ -3,7 +3,7 @@ import SwiftUI
 enum SettingsFormLayout {
   static let labelWidth: CGFloat = 88
   static let columnGap: CGFloat = 12
-  static let controlHeight: CGFloat = 34
+  static let controlHeight: CGFloat = UIControlSize.form.height
   static let menuWidth: CGFloat = 132
   static let portWidth: CGFloat = 72
   static let actionWidth: CGFloat = 112
@@ -19,30 +19,54 @@ struct SettingsFormLabel: View {
   }
 }
 
+struct SettingsFieldRow: View {
+  let title: String
+  @Binding var text: String
+  var placeholder = ""
+  var body: some View {
+    HStack(spacing: SettingsFormLayout.columnGap) {
+      SettingsFormLabel(title: title)
+      WorkflowTextInput(label: title, placeholder: placeholder, text: $text, font: UIType.caption)
+        .frame(width: SettingsFormLayout.fieldWidth)
+      Spacer(minLength: 0)
+    }
+  }
+}
+
+struct SettingsTransferRow<Action: View>: View {
+  let title, detail, icon: String
+  let action: () -> Action
+  init(
+    title: String, detail: String, icon: String, @ViewBuilder action: @escaping () -> Action
+  ) {
+    self.title = title
+    self.detail = detail
+    self.icon = icon
+    self.action = action
+  }
+  var body: some View {
+    HStack(alignment: .center, spacing: 14) {
+      Image(systemName: icon).font(.system(size: 16)).foregroundStyle(Palette.muted)
+        .frame(width: 24).accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 5) {
+        Text(title).font(.system(size: 13, weight: .medium))
+        Text(detail).font(UIType.small).foregroundStyle(Palette.muted)
+          .fixedSize(horizontal: false, vertical: true)
+      }.frame(maxWidth: .infinity, alignment: .leading)
+      action().fixedSize()
+    }
+  }
+}
+
 struct SettingsInlineAction: View {
   let title: String
   let icon: String
   var color: Color = Palette.accent
   let action: () -> Void
-  @ViewState<Bool> private var hovered = false
-  @FocusState private var focused: Bool
-  @Environment(\.isEnabled) private var enabled
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    Button(action: action) {
-      HStack(alignment: .firstTextBaseline, spacing: 7) {
-        Image(systemName: icon).font(.system(size: 12, weight: .medium))
-          .frame(width: 14).accessibilityHidden(true)
-        Text(title).underline(focused).lineLimit(1).fixedSize()
-      }.font(.system(size: 12, weight: .medium))
-        .foregroundStyle(hovered || focused ? Palette.accent : color)
-        .padding(.horizontal, 6)
-        .frame(width: SettingsFormLayout.actionWidth, height: SettingsFormLayout.controlHeight, alignment: .leading)
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-    }.buttonStyle(ControlFeedback(corner: 6)).focused($focused).onHover { hovered = $0 }
-      .animation(UIMotion.feedback(reduceMotion), value: hovered)
-      .accessibilityLabel(title)
+    ActionButton(title: title, icon: icon, color: color, size: .form,
+      width: SettingsFormLayout.actionWidth, alignment: .leading, action: action)
   }
 }
 

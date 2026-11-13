@@ -20,10 +20,11 @@ enum UILayout {
   static let pageInset: CGFloat = 28
   static let radius: CGFloat = 12
   static let controlRadius: CGFloat = 10
-  static let selectionRadius: CGFloat = 12
-  static let iconControl: CGFloat = 32
+  static let navigationRadius: CGFloat = 12
+  static let segmentRadius: CGFloat = controlRadius + 4
+  static let iconControl: CGFloat = UIControlSize.regular.height
   static let iconSize: CGFloat = 14
-  static let iconRadius: CGFloat = 7
+  static let iconRadius: CGFloat = 8
   static let iconGap: CGFloat = 4
 }
 enum UIType {
@@ -42,118 +43,9 @@ extension Color {
   }
 }
 
-/// Shared pointer feedback; native buttons retain keyboard and accessibility behavior.
-struct ControlFeedback: ButtonStyle {
-  var selected = false
-  var filled = false
-  var corner: CGFloat = 7
-  func makeBody(configuration: Configuration) -> some View {
-    FeedbackBody(configuration: configuration, selected: selected, filled: filled, corner: corner)
-  }
-  private struct FeedbackBody: View {
-    let configuration: Configuration
-    let selected: Bool
-    let filled: Bool
-    let corner: CGFloat
-    @Environment(\.isEnabled) private var enabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ViewState<Bool> private var hovered = false
-    var body: some View {
-      configuration.label
-        .overlay {
-          RoundedRectangle(cornerRadius: corner, style: .continuous).fill(
-            configuration.isPressed
-              ? Palette.ink.opacity(filled ? 0.16 : 0.08)
-              : hovered && enabled
-                ? (selected ? Palette.blue : Palette.ink).opacity(filled ? 0.08 : 0.045) : .clear
-          ).allowsHitTesting(false)
-        }
-        .scaleEffect(configuration.isPressed && filled && !reduceMotion ? 0.98 : 1)
-        .opacity(enabled ? 1 : 0.45)
-        .onHover { hovered = $0 }
-        .animation(UIMotion.feedback(reduceMotion), value: hovered)
-        .animation(UIMotion.feedback(reduceMotion), value: configuration.isPressed)
-    }
-  }
-}
-
-struct ActionButton: View {
-  var title: String
-  var icon: String? = nil
-  var kind: Kind = .normal
-  var action: () -> Void
-  enum Kind { case normal, primary, ai, softAI }
-  var body: some View {
-    WorkflowAction(title: title, icon: icon, color: kind == .normal ? Palette.ink : Palette.blue, action: action)
-  }
-}
-
-struct IconButton: View {
-  let icon: String
-  let help: String
-  var color: Color = Palette.muted
-  var size: CGFloat = UILayout.iconControl
-  var active = false
-  let action: () -> Void
-  @FocusState private var focused: Bool
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  var body: some View {
-    Button(action: action) {
-      Image(systemName: icon).font(.system(size: UILayout.iconSize, weight: .regular)).foregroundStyle(color)
-        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
-        .symbolEffect(.bounce, value: active && !reduceMotion)
-        .symbolEffectsRemoved(reduceMotion)
-        .frame(width: size, height: size).contentShape(RoundedRectangle(cornerRadius: UILayout.iconRadius))
-        .animation(UIMotion.feedback(reduceMotion), value: icon)
-    }.buttonStyle(ControlFeedback()).focused($focused)
-      .overlay(alignment: .bottom) {
-        if focused { Rectangle().fill(Palette.blue).frame(width: 12, height: 1).padding(.bottom, 3).allowsHitTesting(false) }
-      }
-      .help(help).accessibilityLabel(help)
-  }
-}
-struct IconMenu<Content: View>: View {
-  let icon: String
-  let help: String
-  @ViewBuilder var content: () -> Content
-  var body: some View {
-    Menu(content: content) {
-      Label(help, systemImage: icon).labelStyle(.iconOnly).font(.system(size: UILayout.iconSize, weight: .regular))
-        .foregroundStyle(Palette.muted).frame(width: UILayout.iconControl, height: UILayout.iconControl)
-        .contentShape(RoundedRectangle(cornerRadius: UILayout.iconRadius))
-    }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-      .frame(width: UILayout.iconControl, height: UILayout.iconControl).help(help).accessibilityLabel(help)
-  }
-}
 func menuTitle(_ value: String, limit: Int = 34) -> String {
   guard value.count > limit else { return value }
   return String(value.prefix(limit - 10)) + "…" + String(value.suffix(9))
-}
-struct FilterButton: View {
-  let title: String
-  var selected = false
-  var compact = false
-  let action: () -> Void
-  @FocusState private var focused: Bool
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  private var corner: CGFloat { compact ? UILayout.controlRadius : UILayout.selectionRadius }
-  var body: some View {
-    Button(action: action) {
-      Text(title).font(.system(size: compact ? 11 : 12, weight: selected ? .semibold : .regular))
-        .foregroundStyle(selected ? Palette.blue : Palette.muted)
-        .padding(.horizontal, compact ? 9 : 12).frame(height: compact ? 28 : 32)
-        .background(
-          selected ? Palette.blueSoft : .clear,
-          in: RoundedRectangle(cornerRadius: corner, style: .continuous)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-    }.buttonStyle(ControlFeedback(selected: selected, corner: corner)).focused($focused)
-      .overlay(alignment: .bottom) {
-        if focused { Rectangle().fill(Palette.blue).frame(height: 1).padding(.horizontal, 9).allowsHitTesting(false) }
-      }
-      .accessibilityAddTraits(selected ? .isSelected : [])
-      .animation(UIMotion.selection(reduceMotion), value: selected)
-  }
 }
 struct Tag: View {
   var text: String
@@ -191,7 +83,7 @@ struct EmptyState: View {
       Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(5)
         .multilineTextAlignment(.center).frame(maxWidth: 340)
       if let actionTitle, let action {
-        ActionButton(title: actionTitle, kind: .primary, action: action)
+        ActionButton(title: actionTitle, color: Palette.accent, action: action)
           .disabled(actionDisabled).padding(.top, 4)
       }
     }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)

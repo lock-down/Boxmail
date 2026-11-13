@@ -56,10 +56,7 @@ struct SettingsView: View {
           }
         }
       }
-    }.frame(
-      minWidth: 700, idealWidth: 1000, maxWidth: 1000,
-      minHeight: 500, idealHeight: 700, maxHeight: 750
-    ).background(.white).tint(Palette.blue)
+    }.background(.white).tint(Palette.blue)
       .disclosureGroupStyle(SettingsDisclosureStyle())
       .sheet(item: $accountToEdit) { account in
         AccountEditorView(
@@ -82,14 +79,9 @@ struct SettingsView: View {
       } message: {
         Text("将移除账户的本机邮件、草稿和 .env 中的凭证，服务器邮件会保留。")
       }
-      .alert(
-        "操作未完成",
-        isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })
-      ) {
-        Button("确定") { store.error = nil }
-      } message: {
-        Text(store.error ?? "")
-      }
+      .storeAlert(
+        "操作未完成", text: { store.error }, isPresented: { store.error != nil },
+        dismiss: { store.error = nil })
       .onAppear {
         config = store.settings.ai
         preferences = store.settings.preferences
@@ -119,21 +111,21 @@ struct SettingsView: View {
             .contentShape(Rectangle()).background {
               if store.settingsTab == tab {
                 if reduceMotion {
-                  RoundedRectangle(cornerRadius: UILayout.selectionRadius, style: .continuous)
+                  RoundedRectangle(cornerRadius: UILayout.navigationRadius, style: .continuous)
                     .fill(Palette.accentSoft)
                 } else {
-                  RoundedRectangle(cornerRadius: UILayout.selectionRadius, style: .continuous)
+                  RoundedRectangle(cornerRadius: UILayout.navigationRadius, style: .continuous)
                     .fill(Palette.accentSoft)
                     .matchedGeometryEffect(id: "settings-selection", in: settingsSelection)
                 }
               }
             }
         }.buttonStyle(
-          ControlFeedback(selected: store.settingsTab == tab, corner: UILayout.selectionRadius)
+          ControlFeedback(selected: store.settingsTab == tab, corner: UILayout.navigationRadius)
         ).disabled(
           transferringConfiguration || loading
         )
-        .controlFocus(corner: UILayout.selectionRadius)
+        .controlFocus(corner: UILayout.navigationRadius)
         .accessibilityAddTraits(store.settingsTab == tab ? .isSelected : [])
         .animation(UIMotion.selection(reduceMotion), value: store.settingsTab == tab)
       }
@@ -167,15 +159,9 @@ struct SettingsView: View {
         default: advancedSettings
         }
         if !status.isEmpty {
-          Label(
-            status,
-            systemImage: status.contains("失败") || status.contains("无法") || status.contains("授权")
-              ? "exclamationmark.circle" : "info.circle"
-          )
-          .font(.system(size: 12)).foregroundStyle(
-            status.contains("失败") || status.contains("无法") || status.contains("授权")
-              ? Palette.amber : Palette.muted
-          )
+          Label(status, systemImage: statusFailed ? "exclamationmark.circle" : "info.circle")
+            .font(.system(size: 12))
+            .foregroundStyle(statusFailed ? Palette.amber : Palette.muted)
           .textSelection(.enabled).lineSpacing(4).padding(12)
           .frame(maxWidth: .infinity, alignment: .leading).background(
             Palette.blueSoft, in: RoundedRectangle(cornerRadius: 7))
@@ -184,14 +170,14 @@ struct SettingsView: View {
         maxWidth: .infinity, alignment: .leading)
     }.id(store.settingsTab).background(Palette.canvas).disabled(loading)
   }
+  private var statusFailed: Bool {
+    status.contains("失败") || status.contains("无法") || status.contains("授权")
+  }
   private var subtitle: String {
     switch store.settingsTab {
     case "AI 助手": return "配置模型接口与默认提示词，为邮件总结、回复、整理和附件解析提供能力"
     case "账号": return "使用邮箱授权码连接 IMAP 和 SMTP，凭证保存在本机 .env 文件"
     case "常用": return "同步频率、阅读行为与邮件签名"
-    case "写邮件": return "配置默认签名和草稿行为"
-    case "阅读邮件": return "调整阅读字号与已读行为"
-    case "反垃圾": return "同步邮箱服务商的垃圾邮件分类"
     case "开发者": return "导出同步与 API 运行日志，帮助定位异常和性能问题"
     default: return "管理本机数据、诊断与同步状态"
     }
@@ -200,9 +186,6 @@ struct SettingsView: View {
     switch tab {
     case "常用": return "gearshape"
     case "账号": return "person"
-    case "写邮件": return "square.and.pencil"
-    case "阅读邮件": return "envelope.open"
-    case "反垃圾": return "shield"
     case "高级": return "slider.horizontal.3"
     case "开发者": return "hammer"
     default: return "sparkles"
@@ -232,7 +215,7 @@ struct SettingsView: View {
               ("conversationSummary", "会话总结"), ("conversationReply", "会话回复"),
             ], id: \.0
           ) { item in
-            FilterButton(title: item.1, selected: promptTab == item.0, compact: true) {
+            SelectionButton(title: item.1, selected: promptTab == item.0, size: .compact) {
               promptTab = item.0
             }
           }
@@ -251,10 +234,9 @@ struct SettingsView: View {
         .foregroundStyle(Palette.muted)
         HStack {
           Spacer()
-          Button("恢复当前默认") { config.prompts[promptTab] = AIPromptDefaults.values[promptTab] }
-            .buttonStyle(ControlFeedback(corner: 6)).font(
-              .system(size: 11)
-          ).foregroundStyle(Palette.accent).padding(.vertical, 4).controlFocus(corner: 6)
+          ActionButton(title: "恢复当前默认", color: Palette.accent, size: .compact) {
+            config.prompts[promptTab] = AIPromptDefaults.values[promptTab]
+          }
       }
     }
   }
@@ -283,7 +265,7 @@ struct SettingsView: View {
           }
         }
       }.background(Palette.paper, in: RoundedRectangle(cornerRadius: 8))
-      ActionButton(title: "添加邮箱", icon: "plus", kind: .primary) { accountToEdit = MailAccount() }
+      ActionButton(title: "添加邮箱", icon: "plus", color: Palette.accent) { accountToEdit = MailAccount() }
     }
   }
   private var generalSettings: some View {
@@ -299,7 +281,7 @@ struct SettingsView: View {
       HStack(spacing: 16) {
         WorkflowStepper(title: "自动同步间隔", value: $preferences.syncMinutes, range: 1...60, unit: "分钟")
         Spacer(minLength: 0)
-        ActionButton(title: "立即同步", icon: "arrow.clockwise", kind: .primary) {
+        ActionButton(title: "立即同步", icon: "arrow.clockwise", color: Palette.accent) {
           Task { await store.syncAll() }
         }.disabled(store.busy.contains("sync"))
       }
@@ -375,7 +357,7 @@ struct SettingsView: View {
         var changedKeys: [String: String] = [:]
         for account in config.credentialAccounts {
           if let key = aiKeys[account], originalAIKeys[account] != key {
-            if key.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) {
+            if AIModel.hasControls(key.trimmingCharacters(in: .whitespacesAndNewlines)) {
               throw BackendService.shared.failure("API Key 不能包含控制字符。")
             }
             changedKeys[account] = key.trimmingCharacters(in: .whitespacesAndNewlines)

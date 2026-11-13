@@ -12,6 +12,7 @@ import { categoryCatalog } from './categories.js';
 import { progressText } from './ai-progress.js';
 import { translationDocument } from './translation.js';
 import { conversationContext, conversationResult, requireFreshConversation } from './conversation-ai.js';
+import { prepareMailContext } from './mail-ai-context.js';
 export { completion } from './responses.js';
 
 export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
@@ -37,20 +38,8 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
       replyMessageId: threadContext.replyMessageId, request: input.prompt || '' };
   } else if (['summary', 'reply', 'translate'].includes(task)) {
     if (!message) throw new ServiceError('请选择邮件');
-    context = {
-      sender: message.sender,
-      subject: message.subject,
-      date: message.date,
-      body: message.body,
-      request: input.prompt || '',
-      ...(preset ? { replyIntent: preset.title } : {}),
-      attachments: message.attachmentIds.map((id) => {
-        const a = repo.get('attachment', id);
-        return { name: a?.name, text: a?.text?.slice(0, 16000), analysis: a?.analysis?.slice(0, 16000),
-          textTruncated: (a?.text?.length || 0) > 16000, analysisTruncated: (a?.analysis?.length || 0) > 16000 };
-      }),
-    };
-    if (translation) context = { subject: message.subject, segments: translation.segments };
+    context = translation ? { subject: message.subject, segments: translation.segments }
+      : { request: input.prompt || '', ...(preset ? { replyIntent: preset.title } : {}) };
   } else if (task === 'classify') {
     context = repo.messageCandidates({accountId:input.accountId,folder:'inbox',limit:80})
       .map(header => repo.get('message',header.id))
@@ -103,6 +92,15 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
     input.signal?.throwIfAborted();
     let images = [];
     let extractedText;
+    let mailContext;
+    if (['summary', 'reply'].includes(task)) {
+      const prepared = await prepareMailContext(repo, message, input.config, {
+        signal: input.signal, onProgress: stage => publish({ stage }),
+      });
+      context = { ...context, ...prepared.content };
+      images = prepared.images;
+      mailContext = prepared.coverage;
+    }
     if (task === 'attachment') {
       const prepared = await modelAttachment(repo, input.attachmentId, { signal: input.signal });
       images = prepared.images;
@@ -120,7 +118,7 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
     input.signal?.throwIfAborted();
     publish({ stage: '正在等待模型输出…' });
     const result = translation && !translation.segments.length ? { segments: [] } : await completion(input.config, input.apiKey, task, context, images,
-      { additionalInstructions: preset?.instruction, stream: true, signal: input.signal,
+      { additionalInstructions: preset?.instruction, mailContext, stream: true, signal: input.signal,
         diagnostics: repo.diagnostics,
         onProgress: partial => {
           const rendered = translation ? translation.render(partial) : null;
@@ -132,7 +130,7 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
     if (threadContext) {
       job.result = conversationResult(result, threadContext, task);
     } else if (task === 'summary') {
-      const summary = summaryResult(result, message);
+      const summary = { ...summaryResult(result, message), context: mailContext };
       const current = repo.get('message', message.id);
       if (!current)
         throw new ServiceError('邮件已移动，请在新文件夹中重新总结', 409);
@@ -141,7 +139,7 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
     } else if (['reply', 'compose'].includes(task)) {
       if (typeof result.body !== 'string' || !result.body.trim() || typeof result.subject !== 'string')
         throw new ServiceError('邮件草稿格式不正确', 502);
-      job.result = { subject: result.subject, body: result.body };
+      job.result = { subject: result.subject, body: result.body, ...(mailContext ? { context: mailContext } : {}) };
       if (task === 'reply' && !job.preview) {
         const draft = replyDraft(message, result, repo.get('account', message.accountId));
         repo.put('draft', draft);

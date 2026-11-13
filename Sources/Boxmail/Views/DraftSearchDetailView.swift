@@ -9,7 +9,7 @@ struct DraftSearchDetailView: View {
       HStack {
         Label("本机草稿", systemImage: "square.and.pencil").font(UIType.caption).foregroundStyle(Palette.muted)
         Spacer()
-        ActionButton(title: "继续编辑草稿", icon: "square.and.pencil", kind: .primary) {
+        ActionButton(title: "继续编辑草稿", icon: "square.and.pencil", color: Palette.accent) {
           if let id = message.draftId { store.editDraft(id) }
         }.disabled(store.drafts.first(where: { $0.id == message.draftId })?.status == "sending")
       }.padding(.horizontal, 20).frame(height: 52)
@@ -23,17 +23,15 @@ struct DraftSearchDetailView: View {
               Spacer()
               Text(displayTime(message.date)).font(UIType.small).foregroundStyle(Palette.muted)
             }
-            RecipientDetailsView(to: message.to, cc: message.cc)
-            if let draft = store.drafts.first(where: { $0.id == message.draftId }), !draft.bcc.isEmpty {
-              Text("密送：" + draft.bcc).font(UIType.caption).foregroundStyle(Palette.muted).textSelection(.enabled)
-            }
+            RecipientDetailsView(to: message.to, cc: message.cc,
+              bcc: store.drafts.first(where: { $0.id == message.draftId })?.bcc ?? "")
           }
           if message.html?.isEmpty == false {
             MailBodyView(message: message, preferences: store.settings.preferences)
           } else {
-            Text(message.body.isEmpty ? "尚未填写正文" : message.body).font(UIType.body).lineSpacing(6)
-              .foregroundStyle(message.body.isEmpty ? Palette.muted : Palette.ink).textSelection(.enabled)
-              .frame(maxWidth: .infinity, alignment: .leading)
+            RecipientTextBodyView(text: message.body.isEmpty ? "尚未填写正文" : message.body,
+              font: UIType.body, lineSpacing: 6)
+              .foregroundStyle(message.body.isEmpty ? Palette.muted : Palette.ink)
           }
           if !message.attachmentIds.isEmpty {
             Text("附件 · \(message.attachmentIds.count) 个").font(UIType.section)

@@ -14,37 +14,9 @@ struct WorkflowPanelHeader: View {
           .fixedSize(horizontal: false, vertical: true)
       }
       Spacer(minLength: 0)
-      WorkflowAction(title: "", icon: "xmark", help: closeLabel, action: close)
+      IconButton(icon: "xmark", help: closeLabel, action: close)
         .keyboardShortcut(.cancelAction)
     }
-  }
-}
-
-struct WorkflowAction: View {
-  let title: String
-  var icon: String? = nil
-  var color: Color = Palette.ink
-  var help: String? = nil
-  let action: () -> Void
-  @ViewState<Bool> private var hovered = false
-  @FocusState private var focused: Bool
-  @Environment(\.isEnabled) private var enabled
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  var body: some View {
-    Button(action: action) {
-      HStack(alignment: .firstTextBaseline, spacing: 7) {
-        if let icon {
-          Image(systemName: icon).font(.system(size: 12, weight: .medium))
-            .frame(width: 14).accessibilityHidden(true)
-        }
-        if !title.isEmpty { Text(title).underline(focused).lineLimit(1).fixedSize() }
-      }.font(.system(size: 12, weight: .medium))
-        .foregroundStyle(hovered || focused ? color == Palette.ink ? Palette.blue : color : color)
-        .padding(.horizontal, 8).frame(height: 32)
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-    }.buttonStyle(ControlFeedback(corner: 6)).focused($focused).onHover { hovered = $0 }
-      .animation(UIMotion.feedback(reduceMotion), value: hovered)
-      .help(help ?? title).accessibilityLabel(help ?? title)
   }
 }
 
@@ -164,9 +136,6 @@ enum WorkflowSelectionStyle {
     } else {
       drawSelectionSurface(visible: style == .field)
     }
-    let paragraph = NSMutableParagraphStyle()
-    paragraph.lineBreakMode = .byTruncatingMiddle
-    paragraph.alignment = .left
     let compact = style != .field
     let text = displayTitle ?? titleOfSelectedItem ?? "请选择"
     let font = NSFont.systemFont(ofSize: 12, weight: style == .inline ? .medium : .regular)
@@ -175,16 +144,8 @@ enum WorkflowSelectionStyle {
     let indicatorGap: CGFloat = style == .toolbar ? 6 : 8
     let groupWidth = textWidth + indicatorGap + 9
     let inset: CGFloat = compact ? floor((bounds.width - groupWidth) / 2) : 12
-    (text as NSString).draw(in: NSRect(x: inset, y: (bounds.height - 16) / 2,
-        width: compact ? textWidth : max(0, bounds.width - inset - 28), height: 18),
-      withAttributes: [
-        .font: font,
-        .foregroundColor: NSColor(
-          isHighlighted ? Palette.blue : style == .toolbar ? Palette.muted : Palette.ink
-        )
-        .withAlphaComponent(isEnabled ? 1 : 0.4),
-        .paragraphStyle: paragraph,
-      ])
+    drawSelectionText(text, x: inset, width: compact ? textWidth : bounds.width - inset - 28,
+      font: font, color: isHighlighted ? Palette.blue : style == .toolbar ? Palette.muted : Palette.ink)
     drawSelectionIndicator(x: compact ? inset + textWidth + indicatorGap : bounds.width - 21)
   }
 }
@@ -198,10 +159,10 @@ struct WorkflowStepper: View {
     HStack(spacing: SettingsFormLayout.columnGap) {
       SettingsFormLabel(title: title)
       HStack(spacing: 8) {
-        WorkflowAction(title: "", icon: "minus", help: "减少" + title) { value = max(range.lowerBound, value - 1) }
+        IconButton(icon: "minus", help: "减少" + title) { value = max(range.lowerBound, value - 1) }
           .disabled(value <= range.lowerBound)
         Text(value.formatted(.number.grouping(.never))).font(UIType.caption).monospacedDigit().frame(minWidth: 24)
-        WorkflowAction(title: "", icon: "plus", help: "增加" + title) { value = min(range.upperBound, value + 1) }
+        IconButton(icon: "plus", help: "增加" + title) { value = min(range.upperBound, value + 1) }
           .disabled(value >= range.upperBound)
         Text(unit).font(UIType.caption).foregroundStyle(Palette.muted)
         Spacer(minLength: 0)

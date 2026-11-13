@@ -185,8 +185,9 @@ struct MailListView: View {
         Spacer(minLength: 0)
         if !store.busy.contains("sync") && (store.currentSyncFolder?.hasMore == true
           || ["failed", "paused"].contains(store.currentSyncFolder?.status ?? "")) {
-          Button("继续同步") { Task { await store.syncAll(folder: store.destination.rawValue) } }
-            .buttonStyle(.plain).foregroundStyle(Palette.blue).disabled(store.busy.contains("sync"))
+          ActionButton(title: "继续同步", color: Palette.blue, size: .compact) {
+            Task { await store.syncAll(folder: store.destination.rawValue) }
+          }.disabled(store.busy.contains("sync"))
         }
         IconButton(icon: "info.circle", help: "查看缓存与同步详情", size: 24) { showingSyncDetails.toggle() }
           .popover(isPresented: $showingSyncDetails) { syncDetails }
@@ -284,7 +285,7 @@ struct MailRow: View {
           Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
             .rotationEffect(.degrees(expanded ? 90 : 0)).foregroundStyle(Palette.muted)
             .frame(width: 16, height: 22).contentShape(Rectangle())
-        }.buttonStyle(ControlFeedback(corner: 4)).controlFocus(corner: 4).padding(.top, -3)
+        }.buttonStyle(ControlFeedback(corner: UILayout.iconRadius)).controlFocus(corner: UILayout.iconRadius).padding(.top, -3)
           .help("\(expanded ? "折叠" : "展开") \(message.sender) 的 \(senderGroup?.count ?? 0) 封邮件")
           .accessibilityLabel("\(expanded ? "折叠" : "展开") \(message.sender) 的 \(senderGroup?.count ?? 0) 封邮件")
           .accessibilityValue(expanded ? "已展开" : "已折叠")
@@ -331,7 +332,7 @@ struct MailRow: View {
           }
         }
         if let searchAccount {
-          Text("\(searchAccount) · \(MailDestination(rawValue: message.folder)?.title ?? "垃圾邮件")")
+          Text("\(searchAccount) · \(MailDestination.title(forFolder: message.folder) ?? message.folder)")
             .font(UIType.small).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle)
         }
       }.accessibilityElement(children: .ignore).accessibilityLabel(rowLabel)
@@ -354,5 +355,58 @@ struct MailRow: View {
       parts.append("同一发件人共 \(group.count) 封，\(group.unreadCount) 封未读，\(expanded ? "已展开" : "已折叠")")
     }
     return parts.joined(separator: "，")
+  }
+}
+
+struct MailListDisplayMenu: View {
+  @Bindable var store: MailStore
+  private var showsDrafts: Bool { store.pageMessages.first?.draftId != nil }
+  var body: some View {
+    Menu {
+      Picker("显示方式", selection: Binding(get: { store.groupMailBySender },
+        set: { store.changeSenderGrouping($0) })) {
+        Text("按发件人聚合").tag(true)
+        Text("逐封显示").tag(false)
+      }.pickerStyle(.inline)
+    } label: {
+      HStack(spacing: 4) {
+        Text(store.groupMailBySender && !showsDrafts ? "发件人" : "逐封").font(UIType.small)
+        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+      }.foregroundStyle(Palette.muted).padding(.horizontal, 6).frame(height: 28)
+        .contentShape(RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+    }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+      .disabled(showsDrafts || store.mailActionInProgress)
+      .help(showsDrafts ? "草稿搜索逐封显示" : "按发件人聚合，或逐封显示；均按最新时间排列")
+      .accessibilityLabel("邮件列表显示方式：\(store.groupMailBySender && !showsDrafts ? "发件人聚合" : "逐封显示")")
+  }
+}
+
+struct MailSenderGroupFooter: View {
+  @Bindable var store: MailStore
+  let group: MailSenderGroup
+  var body: some View {
+    if store.senderGroupLoading.contains(group.id) || store.senderGroupErrors[group.id] != nil
+      || store.senderGroupNextOffsets[group.id] != nil {
+      HStack(spacing: 8) {
+        if store.senderGroupLoading.contains(group.id) {
+          ProgressView().controlSize(.mini)
+          Text("正在加载较早邮件…").font(UIType.small).foregroundStyle(Palette.muted)
+        } else if let error = store.senderGroupErrors[group.id] {
+          Text("较早邮件加载失败").font(UIType.small).foregroundStyle(Palette.amber).help(error)
+          ActionButton(title: "重试", color: Palette.blue, size: .compact) {
+            Task { await store.loadSenderGroup(group.id, reset: store.senderGroupNextOffsets[group.id] == nil) }
+          }
+        } else {
+          ActionButton(title: "显示更早邮件", color: Palette.blue, size: .compact) {
+            Task { await store.loadSenderGroup(group.id, reset: false) }
+          }
+        }
+        Spacer(minLength: 0)
+        Text("\(store.senderLoadedCount(group))/\(group.count)").font(UIType.small).monospacedDigit()
+          .foregroundStyle(Palette.muted)
+      }.padding(.leading, 40).padding(.trailing, 12).padding(.vertical, 9)
+        .frame(maxWidth: .infinity).background(Palette.canvas)
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.softBorder).frame(height: 1) }
+    }
   }
 }

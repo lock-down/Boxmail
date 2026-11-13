@@ -1,4 +1,3 @@
-import { textSlice } from './unicode.js';
 import { readFile, writeFile, mkdir, copyFile, chmod, rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
@@ -9,18 +8,24 @@ import { processPDF } from './pdf-processing.js';
 import { errorDiagnostic } from './diagnostics.js';
 import { MailContentWorker } from './mail-content-worker.js';
 import { attachmentContentType, attachmentMetadata } from './attachment-metadata.js';
+import { textExtensions, imageExtensions, imageMimes } from './attachment-kind.js';
+import { extractedText } from './attachment-text.js';
 
 export async function extractText(buffer, name, contentType = '', { signal, contentWorker, diagnostics, account } = {}) {
+  return (await extractContent(buffer, name, contentType, { signal, contentWorker, diagnostics, account })).text;
+}
+
+export async function extractContent(buffer, name, contentType = '', { signal, contentWorker, diagnostics, account } = {}) {
   contentType = attachmentContentType(contentType);
   signal?.throwIfAborted();
   const ext = path.extname(name).toLowerCase();
-  if (['.txt', '.csv', '.md', '.json', '.log'].includes(ext))
-    return textSlice(buffer.toString('utf8'), 0, 200000);
+  if (textExtensions.has(ext))
+    return extractedText(buffer.toString('utf8'));
   const task = ext === '.pdf' ? 'pdf' : ['.docx', '.xlsx'].includes(ext) ? ext.slice(1)
     : isPresentation({ name, contentType }) ? 'presentation-text' : null;
-  if (!task) return '';
+  if (!task) return { text: '', textTruncated: false };
   const parser = contentWorker || new MailContentWorker({ signal, diagnostics, account });
-  try { return (await parser.run(task, buffer, { task: 'text', name, contentType, format: ext.slice(1) })).text; }
+  try { return await parser.run(task, buffer, { task: 'text', name, contentType, format: ext.slice(1) }); }
   finally { if (!contentWorker) await parser.close(); }
 }
 export async function saveAttachment(
@@ -59,8 +64,8 @@ export async function prepareAttachment(
   );
   try {
     await writeFile(file, buffer, { mode: 0o600, flag: 'wx' });
-    let text = '', parseError = '';
-    try { text = await extractText(buffer, name, contentType, { signal, contentWorker, diagnostics: repo.diagnostics }); }
+    let text = '', textTruncated = false, parseError = '';
+    try { ({ text, textTruncated = false } = await extractContent(buffer, name, contentType, { signal, contentWorker, diagnostics: repo.diagnostics })); }
     catch (error) {
       repo.diagnostics?.record('attachment.parse.failed', { phase: 'attachment', ...errorDiagnostic(error) });
       parseError = '文件解析未完成，原文件已保存，可下载原文件查看';
@@ -68,7 +73,7 @@ export async function prepareAttachment(
     signal?.throwIfAborted();
     return {
       id, messageId, name: path.basename(name), size: buffer.length, contentType,
-      path: file, text, analysis: null, parseError, date: new Date().toISOString(),
+      path: file, text, textTruncated, analysis: null, parseError, date: new Date().toISOString(),
     };
   } catch (error) {
     if (error.code !== 'EEXIST') await rm(file, { force: true }).catch(() => {});
@@ -79,6 +84,21 @@ export async function attachmentBytes(repo, id) {
   const a = repo.get('attachment', id);
   if (!a) throw new ServiceError('附件不存在', 404);
   return { metadata: a, buffer: await readFile(a.path) };
+}
+
+// Assemble composer attachment parts with an optional aggregate ceiling.
+export async function attachmentFiles(repo, ids, {
+  operation = run => run(), maxTotalBytes, tooLarge,
+} = {}) {
+  const files = [];
+  let total = 0;
+  for (const id of ids || []) {
+    const { metadata, buffer } = await operation(() => attachmentBytes(repo, id));
+    total += buffer.length;
+    if (maxTotalBytes && total > maxTotalBytes) throw tooLarge();
+    files.push({ filename: metadata.name, contentType: metadata.contentType, content: buffer });
+  }
+  return files;
 }
 
 export async function removeUnusedAttachments(repo, ids) {
@@ -178,8 +198,8 @@ export async function modelAttachment(repo, id, { signal } = {}) {
 export async function modelFile(buffer, metadata, { signal, diagnostics } = {}) {
   signal?.throwIfAborted();
   const ext = path.extname(metadata.name).toLowerCase();
-  const imageTypes = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
-  const imageType = imageTypes[ext] || (Object.values(imageTypes).includes(metadata.contentType) ? metadata.contentType : null);
+  const imageType = imageExtensions[ext]
+    || (imageMimes.has(metadata.contentType) ? metadata.contentType : null);
   if (imageType)
     return { kind: 'image', images: [{ name: metadata.name, contentType: imageType, buffer }] };
   if (isPresentation(metadata)) {

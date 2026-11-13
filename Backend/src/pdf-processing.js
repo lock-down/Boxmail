@@ -1,7 +1,7 @@
-import { textSlice } from './unicode.js';
 import path from 'node:path';
 import { ServiceError } from './validation.js';
 import { ParserProcess } from './parser-process.js';
+import { extractedText } from './attachment-text.js';
 
 // A fresh subprocess releases PDF.js/canvas resources and contains native aborts.
 export async function processPDF(buffer, { task = 'images', name = 'document.pdf', kind = 'pdf', signal,
@@ -27,7 +27,7 @@ export async function parsePDF(bytes, { task = 'images', name = 'document.pdf', 
       const { PDFParse } = await import('pdf-parse');
       const parser = new PDFParse({ data: input });
       cleanup = () => parser.destroy();
-      result = { text: textSlice((await parser.getText()).text, 0, 200000) };
+      result = extractedText((await parser.getText()).text);
     }
     else {
       const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
