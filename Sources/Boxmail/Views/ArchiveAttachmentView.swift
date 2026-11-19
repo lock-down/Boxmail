@@ -151,12 +151,12 @@ private struct ArchiveSummaryView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 24) {
       Text("资料包总览").font(UIType.heading)
-      Text(summary.overview).font(UIType.body).lineSpacing(5).textSelection(.enabled)
+      AnalysisDocumentView(text: summary.overview)
       if !summary.groups.isEmpty {
         Text("文件归类").font(UIType.section)
         ForEach(Array(summary.groups.enumerated()), id: \.offset) { _, group in
           VStack(alignment: .leading, spacing: 8) {
-            Text(group.title).font(UIType.body)
+            Text(AITextStyle.inline(group.title)).font(UIType.body)
             sources(group.entryIds)
           }
         }
@@ -170,7 +170,7 @@ private struct ArchiveSummaryView: View {
       Text(title).font(UIType.section)
       ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
         VStack(alignment: .leading, spacing: 8) {
-          Text(row.text).font(UIType.body).lineSpacing(5).textSelection(.enabled)
+          AnalysisDocumentView(text: row.text)
           sources(row.entryIds)
         }
       }

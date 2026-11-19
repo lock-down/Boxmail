@@ -193,7 +193,8 @@
     },
     {
       "extensions": [
-        "md"
+        "md",
+        "markdown"
       ],
       "mimes": [
         "text/markdown"

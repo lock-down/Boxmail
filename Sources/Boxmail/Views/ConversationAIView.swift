@@ -57,8 +57,7 @@ struct ConversationAIView: View {
       } else if let job = latest("conversationReply"), let result = job.result {
         if stale(job) { staleNotice }
         Text(result.subject ?? "").font(UIType.section).textSelection(.enabled)
-        Text(result.body ?? "").font(UIType.body).lineSpacing(5).textSelection(.enabled)
-          .fixedSize(horizontal: false, vertical: true)
+        AnalysisDocumentView(text: result.body ?? "")
         sourceLinks(result.sourceIds ?? [], sources: result.sourceMessages ?? [])
         if result.partial == true {
           WorkflowNotice(text: "回复基于部分缓存内容，请核对历史与事实后使用。", color: Palette.amber)
@@ -85,9 +84,11 @@ struct ConversationAIView: View {
       if items.isEmpty { Text("未发现明确事项").font(UIType.caption).foregroundStyle(Palette.muted) }
       ForEach(Array(items.enumerated()), id: \.offset) { _, item in
         VStack(alignment: .leading, spacing: 5) {
-          Text(item.text).font(UIType.body).lineSpacing(4).textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
+          AnalysisDocumentView(text: item.text)
           sourceLinks(item.messageIds, sources: sources)
+          ActionButton(title: "收录跟进", size: .compact) {
+            store.collectFollowUp(message: message, title: item.text, sourceKey: "conversation:\(item.messageIds.joined(separator: ",")):\(item.text)")
+          }
         }
       }
     }

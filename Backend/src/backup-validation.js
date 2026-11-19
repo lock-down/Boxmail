@@ -2,6 +2,8 @@ import { mailBody } from './mail-body.js';
 import { archiveProjection, validateArchiveDocument } from './attachment-archive-store.js';
 import { accountInput, aiConfig, ServiceError } from './validation.js';
 import { richContent, richFromHTML } from './rich-text.js';
+import { mailQuery } from './mail-query.js';
+import { isCategoryColor } from './categories.js';
 
 const strings = (value, names) => names.every(name => typeof value[name] === 'string');
 const bools = (value, names) => names.every(name => typeof value[name] === 'boolean');
@@ -77,8 +79,32 @@ export function validateBackupRecords(records) {
         || value.attachmentItems.some(item => !strings(item, ['id', 'name', 'status'])))) fail();
     }
     if (kind === 'sync' && !strings(value, ['accountId', 'folder', 'status'])) fail();
+    if (kind === 'savedSearch') {
+      if (!strings(value, ['name']) || !value.name.trim()) fail();
+      try { mailQuery(value.query); } catch { fail(); }
+    }
+    if (kind === 'followUp' && (!strings(value, ['accountId','messageId','conversationId','sourceKey','title','state','dueText','subject','createdAt','updatedAt'])
+      || !['mine','waiting','completed'].includes(value.state) || typeof value.reminderCancelled !== 'boolean'
+      || ['dueAt','snoozedUntil','waitingSince'].some(key => value[key] != null && !Number.isFinite(Date.parse(value[key]))))) fail();
+    if (kind === 'sendPlan' && (!strings(value, ['draftId','accountId','subject','to','scheduledAt','timeZone','revision','status','createdAt'])
+      || !Number.isFinite(Date.parse(value.scheduledAt))
+      || !['waiting','submitting','sent','failed','uncertain','cancelled','paused'].includes(value.status))) fail();
+    if (kind === 'mailRule') {
+      if (!strings(value, ['name','intent','revision','createdAt']) || !bools(value, ['enabled','automatic']) || !object(value.actions)) fail();
+      try { mailQuery(value.query); } catch { fail(); }
+      if (Object.entries(value.actions).some(([key,item]) => key === 'category' ? typeof item !== 'string'
+        : !['starred','unread','archive','summary','attachments','followUp','reply'].includes(key) || typeof item !== 'boolean')) fail();
+    }
+    if (kind === 'ruleRun' && (!strings(value, ['ruleId','name','revision','status','createdAt']) || !Array.isArray(value.items)
+      || value.items.some(item => !strings(item,['id','accountId','subject','status','reason']) || !stringArray(item.jobIds) || !Array.isArray(item.suggestions)))) fail();
+    if (kind === 'assistantSession' && (!object(value.scope) || !['folder','message','conversation','search','attachments'].includes(value.scope.kind)
+      || !Array.isArray(value.turns) || value.turns.some(turn => !strings(turn,['id','prompt','text','createdAt'])
+        || !Array.isArray(turn.sources) || !Array.isArray(turn.citations) || !Array.isArray(turn.actions)))) fail();
+    if (kind === 'writingStyle' && !strings(value,['name','instruction'])) fail();
+    if (kind === 'snooze' && (!Number.isFinite(Date.parse(value.until)) || !stringArray(value.messageIds))) fail();
     if (kind === 'categoryCatalog' && (!Array.isArray(value.items)
-      || value.items.some(item => !strings(item, ['id', 'name', 'description'])))) fail();
+      || value.items.some(item => !object(item) || !strings(item, ['id', 'name', 'description'])
+        || item.color != null && !isCategoryColor(item.color)))) fail();
     if (kind === 'settings') {
       const ai = value.ai, p = value.preferences;
       if (!object(ai) || !strings(ai, ['baseURL', 'model', 'effort']) || !integers(ai, ['timeout'])

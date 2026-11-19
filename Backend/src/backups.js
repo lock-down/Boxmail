@@ -222,6 +222,9 @@ export async function restoreBackup(repo, source, approved, { beforeCommit, expe
             value.error = '备份恢复了未完成任务，请检查后继续。';
             for (const item of value.attachmentItems || []) if (item.status === 'running') item.status = 'pending';
           }
+          if (row.kind === 'sendPlan' && ['waiting','submitting'].includes(value.status)) { value.status = value.status === 'submitting' ? 'uncertain' : 'paused'; value.error = '从备份恢复的投递需检查后重新安排'; }
+          if (row.kind === 'ruleRun' && value.status === 'running') value.status = 'paused';
+          if (row.kind === 'aiUsage' && value.status === 'running') value.status = 'interrupted';
           if (row.kind === 'sync' && value.status === 'running') value.status = 'paused';
           insert.run(row.kind, row.id, JSON.stringify(value));
         }

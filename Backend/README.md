@@ -1,8 +1,8 @@
 # 本机后端与 API
 
-后端使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖，由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护。当前为 0.1.9（build 48），内置 Node.js 26.13.1 LTS，与客户端同步版本，凭证继续由客户端从本机 `.env` 读取；数据库结构版本保持为 2。富文本字号、颜色与列表标记按语义正文派生，继续保留服务器草稿同步及会话 AI，主状态仍仅返回草稿轻量头部，完整编辑内容由 `GET /drafts/:id` 读取，配置与恢复结果含 `credentialsRequired`。当前版本见根目录 [VERSION](../VERSION)，发布修复及回归范围见 [变更记录](../CHANGELOG.md)，开发流程见 [开发说明](../docs/DEVELOPMENT.md)，用户行为及容量限制见 [使用指南](../docs/USER_GUIDE.md)。
+后端由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护，使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖。客户端和后台领域服务按各自调用路径读取本机 `.env`，SQLite 结构版本仍为 2。
 
-本文接口对应当前源码。0.1.9 发布整封理解与 AI 回复共用的原始附件上下文及文件覆盖元数据；原任务名称、独立附件分析和旧结果保持兼容。共享模块的维护边界见 [代码审查](../docs/CODE_REVIEW.md)，验证范围见 [本版变更](../CHANGELOG.md#019--2026-11-13)。
+本文对应 Boxmail 0.1.10 的本机 HTTP 接口。安装包内置 Node.js 26.13.1 LTS，开发构建使用本机通过版本检查的 Node.js。构建与打包见 [开发说明](../docs/DEVELOPMENT.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件信息折叠与按指针位置滚动仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -25,13 +25,14 @@ npm start
 | --- | --- |
 | `BOXMAIL_DATA` | 必填，数据库和附件目录 |
 | `BOXMAIL_TOKEN` | 必填，至少 24 字符的会话令牌；客户端每次启动生成 |
+| `BOXMAIL_ENV_FILE` | 可选，凭证文件的绝对路径；默认读取 `BOXMAIL_DATA` 下的 `.env`，后台任务在执行时解析 |
 | `BOXMAIL_PORT` | 监听端口，省略或为 0 时由系统分配 |
 | `BOXMAIL_DEMO` | 独立启动后端时默认初始化演示数据，设为 0 关闭；当前日常开发版和发布包显式关闭，隔离验收模式启用 |
 | `BOXMAIL_PRESENTATION_RENDERER` | 独立联调时指定 PPT 原生组件路径；App 使用内置组件 |
 | `BOXMAIL_PARENT_PID` | App 指定的父进程；退出或消失后关闭服务 |
 | `BOXMAIL_LIFETIME_PIPE` | App 内部设为 1，通过 stdout 管道检测 App 消失，避免父 PID 被复用后留下服务；独立启动无需设置 |
 
-`.env` 由桌面客户端直接解析，不自动载入后端进程环境；独立启动后端仍需在同步、发送和 AI 请求体中传入凭证。
+`.env` 不作为 shell 脚本执行，也不整份载入进程环境。`local-credentials.js` 按当前凭证引用直接读取文件，供 IDLE、未显式传入密码的同步、规则、发送队列及邮件助手使用。旧 `/send`、`/agent`、连接测试和批量 AI 接口仍按请求体接收凭证；独立联调这些接口时需显式传入。
 
 关闭演示数据初始化不会清理已有示例记录。上述独立启动示例用于隔离联调，不应指向日常 App 的数据目录。
 
@@ -41,13 +42,13 @@ npm start
 
 ### 邮件、账户与附件
 
-`POST /messages/batch` 的请求为 `{updates:[{id,changes,expected?}]}`。changes 只允许 folder、category、unread、starred；ID 不可重复。所有记录与账户锁先统一检查，字段校验及待同步操作在同一事务中提交。返回的 undo 项含原字段 changes 与操作后 expected，可原样再次提交进行撤销；只还原本次变化的字段，不覆盖其他编辑。任一 expected 不匹配或邮件身份已改变时返回 409，整批保持原状。每批最多 1000 项，仅对已缓存的邮件生效，不包含本机草稿。纯分类请求只修改本机标签，沿用现有单封接口的同步锁语义。
+`POST /messages/batch` 的请求为 `{updates:[{id,changes,expected?}]}`。changes 只允许 folder、category、unread、starred；ID 不可重复。默认先统一检查全部记录与账户锁，字段校验及待同步操作在同一事务中提交。`perAccount: true` 时按原账户分别调用该事务，返回 `failures` 并保留其他账户的成功项和撤销；当前桌面端使用此模式。返回的 undo 项含原字段 changes 与操作后 expected，可原样再次提交进行撤销；只还原本次变化的字段，不覆盖其他编辑。默认模式下任一 `expected` 不匹配或邮件身份已改变时返回 409，整批保持原状；按账户模式下仅对应账户事务失败。每批最多 1000 项，仅对已缓存的邮件生效，不包含本机草稿。纯分类请求只修改本机标签，沿用现有单封接口的同步锁语义。
 
 | 方法 | 路径 | 参数与行为 |
 | --- | --- | --- |
 | GET | `/health` | 经会话令牌认证的就绪检查，不读取全量邮件状态 |
 | GET | `/state` | 主状态；草稿始终为轻量头部；`compact=1` 返回全部轻量邮件和附件，预览默认仅复用缓存，`previews=1` 才显式生成；非 compact 邮件上限 200，附件仍为轻量头部；summary / translate / attachment 任务在 compact 状态省略重复 result |
-| GET | `/messages` | `accountId`、`folder`、`filter`、`q`、`limit`、`offset`；默认每页 100，limit 1 至 200，返回总数与 nextOffset；`groupBy=sender` 按发件人分页，`senderGroup` 分页读取组内邮件 |
+| GET | `/messages` | `accountId`、`folder`、`filter`、`category`、`q`、`limit`、`offset`；省略账户支持统一范围；默认每页 100，limit 1 至 200，返回总数、nextOffset、分类与未读计数；`groupBy=sender` 按发件人分页，`senderGroup` 分页读取组内邮件 |
 | GET | `/organization/messages` | 当前账户收件箱分类分页；`accountId`、`category`、`offset`、`limit`，返回当前页及完整分类计数 |
 | GET | `/messages/:id` | 完整邮件及 `bodyLoaded: true`，也支持草稿搜索结果 |
 | GET | `/messages/:id/thread` | 同账户引用链、原邮件头、总数、分页、未缓存提示及会话 `fingerprint` |
@@ -58,14 +59,14 @@ npm start
 | POST | `/trash/empty` | `accountId`、`password`、`approved: true`；清空整个服务器及本机 Trash |
 | POST | `/accounts/test` | `account`、`password`；分别测试 IMAP / SMTP |
 | POST / DELETE | `/accounts`、`/accounts/:id` | 保存账号配置和可选凭证引用，返回账号与设置 / 移除本机账号及缓存，保留服务器邮件；发送中禁止移除，清理包含 recovery / relocation 附件并保留其他引用 |
-| POST | `/sync` | `accountId`、`password`；可选 `background: true` 和 `folder`，后台立即返回并自动逐批补齐指定范围 |
+| POST | `/sync` | `accountId`；`password` 省略时读取当前 `.env` 绑定；可选 `background: true` 和 `folder`，后台立即返回并自动逐批补齐指定范围 |
 | POST | `/sync/cancel` | `accountId`；停止该账户当前同步会话，保留已下载邮件与断点，重复停止可安全返回 |
 | GET | `/sync-status` | 运行及排队账号、文件夹进度与阶段、本次结果；结果包含 queued / running / completed / paused / failed |
 | GET | `/drafts/:id` | 完整正文、可选 `richText` / `bodyHTML`、独立转发快照、内容 `revision`、`syncState` / `syncError`，附 `bodyLoaded: true` 和 `preview`；不存在或已发送返回 404 |
 | POST / DELETE | `/drafts`、`/drafts/:id` | 保存 / 删除草稿；验证账户归属与安全 ID，响应省略内部同步绑定；富文本派生 HTML 与纯文本；`bodyLoaded=false` 或过期 revision 的不同内容返回 409，相同内容可重试；删除后清理无引用附件并排队清理远端草稿 |
 | POST | `/send` | `draftId`、`password`、`approved: true`；显式确认发送；发送中或结果不明返回 409，已发送的重复请求返回 `alreadySent: true` |
 | POST | `/attachments` | `name`、Base64 `content`，可带关联 ID 和 `contentType` |
-| GET | `/attachments` | 当前账户的附件分页；`accountId`、`q`、`type`、`sort`、`direction`、`offset`、`limit` |
+| GET | `/attachments` | 当前账户的附件分页；`accountId`、`messageId`、`q`、`type`、`sort`、`direction`、`offset`、`limit` |
 | GET | `/attachments/:id` | 名称及 Base64 原始字节 |
 | GET | `/attachments/:id/metadata` | 按需读取提取文本和理解结果 |
 | GET | `/attachments/:id/preview` | 本机生成的 XLSX 静态 HTML；其他格式由客户端预览 |
@@ -75,7 +76,7 @@ npm start
 
 附件分页默认 `offset=0`、`limit=50`，最多 100 条；偏移必须为非负安全整数，页大小必须为 1 至 100 的安全整数。`type` 为 `all`、`pdf`、`word`、`spreadsheet`、`presentation`、`image`、`text`、`archive` 或 `other`，扩展名优先于 MIME。`sort` 为 `date`、`name` 或 `size`，`direction` 为 `asc` 或 `desc`，默认按原邮件日期降序；原邮件日期为空时使用附件日期，同值按数字自然排序的名称和稳定 ID 排序。无效分页、类型、排序或方向返回 400。
 
-服务端先对整个账户筛选、搜索与排序，再分页。`q` 最多取 4000 字符，按字面子串匹配名称、已保存的提取文本、整体分析和 ZIP 清单路径，不使用邮件高级查询语法，不触发文件提取或模型请求。ZIP 逐文件理解结果不参与附件搜索，随归档详情按需读取。返回 `items`、`total`、`offset`、`limit`、`accountTotal`、`analyzedTotal`：`total` 是筛选后的匹配总数，后两项分别为当前账户未经筛选的附件总数和已有非空分析的附件数。
+服务端先对整个账户筛选、搜索与排序，再分页；可选 `messageId` 将范围限定为该账户中同一封邮件的附件。响应仍是逐文件列表，不再提供来源分组查询或分组响应。`q` 最多取 4000 字符，按字面子串匹配名称、已保存的提取文本、整体分析和 ZIP 清单路径，不使用邮件高级查询语法，不触发文件提取或模型请求。ZIP 逐文件理解结果不参与附件搜索，随归档详情按需读取。返回 `items`、`total`、`offset`、`limit`、`accountTotal`、`analyzedTotal`：`total` 是筛选后的匹配总数，后两项分别为当前账户未经筛选的附件总数和已有非空分析的附件数。
 
 每项仅含轻量 `attachment` 和 `source`（原邮件 ID、主题、发件人与日期）。`attachment.text` 为空，使用 `hasExtractedText`、`hasAnalysis`、`hasPartialAnalysis` 表示已有内容及 ZIP 部分理解状态，省略完整分析、ZIP 清单、绝对文件路径及原邮件正文。缺少账户时返回空页，没有所属邮件的附件不进入列表，越界偏移回退到当前末页。旧搜索 ID 接口继续兼容。主状态 `/state?compact=1&previews=0` 仍返回全部轻量附件头部，分页接口限制列表请求及表格当前页，不替代主状态的邮件引用和计数用途。客户端在窄表格中将来源及理解状态移入文件名下方，只调整展示位置，不改变页大小、账户范围或 `sort`／`direction` 的语义。
 
@@ -97,8 +98,8 @@ npm start
 | GET | `/search/parse` | `q`；解析查询或返回具体错误 |
 | GET / POST | `/search/index`、`/search/rebuild` | 查看索引状态 / 无活动任务时重建 |
 | GET | `/contacts` | `accountId`、`q`；当前账户历史及草稿联系人 |
-| GET / POST | `/categories` | 读取目录 / 新增 `name` 和可选 `description` |
-| PATCH / DELETE | `/categories/:id` | 修改名称及说明 / 删除并将相关邮件归为未分类 |
+| GET / POST | `/categories` | 读取目录或新增 `name`、可选 `description` 和 `color` |
+| PATCH / DELETE | `/categories/:id` | 修改名称、说明及颜色，或删除并将相关邮件归为未分类 |
 | POST | `/settings` | `ai`、`preferences`、可选 `credentialReferences`；允许部分更新偏好，未提交字段保留；合并本次 AI 凭证引用并保留其他引用和独立模型缓存 |
 | POST | `/configuration/export` | 返回真实账号、AI 和偏好，不含密钥、本机凭证引用或邮件数据 |
 | POST | `/configuration/inspect` | `configuration`；返回合并映射、当前修订值及端点或身份变化时的 `credentialsRequired` |
@@ -111,7 +112,7 @@ npm start
 
 `GET /attachments/:id/archive` 按需读取并返回父 ZIP 的目录、逐文件状态与整体整理；`GET /attachments/:id/archive/:entryId` 返回允许读取的包内文件，格式同普通附件下载。两者都需要本机会话令牌，目录准备计入维护互斥，父附件移除后不会重新登记。ZIP 使用原有附件批量理解入口，可通过 Job 暂停、继续及重试；普通 `/agent` 的 attachment 任务也会识别 ZIP。
 
-ZIP 读取和流式解压在隔离解析进程中执行，限制为 100 个文件、2048 个目录条目、单文件和原包 25 MB、可处理解压内容总计 100 MB。逐文件检查加密、符号链接、嵌套包、大小和 CRC；不执行文件，也不使用文件提供的路径写盘。包内详细结果独立保存为 `archive` 记录，附件记录只保留状态、数量和路径搜索投影；旧记录在启动和恢复时事务迁移，详情响应继续提供可选 `archive` 对象，compact 与分页不携带逐文件分析；整体结果继续写入 `analysis`，供邮件上下文复用。汇总的 entryIds 必须引用当前清单中有效文件，事实与行动只允许引用理解完成的文件。新增依赖 yauzl 精确锁定为 3.4.0。
+ZIP 读取和流式解压在隔离解析进程中执行，限制为 100 个文件、2048 个目录条目、单文件和原包 25 MB、可处理解压内容总计 100 MB。逐文件检查加密、符号链接、嵌套包、大小和 CRC；不执行文件，也不使用文件提供的路径写盘。包内详细结果独立保存为 `archive` 记录，附件记录只保留状态、数量和路径搜索投影；旧记录在启动和恢复时事务迁移，详情响应继续提供可选 `archive` 对象，compact 与分页不携带逐文件分析。整体结果写入 `analysis`，用于资料包结果展示及搜索；整封理解与 AI 回复直接读取原始文件，不依赖这些分析。汇总的 entryIds 必须引用当前清单中有效文件，事实与行动只允许引用理解完成的文件。yauzl 精确锁定为 3.4.0。
 
 目录缓存按路径、设备、inode、大小和 mtime／ctime 核对，无变化时不重读与哈希原包；取包内文件及理解仍读取原始字节。名称先按 Unicode 扩展字段、UTF-8 及 GBK／CP437 回退解码，再校验安全路径，不保证识别所有旧编码。新写入、旧内嵌缓存迁移和读取均验证清单；附件投影与归档详情在同一事务提交，缺失或损坏详情不能阻断再次启动，原件缺失返回 404。
 
@@ -163,9 +164,9 @@ ZIP 读取和流式解压在隔离解析进程中执行，限制为 100 个文�
 
 发送成功后，隐藏的草稿记录保留状态及防重复发送回执，正文、格式化转发快照和附件引用由已发送邮件持有。删除草稿、移除账户及明确清空已删除时共用附件引用检查；旧发送回执的附件引用不阻止清理，活跃草稿、邮件及 relocation / recovery 引用继续保留。备份要求 forwardedHTML / forwardedText 成对为字符串，字段均缺省的旧草稿继续兼容。
 
-密钥由客户端从当前数据目录的 `.env`（或 `BOXMAIL_ENV_FILE` 指定文件）读取并在任务请求中传入，不写入 SQLite、任务或模型缓存。`settings.credentialReferences` 只保存本机凭证引用，对应 `.env` 的 `BOXMAIL_CONFIGURATION_<UUID>` 条目，普通设置保存和重启保留。`POST /accounts` 可提交仅含 `mail-<当前账号 ID>` 的 `credentialReferences`，账号和引用在同一事务提交，响应包含 `id`、`ok`、`account` 和 `settings`；`POST /settings` 仅接受当前 AI 服务商目录所属的逻辑凭证。引用值必须为 `configuration-<UUID>`，拒绝未知对象、重复引用和格式错误，省略时兼容旧客户端。客户端先写独立条目再提交引用，失败不覆盖生效密钥；响应丢失后通过 `/state` 核对，无法确认时保留可能生效的条目。导出移除引用，导入按邮箱合并，客户端仅为非空凭证先写新条目，再事务切换账号、设置和引用。`credential-bindings.js` 与备份恢复共用端点和身份比较，省略项不能把本机密钥送往新端点；inspect 与 import 返回 `credentialsRequired`，客户端显示服务器地址、凭证处理方式及重填清单。修订冲突及提交失败保持旧配置。
+客户端请求可携带从当前 `.env` 读取的凭证；规则、队列、助手、IDLE 及未传密码的同步由 `LocalCredentials` 在执行时按当前绑定读取。凭证不会写入 SQLite、任务、用量或模型缓存。`settings.credentialReferences` 只保存本机凭证引用，对应 `.env` 的 `BOXMAIL_CONFIGURATION_<UUID>` 条目，普通设置保存和重启保留。`POST /accounts` 可提交仅含 `mail-<当前账号 ID>` 的 `credentialReferences`，账号和引用在同一事务提交，响应包含 `id`、`ok`、`account` 和 `settings`；`POST /settings` 仅接受当前 AI 服务商目录所属的逻辑凭证。引用值必须为 `configuration-<UUID>`，拒绝未知对象、重复引用和格式错误，省略时兼容旧客户端。客户端先写独立条目再提交引用，失败不覆盖生效密钥；响应丢失后通过 `/state` 核对，无法确认时保留可能生效的条目。导出移除引用，导入按邮箱合并，客户端仅为非空凭证先写新条目，再事务切换账号、设置和引用。`credential-bindings.js` 与备份恢复共用端点和身份比较，省略项不能把本机密钥送往新端点；inspect 与 import 返回 `credentialsRequired`，客户端显示服务器地址、凭证处理方式及重填清单。修订冲突及提交失败保持旧配置。
 
-导入仅为非空凭证提供新的引用，省略项仅在端点、协议和邮箱身份一致时保留本机引用或逻辑键；变化时解除旧绑定，生成空的新引用并返回 `credentialsRequired`；拒绝不属于导入账号或服务商的引用。引用名称为：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；所有服务商的密钥由 Swift 客户端读写，不进入配置 HTTP 请求。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
+导入仅为非空凭证提供新的引用，省略项仅在端点、协议和邮箱身份一致时保留本机引用或逻辑键；变化时解除旧绑定，生成空的新引用并返回 `credentialsRequired`；拒绝不属于导入账号或服务商的引用。引用名称为：`default` 对应 `ai-key`，自定义连接对应 `ai-provider-<id>`；仅自定义连接时不要求 `ai-key`，旧版扁平 AI 配置仍使用默认引用。JSON 的 `credentials.aiKey` 保留旧格式兼容字段，未配置默认连接时导出为空且导入忽略；配置迁移中的密钥由 Swift 客户端读写，不进入配置 HTTP 请求；后台服务只按已保存绑定读取。提交响应丢失时客户端检查当前引用，确认已提交后保留密钥；无法确认时保留可能生效的凭证供重启恢复。
 
 每个文件夹用 STATUS 与 UID SEARCH ALL 核对邮件数量，再按每页最多 200 个 UID 只读取 UID、FLAGS、RFC822.SIZE，避免批量 ENVELOPE / INTERNALDATE 被服务器截断。缺项按每批 50、10、1 个 UID 逐步补拉，每个原始页最多 24 次补拉，每条命令使用独立期限并支持取消。校验继续拒绝重复、非请求 UID、无效标志和大小；完整清单通过后才校准缓存，补拉后仍不完整则保留缓存，包括 UIDVALIDITY 已变化的旧缓存。EXAMINE 的缺失或误报计数不会直接当作空文件夹；服务器确认删除的邮件放入 `recovery`。服务商收取范围也会改变 IMAP 可见清单，客户端无法绕过，排查方法见使用指南。
 
@@ -201,7 +202,7 @@ ZIP 读取和流式解压在隔离解析进程中执行，限制为 100 个文�
 
 `ai` 的 `providerId` 指定当前连接，`providers` 保存最多 20 个服务商，各项包括 id、name、baseURL、apiProtocol、model、models 和 catalogConfigured。Provider ID 以小写字母开头，仅含小写字母、数字和连字符；客户端逻辑凭证为 `ai-provider-<id>`，对应 `.env` 的 `BOXMAIL_AI_PROVIDER_<id>_KEY`；默认 `ai-key` 对应 `BOXMAIL_AI_KEY`，导入后按 `credentialReferences` 读取生成的条目。旧版平面配置自动作为默认连接，baseURL / model / apiProtocol 仍返回当前连接的镜像字段。模型 ID 可不在目录中，catalogConfigured 标记用户已配置目录，保留显式空目录。
 
-`responses.js` 统一任务提示词、Files 附件生命周期与 JSON 结果校验。`ai-protocols.js` 使用 `@earendil-works/pi-ai@1.3.0` 的三个 lazy API 工厂及 `streamSimple`，由 pi-ai 调用 `openai@7.19.0`、`@anthropic-ai/sdk@0.129.0`；模型发现和 Files 上传、删除也使用同一版本的官方 SDK。依赖精确锁定并去重，`pi-telemetry` 随 pi-ai 固定为 1.3.0，不再维护自己的推理 HTTP 请求或 SSE 解析器。
+`ai-instructions.js` 集中任务指令和输出结构；`responses.js` 负责 Files 附件生命周期、模型调用、JSON 解码和用量收尾，任务服务校验各自的业务结果。`ai-protocols.js` 使用 `@earendil-works/pi-ai@1.3.0` 的三个 lazy API 工厂及 `streamSimple`，由 pi-ai 调用 `openai@7.19.0`、`@anthropic-ai/sdk@0.129.0`；模型发现和 Files 上传、删除也使用同一版本的官方 SDK。依赖精确锁定并去重，`pi-telemetry` 随 pi-ai 固定为 1.3.0，不再维护自己的推理 HTTP 请求或 SSE 解析器。
 
 | apiProtocol | 请求和完成条件 |
 | --- | --- |
@@ -223,19 +224,21 @@ ZIP 读取和流式解压在隔离解析进程中执行，限制为 100 个文�
 
 客户端接受 K、M 容量输入，按十进制换算为正整数保存，1K = 1000。模型获取返回 `models` ID 数组及可选 `details` 元数据，供用户勾选加入目录；已有模型的自定义参数不会被刷新覆盖。旧默认 Responses 连接保留原有视觉及 Low / High / Max 配置，明确的逐模型声明优先。
 
-三种协议均由 pi-ai 使用 SSE 请求并检查完整结束状态，只保存最终正文，忽略思考和工具内容。超时与调用者取消传给 SDK；`maxRetries: 0` 禁止一次操作隐式重试付费请求。客户端任务携带 providerId，服务端在调用前核对当前连接，不匹配返回 409；断流、无效或不完整结果不覆盖原结果。密钥只从本次调用传入，空密钥的本机服务不会读取 SDK 环境变量中的密钥或租户信息。
+三种协议均由 pi-ai 使用 SSE 请求并检查完整结束状态，只保存最终正文，忽略思考和工具内容。超时与调用者取消传给 SDK；`maxRetries: 0` 关闭 SDK 的隐式请求重试。助手收到明确的上下文超限错误时，会减小预算并重新提交一次。客户端任务携带 providerId，服务端在调用前核对当前连接，不匹配返回 409；断流、无效或不完整结果不覆盖原结果。助手将每轮取消信号从资料准备传至 `streamSimple`，取消后记录用量状态并释放流。参见 [pi-ai SDK](https://github.com/earendil-works/pi/tree/main/packages/ai) 的流式事件与取消接口。协议层只使用调用方本次传入的密钥，不读取 SDK 环境变量中的密钥或租户信息。调用方可能是显式携带凭证的 HTTP 请求，也可能是按当前 `.env` 绑定执行的后台服务。
 
 实现对照的参考版本为 DeepSeek Harness `687f282e8625c6b8d11ff58211a90524be2e4317`：表单参数见 [ModelRow](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/ModelRow.tsx)、[容量编辑和校验](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/DeepSeekModelsEditor.tsx) 和 [推理映射](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/ui-settings-models/src/client/ModelReasoningEfforts.tsx)；运行链路见 [provider.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/provider.ts)、[catalog.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/catalog.ts) 和 [adapter.ts](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-pi-ai/src/adapter.ts)。协议语义另核对 [OpenAI SDK](https://developers.openai.com/api/docs/libraries) 和 [Anthropic 思考模式](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)。
 
-单封总结和回复携带每份附件的名称、最多 16,000 字符提取文本和 16,000 字符已有分析，截取单独标明，整体保持有效 JSON。附件分析校验邮件归属，附带主题、发件人及最多 5,000 字正文。
+单封总结和回复使用 `prepareMailContext` 准备的正文、全部可读附件与 ZIP 子项，不再逐附件截取 16,000 字符，也不提交已有附件分析；文字提取上限、页面范围和模型窗口检查仍然生效。独立附件分析校验邮件归属，附带主题、发件人及最多 5,000 字正文，文本最多提交 60,000 字符，截取时明确标记。
 
 `GET /ai/events` 使用与其他接口相同的 `X-Boxmail-Token`，返回 SSE：连接时发送 `{type:"snapshot",outputs:[...]}`，随后发送 `{type:"update",output:{id,task,status,accountId,messageId,attachmentId,parentJobId,text,html?,stage?}}`。15 秒心跳维持连接；重连获取活动任务快照，慢消费者断开后重连，服务关闭清理所有订阅。单封 `/agent` 缺省返回最终 Job，`background:true` 立即返回运行中的 Job，随后 GET `/jobs/:id` 查询，不重复提交模型请求；后台任务沿用单封 AI 锁与独立超时，关闭服务时取消并保存可重试状态。未读邮件总结仍由客户端每次最多选择 10 封逐封执行，一封失败后继续下一封。API Key 只在内存中用于本次任务。三种协议的文本增量均转为可读预览，不转发推理、工具内容或 JSON 语法；中间结果只保存在内存，最终响应须通过完整性及任务校验后才能提交数据库。
 
 翻译仅发送主题和 `{segments:[{id,text}]}`，要求同序同 ID 的逐段译文；缺段、重复或未知 ID 拒绝保存。HTML 经原邮件清理规则后按文字节点对齐，只更改文字并转义，不接受模型生成的 HTML；`pre/code/kbd/samp`、独立 URL 和邮箱保持原样。纯文本邮件保留换行及空行。结果保存为 `translation` 和可选 `translationHTML`；列表及紧凑快照省略这两个大字段，同步保留完整译文。既有纯文本译文兼容读取，客户端可重新翻译以恢复 HTML 排版。
 
-默认配置和精确升级逻辑位于 `ai-settings.js`，共享资源为 [DefaultPrompts.json](../Sources/BoxmailCore/Resources/DefaultPrompts.json) 及 [ReplyPresets.json](../Sources/BoxmailCore/Resources/ReplyPresets.json)。运行时对撰写任务追加无签名要求，翻译与分类不追加；未知回复态度在调用前拒绝。
+默认配置和升级逻辑位于 `ai-settings.js`，旧默认原文保存在 `legacy-prompts.js`；共享资源为 [DefaultPrompts.json](../Sources/BoxmailCore/Resources/DefaultPrompts.json)及 [ReplyPresets.json](../Sources/BoxmailCore/Resources/ReplyPresets.json)。当前 12 类任务为 `summary`、`reply`、`compose`、`classify`、`attachment`、`translate`、`conversationSummary`、`conversationReply`、`question`、`compare`、`searchPlan`、`archiveSummary`，均可在设置中编辑。升级只替换与旧默认原文匹配的内容，自定义值保留；旧附件自定义要求继续用于资料包总览。
 
-回复用 `task: "reply"`、`messageId`、`preview: true` 生成仅含 subject / body 的预览。显式使用后创建并关联草稿；草稿删除或进入发送流程返回 409，原邮件缺失返回 404。旧客户端省略 preview 时保留直接生成待审核草稿的兼容行为。
+`completionInstructions` 将默认或自定义任务要求、写作参数、允许分类、原始邮件上下文规则和 JSON 输出结构组合为请求指令。运行时对撰写相关任务追加无签名要求，翻译与分类不追加；未知回复态度在调用前拒绝。正文阅读排版由客户端负责，邮件翻译继续按原节点替换。
+
+回复用 `task: "reply"`、`messageId`、`preview: true` 生成 subject / body 及可选文件覆盖 `context` 的预览。显式使用后创建并关联草稿；草稿删除或进入发送流程返回 409，原邮件缺失返回 404。旧客户端省略 preview 时保留直接生成待审核草稿的兼容行为。
 
 `POST /summaries/visibility` 接收 `{accountId,hidden,messageIds:[...]}`，或 `{accountId,hidden,all:true}`，返回实际变更的 `messageIds`。`hidden:true` 仅移出摘要总览，`false` 恢复；单项和多选校验全部 ID 归属及总结存在性，任一无效则整体拒绝。清空仅覆盖当前账户非 Trash 的已总结邮件，已移除项不重复计入撤销。仅持久化 `summaryHidden`，不修改总结、待办、原邮件内容或 IMAP mutation；缺省为收录，同步及完整备份保留此状态，重新生成总结重置为收录。待同步 `relocation/recovery` 原件同时保留收录标记。
 
@@ -284,3 +287,40 @@ PDF 文本提取和 PDF / PPT 页面栅格化通过 `pdf-processing.js` 在独�
 后端的 `data.unicode.repaired` 在替换异常字符前记录字段，`phase` 区分 `persist`、`response` 和 `stream`；客户端模型解码失败使用 `phase=decode`。字段示例为 `$.messages[12].subject`，`record` 是记录 ID 的 SHA-256 前 12 位，`account` 使用同样的匿名算法。可用接口、字段路径、匿名记录和时间定位范围，不需要导出邮件内容。
 
 同一事件、阶段、路由、字段、记录及类型的重复问题最多每 30 秒追加一条计数，首次立即记录，刷新或关闭时落盘剩余计数。聚合行使用最近的请求编号，`count` 为本行包含的发生次数。最多保存 256 个聚合键和 256 个排队写入；拥塞后 `diagnostics.dropped` 的 `count` 明确报告省略条数，避免把日志缺口误判为没有问题。
+
+
+## 跟进、规则、发送队列与助手
+
+`ApplicationServices` 组合保存查询、跟进、规则、发送计划及助手服务；`AccountSyncCoordinator` 为手动与 IDLE 共用同步入口。后台执行通过 `LocalCredentials` 在执行时读取当前 `.env` 与凭证绑定，不把密钥写入规则、计划或 AI 用量记录。既有请求携带凭证的接口保持兼容。
+
+| 接口 | 行为 |
+| --- | --- |
+| `GET /workspace-status` | 邮件修订、有效延后和发送状态，客户端仅在变化时刷新 |
+| `GET /saved-searches`、`POST /saved-searches[/:id]`、`DELETE /saved-searches/:id` | 列表、新建／更新、移除；保存名称及 `MailQuery` 定义 |
+| `GET /follow-ups`、`POST /follow-ups[/:id]`、`DELETE /follow-ups/:id` | 独立行动；`state` 为 mine／waiting／completed；`dueAt`、`snoozedUntil` 使用 ISO 8601，`null` 清除，省略保留 |
+| `GET/POST /send-plans`、`POST /send-plans/:id` | 首次需 `approved: true`、草稿 ID、实际时间和时区；等待时取消或改期 |
+| `GET /mail-rules`、`POST /mail-rules[/:id]`、`DELETE /mail-rules/:id` | 名称、意图、查询、动作、启用及自动开关 |
+| `POST /mail-rules/:id/preview` | 持久化本次完整命中与拟执行动作，不改邮件 |
+| `GET /rule-runs`、`POST /rule-runs/:id/run` | 确认运行或重试失败项，运行需 `approved: true` |
+| `POST /rule-runs/:id/pause`、`POST /rule-runs/:id/undo` | 暂停当前任务，或撤销该记录的邮件状态变化 |
+| `GET /ai-usage` | 每次调用的服务商、模型、状态、耗时及实际用量；缺失和费用为 `null` |
+| `POST /assistant-search` | 兼容旧客户端，将 `{prompt,query}` 转为 `{query,explanation}` |
+| `GET /assistant-sessions[/:id]`、`POST /assistant-sessions` | 列表、详情，或用 `{scope}` 新建会话。来源范围随会话保存 |
+| `POST /assistant-sessions/:id/ask` | `{prompt}`，HTTP 等待完整会话结果，部分回答通过 `/ai/events` 显示 |
+| `POST /assistant-sessions/:id/stop` | 中止本轮准备和模型流，移除临时回答，保留已经保存的对话 |
+| `POST /assistant-sessions/:id/apply` | `{turnId,actionId,approved:true}`；确认采用单个建议，已采用动作不重复执行 |
+| `GET /writing-styles`、`POST /writing-styles[/:id]`、`DELETE /writing-styles/:id` | 列表、新建／更新、移除；正文为 `{name,instruction}` |
+| `GET /local-notifications`、`POST /local-notifications/:id/ack` | 待通知来源及投递确认，返回前核对当前跟进状态 |
+| `GET /realtime-status` | 每账户 IDLE 状态；服务器不支持时沿用周期同步 |
+
+`MailQuery` 包含 `accountId`、`folder`、`query`、`filter` 和 `category`，由 `mail-query.js` 规范化；账户为空表示统一范围，显示偏好和滚动不属于查询定义。HTTP 邮件列表继续以 `q` 传关键词，领域记录用 `query` 保存查询字符串。`GET /messages` 在完整条件下返回分类与未读计数；`GET /attachments` 只通过 `messageId` 限定来源，仍逐文件分页。
+
+发送计划新建正文为 `{draftId,scheduledAt,timeZone,approved:true}`，`scheduledAt` 规范为 ISO 8601；修改用 `{scheduledAt,timeZone}`，取消用 `{cancel:true}`。状态为 `waiting`、`submitting`、`sent`、`failed`、`uncertain`、`cancelled` 或 `paused`；只有 waiting／failed／paused 可取消或改期。队列核对草稿修订后调用既有 `sendDraft`，执行时读取当前账户凭证，提交期间不能取消。普通发送的 10 秒等待由客户端安排；恢复备份时等待计划暂停，提交中计划转为结果不确定。
+
+规则按创建顺序处理新邮件，定义、完整预览、执行记录、任务去重回执和新邮件事件分别持久化。条件是结构化查询，自然语言意图不自行改变匹配范围。跟进建议不自动收录，回复预览不自动发送。
+
+文件夹问答使用 `scope.kind = folder`，在 `query` 中传 `folder` 和可选的 `accountId`。文件夹查询先在本地排序来源，再按模型上下文窗口、回答预留和历史预算装入相关正文及已缓存的附件文本。每轮结果的 `contextCoverage` 记录本轮纳入数、候选总数和资料是否只有部分覆盖。`message` 和 `conversation` 传 `messageId`，`attachments` 传至少两个来自不同邮件的 `attachmentIds` 和 `relationship`。这些指定来源在预算允许时复用 `prepareMailContext` 准备原件。`search` 继续接受旧会话中的 `MailQuery`。
+
+问答流标识为 `assistant-<会话 ID>`，`task` 为 `question` 或 `compare`。准备、等待模型、部分文本和完成／失败状态都经已有 `/ai/events` 发布，`ask` 响应仍返回完整会话，不创建 Job。最终核对来源内容未变、回答非空且包含范围内有效引用后才保存轮次；失败不会保存半成品。每轮保留 `scope`、`sources`、`citations` 和 `actions`。动作只接受范围内的 `category`、`draft`、`followUp`，分类必须存在，跟进标题必须有效；采用调用既有领域服务，不直接发信。
+
+IMAP 移动导致缓存 ID 变化时，`mail-source-references.js` 更新跟进、延后、规则记录与助手引用，保留用户标题及旧回答内容。`ApplicationServices` 检查本机到期事项和新邮件事件，`RealtimeMail` 只监听变化并交给同步协调器下载。退出、睡眠或离线期间不承诺按时处理；系统通知权限和角标由客户端管理。

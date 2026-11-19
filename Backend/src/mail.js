@@ -1,5 +1,6 @@
+import { remapMailSources } from './mail-source-references.js';
 import { textSlice } from './unicode.js';
-import { ImapFlow } from 'imapflow';
+import { createIMAPClient as clientFor } from './imap-connection.js';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -37,6 +38,7 @@ function remapAttachmentJobs(repo, messageId, previousIds, attachmentIds) {
   const changed = new Map(previousIds.map((id, index) => [id, attachmentIds[index]])
     .filter(([before, after]) => before !== after));
   if (!changed.size) return;
+  remapMailSources(repo, messageId, messageId, changed);
   for (const job of repo.list('job', { messageId })) {
     if (!changed.has(job.attachmentId) && !job.attachmentItems?.some(item => changed.has(item.id))) continue;
     repo.put('job', { ...job,
@@ -47,25 +49,6 @@ function remapAttachmentJobs(repo, messageId, previousIds, attachmentIds) {
   }
 }
 
-function clientFor(account, password) {
-  const client = new ImapFlow({
-    host: account.imapHost,
-    port: account.imapPort,
-    secure: account.imapTLS,
-    doSTARTTLS: account.imapTLS ? undefined : true,
-    tls: { rejectUnauthorized: true },
-    auth: {
-      user: account.username,
-      pass: required(password, '邮箱授权码', 4000),
-    },
-    logger: false,
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 60000,
-  });
-  client.on('error', () => {});
-  return client;
-}
 function transportFor(account, password) {
   return nodemailer.createTransport({
     host: account.smtpHost,
@@ -430,6 +413,7 @@ export async function syncAccount(
                       repo.put('job', { ...job, messageId: id });
                     repo.remove(relocation ? 'relocation' : retained.id === localSent?.id ? 'message' : 'recovery', retained.id);
                     commitMessage();
+                    remapMailSources(repo, retained.original.id, id);
                   },
                 });
             } else {
@@ -642,7 +626,7 @@ export async function sendDraft(
   draftId,
   password,
   approved,
-  { storeSent = saveSent } = {},
+  { storeSent = saveSent, fromQueue = false } = {},
 ) {
   if (approved !== true) throw new ServiceError('发送邮件需要明确确认', 403);
   // Claim the draft synchronously before any await, so concurrent sends cannot both pass the check.
@@ -650,6 +634,7 @@ export async function sendDraft(
     const current = repo.get('draft', draftId);
     if (!current) throw new ServiceError('草稿不存在', 404);
     if (current.status === 'sent') return null;
+    if (current.status === 'queued' && !fromQueue) throw new ServiceError('此草稿已安排投递，请先取消发送计划', 409);
     if (current.status === 'sending' || current.status === 'uncertain')
       throw new ServiceError(
         '上次发送结果尚未确认，请检查邮箱后另存草稿，避免重复发送',

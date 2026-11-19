@@ -56,10 +56,11 @@ function withoutSignatures(text, sender) {
 export function mailPreviewText(message) {
   let body = message.body || '';
   let imageOnly = false;
-  if (message.html && (!body.trim() || /\b(?:class|id)\s*=\s*["'][^"']*signature/i.test(message.html))) {
+  // Some multipart senders include stylesheet text in their plain alternative.
+  // Project the rendered HTML for display; never rewrite the stored alternatives.
+  if (message.html) {
     const inspected = inspectMailHTML(message.html);
-    if (inspected.tooDeep) return withoutSignatures(body.trim() ? body : inspected.text, message.sender).trim();
-    let removed = false;
+    if (inspected.tooDeep) return withoutSignatures(inspected.text, message.sender).trim();
     const html = sanitizeHtml(message.html, {
       nestingLimit: 100,
       allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img'],
@@ -67,11 +68,10 @@ export function mailPreviewText(message) {
       exclusiveFilter: frame => {
         const names = `${frame.attribs.class || ''} ${frame.attribs.id || ''}`.toLowerCase().split(/\s+/);
         if (!names.some(name => signatureNames.has(name))) return false;
-        removed = true;
         return true;
       },
     });
-    if (removed || !body.trim()) body = convert(html, {
+    body = convert(html, {
       limits: { maxDepth: 100 },
       wordwrap: false, selectors: [{ selector: 'img', format: 'skip' }],
     });

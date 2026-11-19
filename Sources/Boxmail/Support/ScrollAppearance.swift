@@ -31,7 +31,10 @@ import ObjectiveC
   }
 
   static func applyRecursively(to view: NSView) {
-    if let scrollView = view as? NSScrollView { apply(to: scrollView) }
+    // SwiftUI List and Table manage their AppKit scrollers when laying out native rows.
+    if let scrollView = view as? NSScrollView, !(scrollView.documentView is NSTableView) {
+      apply(to: scrollView)
+    }
     for child in view.subviews { applyRecursively(to: child) }
   }
 }

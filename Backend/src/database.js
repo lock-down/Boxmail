@@ -225,9 +225,9 @@ export class Repository {
       .prepare('SELECT * FROM events ORDER BY time DESC LIMIT 100')
       .all();
   }
-  messageWhere({ query = '', accountId, folder, filter } = {}) {
+  messageWhere({ query = '', accountId, folder, filter, category } = {}) {
     const parsed = parseSearch(query);
-    const { clauses, params } = searchWhere(parsed, { accountId, folder, filter, accounts: this.list('account') });
+    const { clauses, params } = searchWhere(parsed, { accountId, folder, filter, category, accounts: this.list('account') });
     const fullText = this.searchIndex.where(parsed.terms);
     if (fullText.clause) { clauses.push(fullText.clause); params.push(...fullText.params); }
     return { where: clauses.join(' AND '), params };
@@ -299,14 +299,14 @@ export class Repository {
       .all(query.trim(), accountId).map(row => row.id);
   }
   attachmentPage(options) { return attachmentPage(this, options); }
-  messagePage({ accountId, folder, filter, query = '', offset = 0, limit = 100, groupBy, senderGroup, revealId }) {
+  messagePage({ accountId, folder, filter, category, query = '', offset = 0, limit = 100, groupBy, senderGroup, revealId }) {
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200)
       throw new ServiceError('邮件分页参数无效');
     const drafts = draftSearchPage(this, { query, accountId, folder, filter, offset, limit });
     if (drafts) return drafts;
     if (groupBy === 'sender' || senderGroup)
-      return senderMessagePage(this, { accountId, folder, filter, query, offset, limit, senderGroup, revealId });
-    const { where, params } = this.messageWhere({ accountId, folder, filter, query });
+      return senderMessagePage(this, { accountId, folder, filter, category, query, offset, limit, senderGroup, revealId });
+    const { where, params } = this.messageWhere({ accountId, folder, filter, category, query });
     const total = this.db.prepare(`SELECT COUNT(*) AS total FROM records m WHERE ${where}`).get(...params).total;
     const rows = this.db.prepare(`SELECT ${messageHeaderJSON('m.data')} AS data,
       ${messagePreviewColumns('m.data')}

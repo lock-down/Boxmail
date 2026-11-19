@@ -31,8 +31,9 @@ import Foundation
     if session == nil { self.diagnostics.setDirectory(dataDirectory) }
   }
   var defaultDataDirectory: URL {
-    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("Boxmail", isDirectory: true)
+    let isReview = Bundle.main.object(forInfoDictionaryKey: "BoxmailDemoDataEnabled") as? Bool == true
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent(isReview ? "Boxmail Review" : "Boxmail", isDirectory: true)
   }
   var hasDataDirectoryOverride: Bool { ProcessInfo.processInfo.environment["BOXMAIL_DATA"] != nil }
   var dataDirectory: URL {

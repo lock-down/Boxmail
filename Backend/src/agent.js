@@ -67,6 +67,8 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
       body: input.body || '',
       tone: input.tone || '正式',
       length: input.length || '适中',
+      outputLanguage: input.outputLanguage || '跟随来信',
+      writingStyle: input.writingStyle || '',
     };
   const job = {
     id: jobId,
@@ -119,7 +121,7 @@ export async function runAgent(repo, input, { jobId = randomUUID() } = {}) {
     publish({ stage: '正在等待模型输出…' });
     const result = translation && !translation.segments.length ? { segments: [] } : await completion(input.config, input.apiKey, task, context, images,
       { additionalInstructions: preset?.instruction, mailContext, stream: true, signal: input.signal,
-        diagnostics: repo.diagnostics,
+        repository: repo, taskId: job.id, diagnostics: repo.diagnostics,
         onProgress: partial => {
           const rendered = translation ? translation.render(partial) : null;
           publish({ text: rendered?.text ?? progressText(task, partial),

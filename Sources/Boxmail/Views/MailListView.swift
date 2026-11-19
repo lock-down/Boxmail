@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MailListView: View {
   @Bindable var store: MailStore
+  @FocusState private var listFocused: Bool
   @ViewState<MailAccount?> private var trashAccount: MailAccount?
   @ViewState<Bool> private var showingSyncDetails = false
   @Environment(\.undoManager) private var undoManager
@@ -21,37 +22,36 @@ struct MailListView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      VStack(spacing: 8) {
-        HStack(spacing: 6) {
+      VStack(spacing: 4) {
+        HStack(spacing: 4) {
           Text(store.search.isEmpty ? store.destination.title : "搜索结果")
             .font(.system(size: 14, weight: .semibold))
-          Text("\(store.pageTotal)").font(UIType.small).monospacedDigit().foregroundStyle(Palette.muted)
+          Text("\(store.pageTotal) 封").font(UIType.small).monospacedDigit().foregroundStyle(Palette.muted)
           Spacer(minLength: 0)
           MailListDisplayMenu(store: store)
+          SaveMailQueryButton(store: store)
           if store.destination == .trash {
             ActionButton(title: emptyingTrash ? "清空中…" : "清空") { trashAccount = store.currentAccount }
-              .disabled(emptyingTrash || store.currentAccount == nil
+              .disabled(store.unifiedInbox || emptyingTrash || store.currentAccount == nil
                 || (store.currentAccount?.isDemo == true && store.trashMessages.isEmpty)
                 || store.busy.contains("sync") || store.mailActionInProgress)
           }
-          IconButton(icon: "checklist", help: "全选当前显示的邮件（Command-A）", size: 28) {
-            store.selectAllLoadedMail()
-          }.disabled(store.filteredMessages.isEmpty || store.mailActionInProgress)
           IconMenu(icon: "ellipsis", help: "邮件列表操作") {
             Button("全选当前显示的邮件") { store.selectAllLoadedMail() }
+              .disabled(store.filteredMessages.isEmpty)
             Button("将当前显示的邮件全部标记已读") {
               store.updateMessages(store.filteredMessages.filter { $0.unread }, changes: ["unread": false])
             }
             Divider()
             Button("刷新邮箱") { Task { await store.syncAll() } }
           }.disabled(store.mailActionInProgress)
-        }.frame(height: 28)
+        }.frame(height: 32)
         if selected.count > 1 {
           MailBatchToolbar(store: store, messages: selected)
         } else {
-          FilterBar(values: ["全部", "未读", "有附件", "AI 已总结"], selection: $store.filter, fillsWidth: true)
+          MailListFilters(store: store)
         }
-      }.padding(.horizontal, 12).padding(.vertical, 10)
+      }.padding(.horizontal, 12).padding(.vertical, 8)
       Divider().overlay(Palette.softBorder)
       if store.filteredMessages.isEmpty {
         let emptyTrash = store.destination == .trash && store.trashMessages.isEmpty
@@ -116,6 +116,8 @@ struct MailListView: View {
       }.listStyle(.plain).scrollContentBackground(.hidden)
         .contentMargins(.horizontal, 0, for: .scrollContent)
         .environment(\.defaultMinListRowHeight, 0)
+        .focused($listFocused)
+        .onChange(of: store.mailListFocusRequest) { _, _ in listFocused = true }
         .focusedValue(\.mailTriage, store)
         .contextMenu(forSelectionType: String.self) { ids in
           MailTriageMenu(store: store, messages: store.filteredMessages.filter { ids.contains($0.id) })
@@ -146,7 +148,9 @@ struct MailListView: View {
 
   private func messageRow(_ message: MailMessage, group: MailSenderGroup? = nil, child: Bool = false) -> some View {
     MailRow(message: message, selected: store.selectedMessageIds.contains(message.id),
-      searchAccount: store.search.isEmpty ? nil : store.accounts.first { $0.id == message.accountId }?.email,
+      summaryPreview: store.showSummaryPreview,
+      categoryTone: store.categoryTone(message.category),
+      searchAccount: store.search.isEmpty && !(store.unifiedInbox && store.supportsUnifiedScope) ? nil : store.accounts.first { $0.id == message.accountId }?.email,
       senderGroup: group, isSenderChild: child,
       expanded: group.map { store.expandedSenderGroups.contains($0.id) } ?? false,
       toggleGroup: group.flatMap { value in value.count > 1 ? {
@@ -203,6 +207,8 @@ struct MailListView: View {
         Text("本机缓存 \(store.cachedMessageCount(accountId: store.accountId, folder: store.destination.rawValue)) 封")
         if let total = store.currentSyncFolder?.total { Text("上次同步服务器共 \(total) 封") }
       } else { Text("当前列表已加载 \(store.filteredMessages.count) 封") }
+      Text("\(store.pageTotal) 封邮件 · \(store.listUnreadCount) 封未读" )
+      if store.usesSenderGroups { Text("\(store.senderGroupTotal) 个发件人组") }
       if let time = store.currentAccount?.lastSync { Text("上次同步 \(displayTime(time))") }
       Text("搜索仅覆盖本机已缓存内容；同步期间会自动逐批补齐历史邮件。")
         .foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
@@ -247,6 +253,10 @@ struct MailTriageMenu: View {
       Button(mails.allSatisfy(\.starred) ? "取消星标" : "添加星标") {
         store.updateMessages(mails, changes: ["starred": !mails.allSatisfy(\.starred)])
       }
+      if mails.count == 1, let message = mails.first {
+        Button("收录跟进") { store.collectFollowUp(message: message) }
+        Button("稍后处理…") { store.collectFollowUp(message: message, snooze: true) }
+      }
       Menu("分类") {
         ForEach(store.categories) { category in
           Button(category.name) { store.updateMessages(mails, changes: ["category": category.name]) }
@@ -269,6 +279,8 @@ struct MailTriageMenu: View {
 struct MailRow: View {
   let message: MailMessage
   var selected = false
+  var summaryPreview = false
+  var categoryTone: CategoryTone? = nil
   var searchAccount: String? = nil
   var senderGroup: MailSenderGroup? = nil
   var isSenderChild = false
@@ -324,11 +336,11 @@ struct MailRow: View {
           }
         }.font(.system(size: 11))
         HStack(spacing: 8) {
-          Text(message.searchSnippet ?? message.preview).font(UIType.caption).foregroundStyle(Palette.muted)
+          Text(previewText).font(UIType.caption).foregroundStyle(Palette.muted)
             .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
           if message.category != "未分类" {
-            Text(message.category).font(UIType.small).foregroundStyle(Palette.muted)
-              .lineLimit(1).frame(maxWidth: 72, alignment: .trailing)
+            Tag(text: message.category, tone: categoryTone)
+              .frame(maxWidth: 96, alignment: .trailing).help(message.category)
           }
         }
         if let searchAccount {
@@ -343,6 +355,13 @@ struct MailRow: View {
       .overlay(alignment: .leading) { if selected { Rectangle().fill(Palette.blue).frame(width: 1) } }
       .overlay(alignment: .bottom) { Rectangle().fill(Palette.softBorder).frame(height: 1) }
       .accessibilityElement(children: .contain)
+  }
+  private var previewText: String {
+    if let snippet = message.searchSnippet { return snippet }
+    if summaryPreview, let summary = message.summary {
+      return (senderGroup == nil ? "AI 概要：" : "最新邮件概要：") + summary.overviewText
+    }
+    return message.preview
   }
   private var accessibilityStatus: String {
     var parts = [message.unread ? "未读" : "已读", displayTime(message.date)]
@@ -368,6 +387,8 @@ struct MailListDisplayMenu: View {
         Text("按发件人聚合").tag(true)
         Text("逐封显示").tag(false)
       }.pickerStyle(.inline)
+      Toggle("预览已有 AI 概要", isOn: $store.showSummaryPreview)
+      Text("无概要时显示正文预览；搜索优先显示命中片段")
     } label: {
       HStack(spacing: 4) {
         Text(store.groupMailBySender && !showsDrafts ? "发件人" : "逐封").font(UIType.small)

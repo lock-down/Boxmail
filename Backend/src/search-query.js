@@ -40,11 +40,12 @@ export function parseSearch(query = '') {
   return result;
 }
 
-export function searchWhere(parsed, { accountId, folder, filter, accounts = [] } = {}) {
+export function searchWhere(parsed, { accountId, folder, filter, category, accounts = [] } = {}) {
   const clauses = ["m.kind='message'"], params = [];
   const add = (sql, value) => { clauses.push(sql); if (value !== undefined) params.push(value); };
   if (accountId && !parsed.conditions.some(item => item.field === 'account')) add("json_extract(m.data,'$.accountId')=?", accountId);
   if (!parsed.terms.length && !parsed.conditions.length) {
+    if (folder === 'inbox') add("NOT EXISTS (SELECT 1 FROM records s, json_each(s.data,'$.messageIds') member WHERE s.kind='snooze' AND datetime(json_extract(s.data,'$.until'))>datetime('now') AND member.value=m.id)");
     if (folder === 'starred') add("json_extract(m.data,'$.starred')=1 AND json_extract(m.data,'$.folder')!='trash'");
     else if (folder === 'summary') add("json_type(m.data,'$.summary')='object' AND json_extract(m.data,'$.folder')!='trash'");
     else if (folder) add("json_extract(m.data,'$.folder')=?", ['replies', 'analysis'].includes(folder) ? 'inbox' : folder);
@@ -66,6 +67,7 @@ export function searchWhere(parsed, { accountId, folder, filter, accounts = [] }
     else if (field === 'is') add(value.toLowerCase() === 'starred' ? "json_extract(m.data,'$.starred')=1"
       : `json_extract(m.data,'$.unread')=${value.toLowerCase() === 'unread' ? 1 : 0}`);
   }
+  if (category) add("coalesce(json_extract(m.data,'$.category'),'未分类')=?", category);
   if (filter === '未读') add("json_extract(m.data,'$.unread')=1");
   if (filter === '有附件') add("json_array_length(json_extract(m.data,'$.attachmentIds'))>0");
   if (filter === 'AI 已总结') add("json_type(m.data,'$.summary')='object'");

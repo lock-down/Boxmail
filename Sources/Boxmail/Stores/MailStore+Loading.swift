@@ -4,8 +4,7 @@ import Network
 
 extension MailStore {
   var mailQueryKey: String {
-    [accountId, destination.rawValue, filter, search, String(searchAllAccounts), String(groupMailBySender)]
-      .joined(separator: "\u{1f}")
+    destination.rawValue + mailQuery.key + String(groupMailBySender)
   }
   var currentSyncFolder: MailSyncFolder? {
     syncSnapshot?.folders.first { $0.accountId == accountId && $0.folder == destination.rawValue }
@@ -21,15 +20,9 @@ extension MailStore {
     if reset && pageKey != key { pageTotal = 0; nextOffset = nil }
     defer { if pageGeneration == generation { listLoading = false } }
     var query = URLComponents()
-    query.queryItems = [
-      URLQueryItem(name: "accountId", value: !search.isEmpty && searchAllAccounts ? nil : accountId),
-      URLQueryItem(name: "folder", value: destination.rawValue),
-      URLQueryItem(name: "q", value: search),
-      URLQueryItem(name: "filter", value: filter),
-      URLQueryItem(
-        name: "limit",
-        value: String(reset && preserveSelection ? min(200, max(100, pageMessages.count)) : 100)),
-      URLQueryItem(name: "offset", value: String(reset ? 0 : nextOffset ?? 0)),
+    query.queryItems = mailQuery.queryItems + [
+      .init(name: "limit", value: String(reset && preserveSelection ? min(200, max(100, pageMessages.count)) : 100)),
+      .init(name: "offset", value: String(reset ? 0 : nextOffset ?? 0)),
     ]
     if groupMailBySender {
       query.queryItems?.append(URLQueryItem(name: "groupBy", value: "sender"))
@@ -60,6 +53,8 @@ extension MailStore {
 
   func applyMessagePage(_ page: MailPage, reset: Bool, key: String, preserveSelection: Bool) {
     guard key == mailQueryKey else { return }
+    listCategoryCounts = page.categoryCounts ?? [:]
+    listUnreadCount = page.unreadCount ?? 0
     if page.senderGroups != nil {
       applySenderGroupPage(page, reset: reset, key: key, preserveSelection: preserveSelection)
       return
@@ -85,7 +80,8 @@ extension MailStore {
     if reset && !keepSelection { selectedMessageId = pageMessages.first?.id }
     if let id = selectedMessageId, !pageMessages.contains(where: { $0.id == id }),
       keepSelection, let header = messages.first(where: { $0.id == id }),
-      header.accountId == accountId,
+      mailQuery.accountId == nil || header.accountId == mailQuery.accountId,
+      mailQuery.category == nil || mailQuery.category == header.category,
       search.isEmpty || selectionWasInQuery || pinnedQueryKey == key,
       !search.isEmpty
         || (destination == .starred

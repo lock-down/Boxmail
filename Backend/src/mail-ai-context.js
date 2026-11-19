@@ -30,7 +30,7 @@ async function fileContent(file, load, { vision, signal, diagnostics, contentWor
 }
 
 // Local preparation only: summary and reply share original sources, never per-file AI answers.
-export async function prepareMailContext(repo, message, config, { signal, onProgress } = {}) {
+export async function prepareMailContext(repo, message, config, { signal, onProgress, attachmentIds = message.attachmentIds || [] } = {}) {
   const vision = selectedModel(aiConfig(config)).input.includes('image');
   const images = [], attachments = [], sources = [];
 
@@ -81,7 +81,7 @@ export async function prepareMailContext(repo, message, config, { signal, onProg
     return { content: { ...source, inputKind: 'archive', entries }, coverage: { ...source, entries: coverage } };
   }
 
-  for (const id of message.attachmentIds || []) {
+  for (const id of attachmentIds) {
     signal?.throwIfAborted();
     const file = repo.get('attachment', id);
     onProgress?.(`正在读取附件：${file?.name || '附件'}`);

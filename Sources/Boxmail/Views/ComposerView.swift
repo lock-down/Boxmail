@@ -10,6 +10,14 @@ struct ComposerView: View {
   @ViewState<String> private var prompt = ""
   @ViewState<String> private var tone = "正式"
   @ViewState<String> private var length = "适中"
+  @ViewState private var writing: WritingPreferencesStore
+  @ViewState private var generatedSource = ""
+  @ViewState<RichTextDocument?> private var generatedDocument: RichTextDocument?
+  @ViewState private var generatedSubject = ""
+  @ViewState<RichTextController.RewriteSelection?> private var rewriteSelection: RichTextController.RewriteSelection?
+  @ViewState private var scheduledSend = false
+  @ViewState private var sendDate = Date().addingTimeInterval(3600)
+  @ViewState private var showSchedule = false
   @ViewState<AgentResult?> private var generated: AgentResult?
   @ViewState<Bool> private var saving = false
   @ViewState<Bool> private var saved = false
@@ -31,6 +39,7 @@ struct ComposerView: View {
   init(store: MailStore, initial: MailDraft) {
     self.store = store
     self.initial = initial
+    _writing = ViewState(initialValue: WritingPreferencesStore(backend: store.backend))
     _draft = State(initialValue: initial)
     _showingCC = ViewState(wrappedValue: !initial.cc.isEmpty)
     _showingBCC = ViewState(wrappedValue: !initial.bcc.isEmpty)
@@ -40,11 +49,21 @@ struct ComposerView: View {
       VStack(spacing: 0) {
         HStack(spacing: 10) {
           ActionButton(title: sending ? "正在发送…" : "发送", icon: "paperplane", color: Palette.accent) {
-            confirmSend = true
+            scheduledSend = false; confirmSend = true
           }.disabled(
             sending || syncingDraft || importingAttachments || draft.status == "uncertain"
               || draft.to.isEmpty
               || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
+          IconButton(icon: "clock", help: "定时发送") { showSchedule = true }
+            .disabled(sending || syncingDraft || importingAttachments || draft.status != "draft")
+            .popover(isPresented: $showSchedule) {
+              VStack(alignment: .leading, spacing: 16) {
+                Text("定时发送").font(UIType.section)
+                SendScheduleForm(date: $sendDate)
+                ActionButton(title: "确认时间", emphasis: .primary) { scheduledSend = true; showSchedule = false; confirmSend = true }
+                  .disabled(draft.to.isEmpty || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
+              }.padding(24).frame(width: 440).background(Palette.paper)
+            }
           HStack(spacing: 8) {
             Text("发件人").font(UIType.caption).foregroundStyle(Palette.muted)
             WorkflowSelection(
@@ -57,7 +76,7 @@ struct ComposerView: View {
           if geometry.size.width >= 940 {
             draftSaveStatus
           }
-          ActionButton(title: showingAssistant ? "收起 AI" : "AI 写信", icon: "sparkles") {
+          ActionButton(title: showingAssistant ? "收起 AI" : "AI 写信", icon: "pencil.line") {
             withAnimation(UIMotion.disclosure(reduceMotion)) { showingAssistant.toggle() }
           }
           .accessibilityValue(showingAssistant ? "已展开" : "已收起")
@@ -163,7 +182,7 @@ struct ComposerView: View {
         Button("确认发送") { send() }
       } message: {
         Text(
-          "收件人：\(draft.to)\n主题：\(draft.subject.isEmpty ? "无主题" : draft.subject)\n附件：\(draft.attachmentIds.count) 个"
+          "收件人：\(draft.to)\n主题：\(draft.subject.isEmpty ? "无主题" : draft.subject)\n附件：\(draft.attachmentIds.count) 个\n" + (scheduledSend ? "计划于 \(sendDate.formatted(date: .complete, time: .shortened))（\(TimeZone.current.identifier)）发送" : "确认后等待 10 秒提交，可在发送管理中取消")
         )
       }
   }
@@ -177,13 +196,9 @@ struct ComposerView: View {
   }
   private var writingAssistant: some View {
     OverlayScrollView {
-      VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 20) {
         HStack(spacing: 8) {
-          Image(systemName: "sparkles").foregroundStyle(Palette.accent)
-            .symbolEffect(
-              .pulse, options: .repeating,
-              isActive: store.busy.contains("compose-ai") && !reduceMotion)
-          Text("AI 写作助手").font(.system(size: 15, weight: .semibold))
+          Text("AI 写作").font(UIType.section)
         }
         Text("描述要写的内容，或对现有正文提出修改要求").font(.system(size: 12)).foregroundStyle(Palette.muted)
           .lineSpacing(4)
@@ -193,17 +208,17 @@ struct ComposerView: View {
           .white, in: RoundedRectangle(cornerRadius: 8)
         ).clipShape(RoundedRectangle(cornerRadius: 8))
 
-        Text("语气").font(.system(size: 11)).foregroundStyle(Palette.muted)
-        FilterBar(values: ["正式", "亲切", "简洁", "专业"], selection: $tone, compact: true)
-        Text("长度").font(.system(size: 11)).foregroundStyle(Palette.muted)
-        FilterBar(values: ["简短", "适中", "详细"], selection: $length, compact: true)
+        AIWritingParameters(tone: $tone, length: $length)
+        WritingPreferencesView(store: store, writing: writing, accountId: draft.accountId)
         HStack {
           ActionButton(
-            title: store.busy.contains("compose-ai") ? "正在拟稿…" : "生成草稿", icon: "sparkles", color: Palette.accent
+            title: store.busy.contains("compose-ai") ? "正在拟稿…" : "生成草稿", icon: "pencil.line", color: Palette.accent, emphasis: .tinted
           ) { generate() }.disabled(
             prompt.isEmpty || store.busy.contains("agent"))
           if store.busy.contains("agent") { ProgressView().controlSize(.small) }
         }
+        ActionButton(title: "改写选中文本", icon: "text.cursor") { generate(selectionOnly: true) }
+          .disabled(!richEditor.hasSelection || store.busy.contains("agent"))
         if store.busy.contains("compose-ai"), let output = store.aiOutput(task: "compose") {
           AIStreamingView(output: output)
         } else if let generated {
@@ -211,19 +226,19 @@ struct ComposerView: View {
             Divider()
             Text("AI 生成草稿").font(UIType.section)
             Text(generated.subject ?? "").font(.system(size: 13, weight: .medium))
-            Text(generated.body ?? "").font(UIType.body).lineSpacing(6).textSelection(.enabled)
-            ActionButton(title: "插入到正文", icon: "text.insert", color: Palette.accent) {
-              draft.subject = generated.subject ?? draft.subject
-              if let body = generated.body {
-                draft.body = MailSignature.replacingContent(
-                  with: body, in: draft.body, signature: store.settings.preferences.signature)
-                draft.richText = nil
-                draft.bodyHTML = nil
-              }
-            }
+            AnalysisDocumentView(text: generated.body ?? "")
+            ActionButton(title: rewriteSelection == nil ? "替换正文（保留签名）" : "替换原选区", icon: "text.insert", color: Palette.accent) {
+              guard let body = generated.body, draft.body == generatedSource, draft.richText == generatedDocument else { return }
+              let replacement = rewriteSelection == nil ? MailSignature.replacingContent(with: body, in: generatedSource, signature: store.signature(for: draft.accountId)) : body
+              if richEditor.adopt(replacement, expectedSource: generatedSource, selection: rewriteSelection) {
+                if rewriteSelection == nil && draft.subject == generatedSubject { draft.subject = generated.subject ?? draft.subject }
+                self.generated = nil
+              } else { store.error = "正文已在生成期间修改，候选仍保留，请重新生成后再采用。" }
+            }.disabled(draft.body != generatedSource || draft.richText != generatedDocument)
+            if draft.body != generatedSource || draft.richText != generatedDocument { Text("正文已修改，此候选不能覆盖当前编辑。").font(UIType.small).foregroundStyle(Palette.muted) }
           }.transition(UIMotion.reveal(reduceMotion))
         }
-      }.padding(22).animation(UIMotion.disclosure(reduceMotion), value: generated != nil)
+      }.padding(20).animation(UIMotion.disclosure(reduceMotion), value: generated != nil)
     }.background(Palette.canvas)
   }
   private func closeComposer() {
@@ -263,7 +278,7 @@ struct ComposerView: View {
         }
       }.padding(.horizontal, 16).frame(height: 36).background(Palette.chrome)
       RichTextEditor(text: $draft.body, document: $draft.richText, controller: richEditor,
-        placeholder: placeholder, accessibilityLabel: label, signature: store.settings.preferences.signature,
+        placeholder: placeholder, accessibilityLabel: label, signature: store.signature(for: draft.accountId),
         onPaste: pasteAttachments, onLink: { showingLink = true })
     }
   }
@@ -355,34 +370,35 @@ struct ComposerView: View {
       store.drafts.append(result.compact)
     }
   }
-  private func generate() {
+  private func generate(selectionOnly: Bool = false) {
+    let selection = selectionOnly ? richEditor.rewriteSelection() : nil
+    if selectionOnly && selection == nil { return }
     generated = nil
+    generatedDocument = draft.richText
+    generatedSource = draft.body; generatedSubject = draft.subject; rewriteSelection = selection
+    let source = selection?.text ?? draft.body
     store.action("compose-ai") {
-      let job = try await store.runAI(
-        task: "compose", prompt: prompt, body: draft.body, tone: tone, length: length)
+      let job = try await store.runAI(task: "compose", prompt: selectionOnly ? "仅改写提供的选区，保持原意。" + prompt : prompt,
+        body: source, tone: tone, length: length, outputLanguage: writing.language, writingStyle: writing.selectedInstruction)
       generated = job.result
     }
   }
   private func send() {
     guard !sending, !syncingDraft, !closing, !importingAttachments, draft.status == "draft" else { return }
-    let accountID = draft.accountId
     sending = true
     autosave?.cancel()
     Task {
       defer { sending = false }
       do {
         try await persist()
-        let password = try CredentialService.mailPassword(for: accountID)
-        let result: SendResponse = try await BackendService.shared.request(
-          "/send", method: "POST",
-          body: ["draftId": draft.id, "password": password, "approved": true])
+        let _: SendPlan = try await store.backend.request("/send-plans", method: "POST",
+          body: ["draftId": draft.id, "approved": true,
+            "scheduledAt": ISO8601DateFormatter().string(from: scheduledSend ? sendDate : Date().addingTimeInterval(10)),
+            "timeZone": TimeZone.current.identifier])
         try await store.refresh()
-        var message = "邮件已通过 SMTP 发送"
-        if let rejected = result.rejected, !rejected.isEmpty {
-          message += "\n部分收件人未接受：" + rejected.joined(separator: ", ")
-        }
-        if let warning = result.warning, !warning.isEmpty { message += "\n" + warning }
-        store.notice = message
+        store.notice = scheduledSend ? "已安排投递，可在发送管理中改期或取消。" : "正在等待发送，可在发送管理中取消并返回草稿。"
+        store.navigate(.outbox)
+        await store.sendQueue.load()
         dismiss()
       } catch {
         store.error = error.localizedDescription

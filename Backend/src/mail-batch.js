@@ -3,6 +3,28 @@ import { updateMessage } from './mail.js';
 
 const fields = new Set(['folder', 'category', 'unread', 'starred']);
 
+export function updateAccountMessageBatch(repo, input, lockedAccounts = new Set()) {
+  if (!Array.isArray(input.updates) || !input.updates.length || input.updates.length > 1000)
+    throw new ServiceError('请选择 1 至 1000 封已加载的邮件');
+  const groups = new Map();
+  for (const update of input.updates) {
+    const accountId = repo.get('message', update.id)?.accountId || '';
+    if (!groups.has(accountId)) groups.set(accountId, []);
+    groups.get(accountId).push(update);
+  }
+  const result = { changedCount: 0, undo: [], failures: [] };
+  for (const [accountId, updates] of groups) {
+    try {
+      const changed = updateMessageBatch(repo, { updates }, lockedAccounts);
+      result.changedCount += changed.changedCount; result.undo.push(...changed.undo);
+    } catch (error) {
+      result.failures.push({ accountId, message: `${repo.get('account', accountId)?.email || '来源账户'}：${error.message}`,
+        updates: updates.filter(update => update.expected) });
+    }
+  }
+  return result;
+}
+
 // A batch is one local transaction. Expected values make undo fail safely if
 // another operation has since changed the same fields.
 export function updateMessageBatch(repo, input, lockedAccounts = new Set()) {

@@ -15,6 +15,9 @@ enum Palette {
 }
 enum UILayout {
   static let sidebar: CGFloat = 216
+  static let assistant: CGFloat = 360
+  static let mailListMinimum: CGFloat = 294
+  static let readingMinimum: CGFloat = 400
   static let reading: CGFloat = 860
   static let document: CGFloat = 920
   static let pageInset: CGFloat = 28
@@ -50,12 +53,13 @@ func menuTitle(_ value: String, limit: Int = 34) -> String {
 struct Tag: View {
   var text: String
   var ai = false
+  var tone: CategoryTone? = nil
   var body: some View {
     Text(text).font(.system(size: 11, weight: .medium)).lineLimit(1)
-      .foregroundStyle(ai ? Palette.accent : Palette.muted).padding(.horizontal, 7).padding(
+      .foregroundStyle(tone?.ink ?? (ai ? Palette.accent : Palette.muted)).padding(.horizontal, 7).padding(
         .vertical, 3
       )
-      .background(ai ? Palette.accentSoft : Palette.sidebar, in: RoundedRectangle(cornerRadius: 4))
+      .background(tone?.fill ?? (ai ? Palette.accentSoft : Palette.sidebar), in: RoundedRectangle(cornerRadius: 4))
   }
 }
 struct SenderAvatar: View {
@@ -109,6 +113,7 @@ struct SectionCard<Content: View>: View {
   var title: String
   var icon: String = ""
   var contentSpacing: CGFloat = 16
+  var inset: CGFloat = 20
   @ViewBuilder var content: () -> Content
   var body: some View {
     VStack(alignment: .leading, spacing: contentSpacing) {
@@ -120,7 +125,7 @@ struct SectionCard<Content: View>: View {
         Text(title).font(UIType.section)
       }
       content()
-    }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+    }.padding(inset).frame(maxWidth: .infinity, alignment: .leading)
       .background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
   }
 }

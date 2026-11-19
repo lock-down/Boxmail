@@ -2,11 +2,9 @@
 
 <img src="Sources/BoxmailCore/Resources/BoxmailMark.png" alt="Boxmail" width="80" height="80">
 
-Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI、本机 Node.js 和 SQLite，支持 IMAP/SMTP 与 BYOK AI，兼容 OpenAI Responses、Chat Completions 和 Anthropic Messages。
+Boxmail 是 macOS 邮件客户端。它用 IMAP 和 SMTP 收发邮件，在本机保存邮件与索引。要使用 AI 功能，可以接入自己的 API 密钥，支持 OpenAI Responses、Chat Completions 和 Anthropic Messages。
 
-当前发布为 **0.1.9（build 48）**，源码标签为 `v0.1.9`，安装包见 [GitHub Release](https://github.com/lock-down/Boxmail/releases/tag/v0.1.9)。版本以 [VERSION](VERSION) 和 [BUILD](BUILD) 为准。本版发布整封 AI 上下文、共享组件和收件人滚动修复，具体范围及验证见 [变更记录](CHANGELOG.md#019--2026-11-13)。
-
-「整封理解」与 AI 回复共用正文、全部可读附件及 ZIP 子项，一次提交原始资料并展示文件覆盖范围。邮件头、正文引用和转发预览共用收件信息组件，长名单展开为 240 pt，滚轮跟随鼠标所在区域。界面、分页、设置动作与双端规则的合并结论见 [代码审查](docs/CODE_REVIEW.md)。
+当前源码为 **0.1.10（build 49）**。这一版可以在右栏查问当前文件夹，把摘要待办收进跟进，也能先预览整理规则、安排邮件发送。功能及安装要求见 [0.1.10 更新说明](docs/RELEASE_NOTES.md)。公开版本和下载见 [GitHub Releases](https://github.com/lock-down/Boxmail/releases)。
 
 ## 功能
 
@@ -20,7 +18,9 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI、本机 Node.js 和
 - 中文全文与组合条件搜索、本机草稿搜索、自定义分类，以及基于 pi-ai 1.3.0 的多服务商 BYOK、协议选择、模型能力及推理等级配置。
 - 配置与密钥迁移、完整备份恢复、自定义数据目录及搜索索引重建；导入前展示邮箱主机与凭证处理方式，端点变化后提示重填凭证。
 
-阅读区提供整封理解、翻译、AI 回复和会话 AI，附件区也可进入整封理解，已保存的单封总结统一从“摘要集合”进入。写信正文上方可设置字号、颜色、粗体、列表和链接，草稿箱与写信窗口均提供“同步草稿”。窄窗口从左上角打开邮箱导航，写信中的 AI、抄送与密送按需展开。设置统一使用“取消／保存”，邮箱账户单独保存；搜索显示范围与返回入口，返回附件页面后保留局部筛选。具体操作见使用指南。
+阅读区的四个 AI 入口分别用于整封理解、翻译、拟回复和查看会话。打开面板先显示已有结果，点击生成才调用模型。附件可在原文件与独立分析之间切换。
+
+窄窗口从左上角打开邮箱导航。写信时按需展开 AI、抄送和密送。设置支持取消和保存，邮箱账户单独保存。操作见 [使用指南](docs/USER_GUIDE.md)。
 
 ## 开发运行
 
@@ -38,7 +38,7 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI、本机 Node.js 和
 
 测试源码与样例仅保留在本地，`Tests/` 和 `Backend/test/` 不进入 Git；新检出需先准备这些目录才能运行回归。测试脚本先构建 PPT 原生渲染组件，再运行后端和 Swift 测试，缺少目录时会明确退出。联调、签名及发布步骤见 [开发说明](docs/DEVELOPMENT.md)。
 
-当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、工作区分页、预览临时文件清理、富文本连续编辑、窗口缩放，以及控件对齐、表格断点和面板边界。0.1.9 完整回归通过 465 项后端和 224 项 Swift 测试，发布前 UI 检查未发现新增问题；验证范围见[本版变更](CHANGELOG.md#019--2026-11-13)，复现方法见[开发说明](docs/DEVELOPMENT.md)。历史验证基线保留在对应版本条目中。
+回归记录见 [变更记录](CHANGELOG.md)，本机测试与打包步骤见 [开发说明](docs/DEVELOPMENT.md)。
 
 ## 安装包
 
@@ -48,9 +48,9 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI、本机 Node.js 和
 ./script/package_app.sh
 ```
 
-产物位于 `dist/`，文件名为 `Boxmail-v<版本>-macos-<架构>-clean.zip`，附 SHA-256 校验文件。包内包含 App、Node.js、生产依赖、使用说明和记录完整源码提交号的版本信息；新安装关闭演示数据，已有用户数据继续保留。
+产物位于 `dist/`，文件名为 `Boxmail-v<版本>-macos-<架构>-clean.zip`，附 SHA-256 校验文件。包内包含 App、Node.js、生产依赖、使用说明、更新说明和版本信息。包内记录完整源码提交号，新安装关闭演示数据。
 
-项目声明最低 macOS 14；本次发布在 Apple Silicon、macOS 27.2.1、Swift 6.4.2、Node.js 26.13.1 LTS 环境验证。最低系统、Intel Mac 及其他设备尚未验证，当前使用本机临时签名，尚未完成 Developer ID 签名和公证。安装与首次配置见 [使用指南](docs/USER_GUIDE.md)。
+App 声明最低 macOS 14。本地 0.1.10 安装包在 Apple Silicon、macOS 27.2.1、Swift 6.4.2 和 Node.js 26.13.1 LTS 下验证，使用临时签名。安装与首次配置见 [使用指南](docs/USER_GUIDE.md)。
 
 ## 文档
 
@@ -58,12 +58,17 @@ Boxmail 是原生 macOS AI 邮件客户端，使用 SwiftUI、本机 Node.js 和
 | --- | --- |
 | [使用指南](docs/USER_GUIDE.md) | 安装、邮箱与 AI 配置、邮件操作、搜索、附件、数据迁移和常见问题；同时随安装包分发 |
 | [开发说明](docs/DEVELOPMENT.md) | 源码入口、测试、界面约定、本机凭证、签名、打包及版本维护 |
-| [UI 规范](docs/DESIGN.md) | 颜色、字体、布局、共用组件、交互状态、动效、可访问性和界面验收 |
+| [UI 规范](docs/DESIGN.md) | 现行颜色、布局、组件与验收，以及单独标记的后续 UI／UE 方案 |
 | [后端接口](Backend/README.md) | 独立启动、环境变量、HTTP API、任务和数据契约 |
-| [开发路线](docs/ROADMAP.md) | 已完成的优先功能、后续候选及参考项目 |
+| [开发路线](docs/ROADMAP.md) | 日常版实测改进、Filo 对标、后续功能顺序、依赖与完成条件 |
+| [Filo 对标调研](docs/research/FILO_BENCHMARK_2026-11-16.md) | Boxmail 日常版与 Filo 实机步骤、UI／UE 问题、官方资料及路线取舍，调研于 2026-11-16 |
+| [R1-R5 界面精修](docs/research/R1_R5_UI_REFINEMENT_2026-11-17.md) | 第一轮工作区、表单与图标调整，以及当轮验证 |
+| [交互与 AI 阅读修整](docs/research/R1_R5_INTERACTION_REFINEMENT_2026-11-17.md) | 后续入口清理、助手流式输出、共用日历、Markdown 与提示词更新 |
 | [代码审查](docs/CODE_REVIEW.md) | 已完成的合并、保留边界与维护入口 |
 | [整封邮件 AI 上下文](docs/MAIL_AI_CONTEXT.md) | 正文与附件联合理解、模型调用、覆盖范围及兼容边界 |
-| [变更记录](CHANGELOG.md) | 各版本变化、代码审查修复及验证范围 |
+| [更新说明](docs/RELEASE_NOTES.md) | 0.1.10 的功能、修复与安装 |
+| [变更记录](CHANGELOG.md) | 各版本变化和验证记录 |
+| 官网说明（独立分支） | 官网分支的 `README.md` 说明静态预览及发布维护；当前工作区副本位于 `website/` |
 
 当前行为写入对应指南，变更记录按版本记录用户可见变化；历史实现可从 Git 提交与标签追溯，安装包见各版本 GitHub Release。
 
@@ -79,6 +84,7 @@ Backend/test/                        本地后端回归和合成样例，不跟�
 Tests/                               本地 Swift 回归，不跟踪；存在时自动启用测试目标
 docs/                                使用指南、UI 规范、开发说明及路线
 script/                              构建、启动、测试、打包和图标生成
+website/                             官网独立分支的本地内容，单独维护与发布
 ```
 
 默认数据目录为 `~/Library/Application Support/Boxmail/`。邮箱授权码和 API Key 保存在该目录的 `.env` 文件，设置界面自动读写，同步、发信和 AI 调用无需钥匙串授权。文件以明文保存，App 写入时权限为 `0600`，可从“设置 > 高级 > 本机数据 > 显示凭证文件”定位。服务器地址、模型及偏好继续由设置界面保存。

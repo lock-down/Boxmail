@@ -18,13 +18,29 @@ public struct AnalysisBlock: Identifiable, Hashable {
   public var table: AnalysisTable?
 }
 public enum AnalysisDocument {
+  private static let emphasis = try! NSRegularExpression(
+    pattern: #"(?<![\\*])(\*{1,3})(?!\*)([^\s*](?:[^*\n]*[^\s*])?)\1(?!\*)"#)
+
   public static func inlineText(_ source: String) -> AttributedString {
-    // CommonMark treats punctuation next to Chinese text as an intraword delimiter.
-    // Normalize only prose spans; fenced code and inline code retain their literal bytes.
+    // Allow Chinese prose to abut emphasis whose text starts or ends in punctuation.
+    // Temporary whitespace teaches the parser where the delimiters go without changing the visible text.
+    var boundary = "\u{2009}"
+    while source.contains(boundary) { boundary += "\u{200A}" }
     func prose(_ value: String) -> String {
-      value.replacingOccurrences(
-        of: "(?<![\\\\*])(\\*{1,2})([^*\\n]*[：:，,。；;！？!?）)】\\]])\\1(?=[\\p{L}\\p{N}])",
-        with: "$1$2$1 ", options: .regularExpression)
+      var repaired = "", cursor = value.startIndex
+      for match in emphasis.matches(in: value, range: NSRange(value.startIndex..., in: value)) {
+        guard let pair = Range(match.range, in: value), let content = Range(match.range(at: 2), in: value) else { continue }
+        repaired += value[cursor..<pair.lowerBound]
+        if pair.lowerBound > value.startIndex, needsBoundary(value[value.index(before: pair.lowerBound)], value[content.lowerBound]) {
+          repaired += boundary
+        }
+        repaired += value[pair]
+        if pair.upperBound < value.endIndex, needsBoundary(value[pair.upperBound], value[value.index(before: content.upperBound)]) {
+          repaired += boundary
+        }
+        cursor = pair.upperBound
+      }
+      return repaired + value[cursor...]
     }
     let characters = Array(source)
     var normalized = "", plain = "", index = 0
@@ -45,12 +61,19 @@ public enum AnalysisDocument {
       } else { plain.append(characters[index]); index += 1 }
     }
     normalized += prose(plain)
-    return (try? AttributedString(markdown: normalized,
-      options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
+    guard var rendered = try? AttributedString(markdown: normalized,
+      options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else { return AttributedString(source) }
+    while let range = rendered.range(of: boundary) { rendered.removeSubrange(range) }
+    return rendered
   }
 
-  public static func blocks(_ source: String) -> [AnalysisBlock] {
-    let lines = normalizedLines(source)
+  private static func needsBoundary(_ neighbor: Character, _ content: Character) -> Bool {
+    (neighbor.isLetter || neighbor.isNumber) && (content.isPunctuation || content.isSymbol)
+  }
+
+  public static func blocks(_ source: String, interpretLegacyOutline: Bool = true) -> [AnalysisBlock] {
+    let original = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
+    let lines = interpretLegacyOutline ? normalizedLines(original) : original
     var result: [AnalysisBlock] = [], paragraph: [String] = []
     var index = 0
     func flush() {
@@ -178,11 +201,11 @@ public enum AnalysisDocument {
     guard !values.isEmpty, values.allSatisfy({ $0.range(of: "^:?-{3,}:?$", options: .regularExpression) != nil }) else { return nil }
     return values.map { $0.hasSuffix(":") ? $0.hasPrefix(":") ? .center : .trailing : .leading }
   }
-  private static func normalizedLines(_ source: String) -> [String] {
+  private static func normalizedLines(_ lines: [String]) -> [String] {
     let headings = "文件主题|主要结论|关键数字和日期|关键数字与日期|关键数据|注意事项|需要关注的问题|行动建议|摘要"
     var activeFence: (character: Character, count: Int)?
     var result: [String] = []
-    for raw in source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n") {
+    for raw in lines {
       let line = raw.trimmingCharacters(in: .whitespaces)
       if let fence = fence(line) {
         if let active = activeFence {
@@ -191,9 +214,13 @@ public enum AnalysisDocument {
         result.append(raw); continue
       }
       if activeFence != nil || line.contains("|") || line.hasPrefix(">") { result.append(raw); continue }
-      let normalized = raw.replacingOccurrences(
-        of: "(?m)^[ \\t]*(?:\\*\\*)?(\(headings))(?:\\*\\*)?[：:][ \\t]*", with: "\n\n## $1\n", options: .regularExpression)
-        .replacingOccurrences(of: "(?<=[。；;：:])([0-9]{1,2}[)）])[ \\t]*", with: "\n$1 ", options: .regularExpression)
+      var normalized = raw.replacingOccurrences(
+        of: "^[ \\t]*(?:\\*\\*(\(headings))(?:\\*\\*[：:]|[：:]\\*\\*)|(\(headings))[：:])[ \\t]*",
+        with: "\n\n## $1$2\n", options: .regularExpression)
+      if !normalized.contains("*") && !normalized.contains("`") {
+        normalized = normalized.replacingOccurrences(of: "(?<=[。；;：:])([0-9]{1,2}[)）])[ \\t]*",
+          with: "\n$1 ", options: .regularExpression)
+      }
       result += normalized.components(separatedBy: "\n")
     }
     return result

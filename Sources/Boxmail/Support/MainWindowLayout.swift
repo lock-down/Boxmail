@@ -3,6 +3,9 @@ import AppKit
 enum MainWindowLayout {
   static let defaultSize = NSSize(width: 1440, height: 900)
   static let minimumSize = NSSize(width: 720, height: 600)
+  static let sidebarThreshold: CGFloat = 1080
+  static let inlineAssistantWidth: CGFloat = UILayout.mailListMinimum + UILayout.readingMinimum
+    + UILayout.assistant + 2
 
   /// A restored window must remain visibly smaller even when the default size fills a small display.
   static func defaultRestoreFrame(for window: NSWindow, within screen: NSRect) -> NSRect {

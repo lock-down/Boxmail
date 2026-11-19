@@ -16,6 +16,7 @@ PACKAGE_DIR="$ROOT_DIR/dist/$PACKAGE_NAME"
 ARCHIVE="$ROOT_DIR/dist/$PACKAGE_NAME.zip"
 APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PACKAGE_DIR/Boxmail.app/Contents/Info.plist")"
 cp docs/USER_GUIDE.md "$PACKAGE_DIR/使用说明.md"
+cp docs/RELEASE_NOTES.md "$PACKAGE_DIR/更新说明.md"
 cat > "$PACKAGE_DIR/版本信息.txt" <<INFO
 Boxmail $APP_VERSION (build $APP_BUILD)
 架构：$PACKAGE_ARCH

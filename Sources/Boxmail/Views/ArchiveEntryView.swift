@@ -45,7 +45,7 @@ struct ArchiveEntryView: View {
         if let documentURL {
           SandboxedWebPreview(source: .file(documentURL))
         } else {
-          OriginalAttachmentView(url: file.url, isPDF: entry.contentType == "application/pdf")
+          OriginalAttachmentView(url: file.url, isPDF: entry.contentType == "application/pdf", contentType: entry.contentType)
         }
       } else if loading {
         ProgressView("正在读取包内文件…").frame(maxWidth: .infinity, maxHeight: .infinity)

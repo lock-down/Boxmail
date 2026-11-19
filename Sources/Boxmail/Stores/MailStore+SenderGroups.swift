@@ -157,16 +157,10 @@ extension MailStore {
       if senderGroupGenerations[id] == generation { senderGroupLoading.remove(id) }
     }
     var query = URLComponents()
-    query.queryItems = [
-      URLQueryItem(
-        name: "accountId", value: !search.isEmpty && searchAllAccounts ? nil : accountId),
-      URLQueryItem(name: "folder", value: destination.rawValue),
-      URLQueryItem(name: "q", value: search),
-      URLQueryItem(name: "filter", value: filter), URLQueryItem(name: "senderGroup", value: id),
-      URLQueryItem(name: "offset", value: String(reset ? 0 : senderGroupNextOffsets[id] ?? 0)),
-      URLQueryItem(
-        name: "limit",
-        value: String(reset ? min(200, max(100, senderGroupMessages[id]?.count ?? 0)) : 100)),
+    query.queryItems = mailQuery.queryItems + [
+      .init(name: "senderGroup", value: id),
+      .init(name: "offset", value: String(reset ? 0 : senderGroupNextOffsets[id] ?? 0)),
+      .init(name: "limit", value: String(reset ? min(200, max(100, senderGroupMessages[id]?.count ?? 0)) : 100)),
     ]
     let encodedQuery = (query.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
     do {

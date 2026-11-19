@@ -1,6 +1,6 @@
 # 开发与维护
 
-本文以 Boxmail 0.1.9（build 48）为发布基线，记录共享实现、整封 AI 上下文和收件人交互。最新变化与验证见[本版变更](../CHANGELOG.md#019--2026-11-13)，历史发布范围保留在对应版本条目中。项目启动及文档入口见 [README](../README.md)，操作行为见 [使用指南](USER_GUIDE.md)，路由和数据契约见 [后端接口](../Backend/README.md)。日常开发保持 SwiftUI、本机 Node.js 和 SQLite 的结构。
+本文以 Boxmail 0.1.10（build 49）为准。客户端、后端与打包入口见下文。操作见 [使用指南](USER_GUIDE.md)，接口见 [后端文档](../Backend/README.md)。
 
 ## 源码入口
 
@@ -17,13 +17,23 @@
 | `Sources/Boxmail/Views/TableSortButton.swift`、`MailSourceButton.swift` | 紧凑排序标题、列内容对齐及长来源名称的省略 |
 | `Sources/Boxmail/Views/SelectionControlButton.swift`、`SettingsSelectionMenu.swift`、`WorkflowControls.swift` | 原生下拉的表面、字体居中、菜单跟踪与键盘操作 |
 | `Sources/Boxmail/Views/WorkspaceList.swift`、`ListPagination.swift` | 共用列表滚动边界、行反馈与分页栏 |
+| `Sources/Boxmail/Stores/OrganizationWorkspaceState.swift`、`Support/ScrollPositionState.swift` | 按账户保存分类工作区状态，记录与恢复滚动位置；助手滚动跟随也由 `ScrollPositionState` 判断 |
+| `Sources/Boxmail/Stores/FollowUpStore.swift`、`RuleWorkspaceStore.swift`、`SendQueueStore.swift`、`AssistantWorkspaceStore.swift`、`WritingPreferencesStore.swift` | 分别管理跟进、规则与用量、发送计划、问答及写作偏好 |
+| `Sources/BoxmailCore/MailQuery.swift`、`WorkspaceModels.swift`、`MailTimestamp.swift` | 共用查询定义、新工作区数据契约及含毫秒的 ISO 8601 时间解析 |
+| `Sources/Boxmail/Views/CalendarMonthView.swift`、`DateTimeSelection.swift`、`Support/TextSubmitShortcut.swift` | 共用月历、日期时间选择及编辑器发送快捷键语义 |
+| `Sources/Boxmail/Views/AnalysisDocumentView.swift`、`AnalysisTableView.swift`、`AnalysisCodeBlockView.swift`、`Support/AITextStyle.swift` | AI Markdown 正文、表格、代码和行内排版 |
+| `Sources/Boxmail/Services/NotificationCoordinator.swift` | 系统通知权限、投递、来源定位与 Dock 角标 |
+| `Sources/Boxmail/Views/AIWritingParameters.swift`、`ActivityView.swift`、`Support/ActivityPresentation.swift` | 写信与回复参数选择、账户同步结果及历史分组 |
 | `Sources/Boxmail/Support/WorkspaceSheetLayout.swift`、`AttachmentListLayout.swift` | 主窗口及嵌套弹窗的尺寸边界、附件表格的列宽与窄窗口断点 |
 | `Sources/Boxmail/Support/WindowTitlebarRegion.swift`、`MainWindowLayout.swift` | 主窗口标题区域交互、原生缩放及默认／最小尺寸 |
 | `Sources/Boxmail/Services/` | 后端生命周期、本机凭证和配置迁移 |
 | `Sources/BoxmailCore/` | 数据模型、配置归档、存储迁移、后端进程与目录锁、文本与日期逻辑 |
 | `Sources/BoxmailCore/Resources/` | 双端附件类型、诊断词表、提示词、回复态度、正文脚本及品牌图片 |
 | `Tests/`、`Backend/test/`（本地，不跟踪） | Swift 与后端回归、合成样例 |
-| `Backend/src/mail-ai-context.js`、`attachment-text.js` | 整封上下文准备、文件覆盖与文字提取标记 |
+| `Backend/src/mail-ai-context.js`、`attachment-text.js` | 整封及跨邮件上下文准备、文件覆盖与文字提取标记 |
+| `Backend/src/application-services.js`、`account-sync-coordinator.js`、`local-credentials.js` | 长驻服务组装、统一同步协调与执行时读取凭证 |
+| `Backend/src/follow-ups.js`、`mail-rules.js`、`send-queue.js`、`mail-assistant.js`、`mail-query.js` | 独立领域记录、动作及查询；不借用 AI Job 表示生命周期 |
+| `Backend/src/ai-instructions.js`、`ai-usage.js`、`realtime-mail.js`、`mail-source-references.js` | 任务指令与输出结构、实际用量、IDLE 监听及来源身份迁移 |
 | `Sources/BoxmailPresentationRenderer/` | WebKit / PDFKit 幻灯片页面生成 |
 | `Backend/src/` | 协议、HTTP、任务、持久化、索引及备份 |
 
@@ -46,7 +56,7 @@ git diff --check
 
 `test.sh` 检查运行时后构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、附件及分类邮件分页、后台预览清理、富文本连续编辑、窗口原生缩放与默认还原，以及控件对齐、附件表格与面板适配。最新源码测试数量、原生验收和真实服务验证范围统一记录在 [CHANGELOG 的本版条目](../CHANGELOG.md#019--2026-11-13)，历史发布基线保留在各版本条目中。新增回归不得替换同名旧测试。
+当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、附件及分类邮件分页、后台预览清理、富文本连续编辑、窗口原生缩放与默认还原，以及控件对齐、附件表格与面板适配。后续回归还覆盖统一查询、跟进、规则、发送队列、来源迁移、助手流式输出、发送快捷键和历史滚动。最近一轮为 489 项后端、238 项 Swift 测试通过，具体范围见 [交互修整记录](research/R1_R5_INTERACTION_REFINEMENT_2026-11-17.md)，历史发布基线保留在各版本条目中。新增回归不得替换同名旧测试。
 
 真实 HTTP/SQLite/Swift 回归包含六账户、12,001 封合成邮件及 4,135 个附件的加载、正文与 HTML 保留、设置保存和同目录重启。HTTP 夹具按会话隔离，正式测试继续覆盖凭证文件权限、手工修改、迁移、ZIP 排除密钥、WAL 强制退出、磁盘容量不足、事务回滚、网络期限与取消、JSON 主线程隔离及客户端旧响应竞态。大邮箱用例一次补齐 12073 封收件箱与 543 封已发送；AppKit/WebKit 用例检查定位、选择、分页、收件人滚动和转发预览。搜索派生索引在后台逐封处理，测试等待索引就绪，搜索请求本身不能触发全量 flush。发布时另验证正式包的图标、资源、源码、签名、首次启动及退出清理。
 
@@ -64,7 +74,7 @@ git diff --check
 | App 构建与启动 | `./script/build_and_run.sh --verify` |
 | 调试启动 | `./script/build_and_run.sh --debug` |
 
-App 构建入口会关闭已运行的 Boxmail；`--verify` 只检查构建和进程存活，不能代替界面及真实服务联调。单独后端启动参数见后端文档。
+日常开发模式会关闭已运行的 Boxmail，构建后启动 `dist/Boxmail.app`；`--verify` 另检查进程存活，不代替界面及真实服务联调。`--review` 使用独立验收副本，发布打包模式不关闭或启动日常 App。独立后端的启动参数见后端文档。
 
 本地回归测试保留在 `Backend/test/`、`Tests/BoxmailCoreTests/` 和 `Tests/BoxmailTests/`，使用临时目录、模拟 IMAP / AI 和本机 TLS SMTP，不访问真实邮箱、不发送外部邮件、不调用云端 AI。SMTP 测试需要系统 `openssl`。测试应验证数据契约、故障处理或用户行为，避免重复实现细节。
 
@@ -144,7 +154,7 @@ ZIP 缓存按路径、设备、inode、大小和 mtime／ctime 核对文件身�
 
 ### 整封邮件 AI 上下文
 
-`mail-ai-context.js` 为单封 `summary` 与 `reply` 共用正文、附件及 ZIP 子项的原始上下文；`attachment-text.js` 维护文字提取及截断信息。`agent.js` 编排任务与持久化，`responses.js` 负责协议及任务规则。客户端通过后台 Job、流式进度与 `MailAIContextNotice` 展示结果和文件覆盖，旧结果的可选字段保持兼容。
+`mail-ai-context.js` 为单封 `summary` 与 `reply` 共用正文、附件及 ZIP 子项的原始上下文；`attachment-text.js` 维护文字提取及截断信息。`agent.js` 编排单封与批量任务，`mail-assistant.js` 编排跨邮件问答和比较；`responses.js` 负责模型请求、上传清理及 JSON 解码，`ai-instructions.js` 提供任务指令和输出结构，`ai-protocols.js` 适配模型协议。客户端通过后台 Job、流式进度与 `MailAIContextNotice` 展示结果和文件覆盖，旧结果的可选字段保持兼容。
 
 数据流、解析与模型窗口边界见 [上下文设计](MAIL_AI_CONTEXT.md)，HTTP 字段见 [后端接口](../Backend/README.md#ai-与任务)，操作见 [使用指南](USER_GUIDE.md#邮件-ai-与分类)。
 
@@ -152,7 +162,7 @@ ZIP 缓存按路径、设备、inode、大小和 mtime／ctime 核对文件身�
 
 `WorkspaceListSurface` 统一圆角、边框和滚动边界：header 与 footer 固定，只有 content 滚动；外层、滚动内容和行堆栈明确靠左，防止滚动视口变窄时将固定列宽的内容居中挤偏。`WorkspaceList` 在其上提供数据行映射、分隔及容器内的空态提示。附件、分类邮件、分类建议和摘要集合共用这一表面，避免页面外层再套纵向滚动。`SummaryOverviewView` 将流式输出、摘要行和空态放在同一列表视口中，标题、统计和操作固定；账户、列表范围或恢复版本变化时只重建列表，展开及多选不会重置滚动位置。
 
-附件中心通过 `GET /attachments` 每次读取 50 条轻量记录；`attachment-page.js` 在 SQLite 中对当前账户的全部附件进行搜索、类型筛选和排序，只返回当前页及精简原邮件信息，正文、完整分析与 ZIP 目录按需读取。搜索只读取已保存的数据，不触发提取或模型请求。主状态 `/state?compact=1&previews=0` 仍保留全部轻量附件头部，供邮件引用及侧栏计数使用；分页限制的是表格数据和每次列表请求，并未移除全量轻量头部。
+附件中心通过 `GET /attachments` 每次读取 50 条轻量记录；`attachment-page.js` 在 SQLite 中对当前账户的全部附件进行搜索、类型筛选和排序，可用 `messageId` 限定同一来源，条件在分页前应用。接口只返回当前页及精简原邮件信息，正文、完整分析与 ZIP 目录按需读取；附件中心不再提供来源分组列表或 `groupBy=message` 查询。搜索只读取已保存的数据，不触发提取或模型请求。主状态 `/state?compact=1&previews=0` 仍保留全部轻量附件头部，供邮件引用及侧栏计数使用；分页限制的是表格数据和每次列表请求，并未移除全量轻量头部。
 
 `AttachmentPageStore` 管理页码、请求代次、取消、错误重试与数据刷新；条件或账户变化重置页码，附件删除导致越界时服务端回退到末页。`MailStore.workspaceListRevision` 在成功刷新后递增，使当前页重新读取；旧账户、旧条件或已取消请求的响应不能覆盖当前页。附件和智能整理都复用 `WorkspaceList`、`WorkspaceListRow` 与 `ListPagination`；共用组件管理圆角、边框、分隔及行反馈，行区域在内部滚动，表头与分页栏固定，附件视图仅管理列内容、排序和预览/原邮件/下载动作。移除附件专用 Table 外观桥接及重复分页视图；表头与数据行共用 `AttachmentListLayout` 的列宽，附件仍每页只渲染 50 条。`TableSortButton` 将标签内边距后的起点作为 leading 对齐线，反馈保持紧凑且两侧对称；表头文字统一使用辅助色，排序方向由箭头表达。表格可用宽度不足 960 pt 时合并来源列，不足 760 pt 时继续合并理解状态，字段与三项操作仍保留。
 
@@ -182,7 +192,7 @@ ZIP 缓存按路径、设备、inode、大小和 mtime／ctime 核对文件身�
 
 相关回归为 `Backend/test/rich-text.test.js`、`draft-sync.test.js`、`conversation-ai.test.js`，以及 Swift 的 `RichTextTests`、`RichTextEditorTests`、`RichTextColorMenuTests` 与草稿加载保护。`WorkflowSelection` 按表单、行内和工具栏三种样式复用原生选择控件；工具栏使用 32 pt 高度、12 pt regular 文字及图标按钮反馈，字号入口宽 64 pt，位于文字颜色之后。`RichTextColorMenu` 通过窄 AppKit 桥接保留原生菜单行为，菜单色样使用非模板 `NSImage`，像素回归核对实际 sRGB 颜色，避免 SwiftUI 菜单符号被统一着色。原生隔离验收已核对格式编辑、保存重开、宽窄布局和依据邮件跳转；实际 IMAP 服务商、其他邮件客户端、真实 AI 服务及 VoiceOver 全流程仍需单独验证。
 
-本次发布的编译、回归与原生验收边界统一记录在变更记录中。
+各版本的编译、回归与原生验收范围统一记录在变更记录中。
 
 ### 邮件字符与数据解码
 
@@ -233,7 +243,15 @@ Swift 仅对这项可缺省的描述字段提供回退，附件身份、大小�
 
 结果不确定的发送先核对实际投递，不能自动重试；永久清空只在明确可丢弃的测试邮箱中执行。新增操作保留现有发送确认、分类审阅和撤销机制。
 
-隔离原生验收可执行 `env -u BOXMAIL_ENV_FILE BOXMAIL_DATA="$(mktemp -d /tmp/boxmail-review.XXXXXX)" ./script/build_and_run.sh --review`。此模式使用 `com.boxmail.desktop.review`、独立进程名称 `Boxmail Review` 和 `artifacts/ui-review/Boxmail Review.app`，便于自动化准确选择实例，不关闭日常 App；数据目录必填，默认凭证文件也与日常 App 分离。日常开发版与发布包默认关闭演示数据初始化，只有隔离验收模式启用；关闭初始化不会清理已有数据。只在合成数据中验证批量删除和撤销。
+### R0 状态维护
+
+`OrganizationWorkspaceState` 按账户持有分类分页、整理参数、选中项与 `ScrollPositionState`；`MailStore` 只协调工作区生命周期和 `MailSourceContext` 来源返回。`OverlayScrollView` 在现有 AppKit 外观锚点中记录并恢复实际偏移，不持有离开页面的原生视图。数据恢复和配置导入清理工作区状态，账户移除时释放对应状态。
+
+`ActivityPresentation` 从现有审计事件生成无变化同步分组，`ActivityView` 结合现有同步快照显示当前未完成状态；没有新增日志存储。`AIWritingParameters` 共用写信与回复的参数选择，模型请求仅从明确生成动作进入。列表预览优先投影清理后的 HTML，正文、附件与搜索索引仍保留原数据。
+
+阅读区的“回复”和“转发”共用 `ActionButton`，回复右侧的 `IconMenu` 只提供“全部回复”。三种草稿仍调用 `MailStore.newDraft`，由既有接口处理原账户、收件人与转发快照。后续入口清理将整封理解保留在阅读区 AI 工具栏，附件区只保留文件操作；回复预览和规则空态也已去除重复的主要操作。
+
+隔离原生验收可执行 `env -u BOXMAIL_ENV_FILE BOXMAIL_DATA="$(mktemp -d /tmp/boxmail-review.XXXXXX)" ./script/build_and_run.sh --review`。此模式使用 `com.boxmail.desktop.review`、独立进程名称 `Boxmail Review` 和 `artifacts/ui-review/Boxmail Review.app`，便于自动化准确选择实例，不关闭日常 App；脚本要求指定数据目录。若系统从 Finder 重新打开验收副本并丢失环境变量，会改用独立的默认目录 `~/Library/Application Support/Boxmail Review/`。日常开发版与发布包默认关闭演示数据初始化，只有隔离验收模式启用；关闭初始化不会清理已有数据。只在合成数据中验证批量删除和撤销。
 
 原生验收覆盖账户切换、列表选择、原邮件跳转、会话、未读筛选、归档和撤销、草稿恢复、HTML 转发、译文切换及原文件预览。无障碍名称通过 AX 树检查；VoiceOver 全流程、真实外部投递及其他服务商不属于本机合成回归的验证结论。
 
@@ -279,23 +297,25 @@ codesign --verify --deep --strict dist/Boxmail.app
 
 ## 版本与打包
 
-普通修复及文档整理可保持版本号和构建号，在 [CHANGELOG](../CHANGELOG.md) 的“未发布”中记录。正式发布时同步更新：
+普通修复可继续使用当前版本。制作安装包时，同步更新以下文件的版本或发布内容。
 
 | 文件 | 内容 |
 | --- | --- |
 | `VERSION` | App 版本来源 |
 | `Backend/package.json`、`Backend/package-lock.json` | 后端包版本，可用 `npm version <版本> --prefix Backend --no-git-tag-version` |
 | `BUILD` | 构建号来源，构建脚本校验并写入 `CFBundleVersion`；打包读取同次构建的 Info.plist |
-| `CHANGELOG.md`、`README.md` | 发布日期、变化、验证范围及当前版本 |
+| `CHANGELOG.md`、`README.md`、`docs/RELEASE_NOTES.md` | 源码版本、更新说明和验证记录 |
 | `docs/USER_GUIDE.md`、`docs/DESIGN.md`、`docs/DEVELOPMENT.md`、`docs/ROADMAP.md`、`docs/CODE_REVIEW.md`、`docs/MAIL_AI_CONTEXT.md`、`Backend/README.md` | 适用版本、当前操作、UI 规范、接口契约、回归基线及已发布范围 |
 
 1. 完成适用的回归、编译和原生联调，检查差异，不提交个人数据。
 2. 提交源码和文档后建立 `v<版本>` 标签，从干净标签或独立检出执行 `./script/package_app.sh`。脚本拒绝未提交及未跟踪的源码修改。
 3. 核对版本、构建号、内置资源、Node.js 及原生依赖、嵌套签名、包内说明、源码标签和完整提交号。
 4. 校验 ZIP 的 SHA-256、解压一致性及签名，并用独立空目录检查首次启动。最低系统、其他架构和设备需分别验证。
-5. 推送发布提交和新标签至 GitHub，在对应标签的 Release 上传 ZIP 与 SHA-256 文件，并核对远端提交、资产大小和校验值。
+5. 对外发布时，再推送提交和标签，并上传 ZIP 与 SHA-256 文件。核对远端提交、资产大小和校验值。
 
-发布模式用 Release 构建，只复制后端源码及生产依赖，关闭演示数据，不关闭或启动日常 App。`docs/USER_GUIDE.md` 复制为包内`使用说明.md`，因此保持指南可独立阅读，不依赖仓库内链接。`版本信息.txt`记录版本、源码标识和上海时区生成时间。产物在 `dist/`，日常 App 为 `dist/Boxmail.app`。
+App 发布后，在官网独立分支同步版本、下载链接、系统要求及对应版本的指南链接。官网截图与功能说明以公开安装包为准，不将未发布的源码变化写成下载版能力；本地内容位于 `website/`，预览方式见官网分支的 `README.md`。
+
+发布模式用 Release 构建，只复制后端源码及生产依赖，关闭演示数据，不关闭或启动日常 App。`docs/USER_GUIDE.md` 复制为包内 `使用说明.md`，`docs/RELEASE_NOTES.md` 复制为 `更新说明.md`。两份说明均可在解压后直接阅读。`版本信息.txt`记录版本、源码标识和上海时区生成时间。产物在 `dist/`，日常 App 为 `dist/Boxmail.app`。
 
 已发布标签保持不动，同版本重打包使用新的 `v<版本>-repack.N` 标签。GitHub Release 按版本发布安装包；历史版本及源码可通过 Release、Git 提交与标签追溯。
 
@@ -305,15 +325,36 @@ codesign --verify --deep --strict dist/Boxmail.app
 
 未发布变化明确标注为当前源码或日常开发版，不改写历史安装包的能力与验证基线；删除章节或移动内容时同步修复相对链接和锚点，不再维护旧行号及重复进度报告。
 
+`website/` 是官网独立分支的本地内容，按该分支维护和发布，不作为 App 运行资源或安装包内容。调研文档保留观察日期和当时结论，后续修复通过状态说明与变更记录衔接，不改写为新的实测。
+
 | 本地内容 | 维护方式 |
 | --- | --- |
 | `Tests/`、`Backend/test/` | 保留本地回归源码与样例，已移出 Git 索引并由 `.gitignore` 排除；构建不依赖其存在 |
 | `.build/` | Swift 编译缓存，可清理，下次构建自动重建 |
 | `dist/Boxmail.app` | 日常开发版，保留供运行；发布 ZIP 和 SHA-256 文件独立保留 |
-| `artifacts/`、`.scratch/` | 验收 App、发布解压副本及临时编译物验证后可删除；日志、截图、真实数据副本及备份单独保留 |
+| `artifacts/`、`.scratch/` | 保存隔离验收输出。测试 App、解压副本、截图和日志验收后可清理。实际数据备份另行保留 |
 | `Backend/node_modules/` | 本机依赖，不提交 Git；缺少时通过 `npm ci --prefix Backend` 重建 |
 | 数据库、`.env`、日志和签名配置 | 不提交 Git；真实数据与凭证不随构建清理 |
 
 `.impeccable/critique/` 和 `.impeccable/review/` 不提交 Git，项目配置保留在 `.impeccable/config.json`。测试目录不再上传不等于删除已有 Git 历史，本次不改写历史提交。
 
 本机回归不能代替真实外部投递、其他邮件或 AI 服务商、大邮箱长期性能、最低系统、Intel、屏幕阅读器及正式分发验证，实际验证范围见变更记录。
+
+
+## 工作台、规则与助手的实现
+
+共享查询由 `BoxmailCore/MailQuery.swift` 与后端 `mail-query.js` 描述账户、文件夹、关键词、状态及分类；邮件列表、发件人聚合、保存视图、规则和助手复用查询语义。聚合、概要显示、选择和滚动属于视图状态。`MailStore+Query` 与 `MailStore+Workspaces` 协调入口，跟进、规则、发送管理、助手及写作偏好各自持有 Store；列表沿用 `WorkspaceList`，附件沿用 `PagedListStore`。跨账户批处理分别提交各账户事务，成功项撤销不因其他账户失败而丢失。
+
+`application-services.js` 组装独立领域服务，定期检查到期跟进、发送计划和新邮件规则事件。`account-sync-coordinator.js` 协调手动与实时同步；`realtime-mail.js` 监听收件箱变化，下载和 UID 校准仍走原同步流程。`local-credentials.js` 与 Swift `EnvCredentialStore` 遵守同一 dotenv 转义及绑定契约，后台在执行时读取当前凭证。密钥不进入持久化任务或用量记录。
+
+跟进项、延后、发送计划、规则、处理记录、去重回执及助手会话分别保存。`mail-source-references.js` 在 IMAP 缓存身份迁移时更新来源引用，保留用户标题与已有回答。完整备份包含这些记录及写作风格；恢复时等待发送计划暂停，提交中的计划转为结果不确定，需检查后重新安排。
+
+助手的文件夹菜单由 `AssistantWorkspaceView` 呈现，输入、历史和单轮结果分别由 `AssistantComposerView`、`AssistantTranscriptView`、`AssistantTurnView` 负责。`assistant-sources.js` 在本地查询并排序来源，`assistant-context.js` 按模型窗口分配输入和输出预算，装入正文、附件和最近对话。`AssistantWorkspaceStore` 保存会话、待发送问题和下一轮输入。`POST /assistant-sessions/:id/ask` 等待完整结果，共用 `/ai/events` 传递中间文本；流标识为 `assistant-<会话 ID>`，不新增 Job。完整回答及有效来源校验通过后才保存轮次，失败恢复问题时保留已输入的下一轮内容。
+
+`TextSubmitShortcut` 描述 Return 和 Command + Return 的发送语义，`PlainTextEditor` 在输入法组合期间交给原生编辑器确认候选。偏好通过 `AppStorage("assistantSubmitShortcut")` 保存。`ScrollPositionState` 区分底部跟随与历史阅读，`OverlayScrollView` 记录真实偏移；新增文字不抢回向上阅读的位置。
+
+`CalendarMonthView` 共用搜索、跟进和发送的月历；`DateTimeSelection` 增加原生时刻编辑、预设及时区提示，换日期保留时刻。写信与发送管理再共用 `SendScheduleForm`。AI 正文由 `AnalysisDocumentView`、`AnalysisTableView`、`AnalysisCodeBlockView` 和 `AITextStyle` 排版，翻译继续按原邮件文字节点替换；阅读排版不改变草稿的富文本模型。
+
+12 类默认任务提示词与 3 类回复态度继续由共享 JSON 提供，`ai-instructions.js` 集中组合任务要求和 JSON 输出结构。`ai-settings.js` 与 `legacy-prompts.js` 按旧默认全文精确迁移，自定义值保留；资料包总览仍叠加用户的附件自定义要求。新增任务、提示词设置和 Swift 默认值需同步维护。
+
+本地 `workspaces.test.js` 覆盖统一查询、附件来源筛选、凭证绑定、跟进、规则、队列、助手依据、IDLE 及备份；SMTP 测试使用本机 TLS 服务。后续回归覆盖三种模型协议的助手增量、来源校验失败不保存、提示词迁移、快捷键与输入法、失败恢复及历史滚动。运行入口仍为 `./script/test.sh`。真实邮箱、真实模型、通知权限及长期资源测量不由模拟服务测试替代。

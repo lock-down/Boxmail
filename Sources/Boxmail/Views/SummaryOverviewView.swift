@@ -21,26 +21,7 @@ struct SummaryOverviewView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      HStack(alignment: .top, spacing: 24) {
-        PageHeading(title: "摘要集合", subtitle: "集中查看已保存的邮件总结、待办与下一步建议")
-        Spacer(minLength: 12)
-        ActionButton(
-          title: store.busy.contains("summarize-unread") ? "正在总结…" : "总结未读邮件",
-          icon: "sparkles", color: Palette.accent
-        ) {
-          store.summarizeUnread()
-        }.disabled(
-          store.busy.contains("summarize-unread") || store.busy.contains("agent")
-            || store.unreadInboxMessages.allSatisfy { $0.summary != nil })
-      }
-      HStack(spacing: 20) {
-        Label(
-          "\(listed.flatMap { $0.summary?.todos ?? [] }.filter { !$0.done }.count) 项待处理",
-          systemImage: "checklist")
-        Text("收件箱未读 \(store.unreadInboxMessages.count)")
-        Spacer(minLength: 0)
-      }.font(UIType.caption).foregroundStyle(Palette.muted)
+    VStack(alignment: .leading, spacing: 12) {
       toolbar
       if let change = store.summaryListChange, change.accountId == store.accountId {
         HStack(spacing: 10) {
@@ -79,7 +60,7 @@ struct SummaryOverviewView: View {
       .id(
         ListScope(
           accountId: store.accountId, removed: showingRemoved, revision: store.restoreRevision))
-    }.workspacePage().background(Palette.canvas)
+    }
       .animation(UIMotion.disclosure(reduceMotion), value: messages.map(\.id))
       .animation(UIMotion.disclosure(reduceMotion), value: selecting)
       .animation(UIMotion.disclosure(reduceMotion), value: store.summaryListChange?.messageIds)
@@ -145,25 +126,33 @@ struct SummaryOverviewView: View {
   private var toolbar: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 8) {
-        SelectionButton(title: "列表 \(listed.count)", selected: !showingRemoved) {
+        SelectionButton(title: "列表 \(listed.count)", selected: !showingRemoved, size: .compact) {
           showingRemoved = false
         }
-        SelectionButton(title: "已移除 \(removed.count)", selected: showingRemoved) {
+        SelectionButton(title: "已移除 \(removed.count)", selected: showingRemoved, size: .compact) {
           showingRemoved = true
         }
         Spacer(minLength: 8)
         if store.changingSummaryList { ProgressView().controlSize(.small) }
         ActionButton(
-          title: selecting ? "取消多选" : "多选", icon: selecting ? "xmark" : "checklist", color: Palette.accent
+          title: selecting ? "取消多选" : "多选", icon: selecting ? "xmark" : "checklist",
+          color: Palette.accent, size: .compact
         ) {
           selecting.toggle()
           selected = []
         }.disabled(messages.isEmpty || store.changingSummaryList)
         if !showingRemoved {
-          ActionButton(title: "清空列表", icon: "tray") {
+          ActionButton(title: "清空列表", icon: "tray", size: .compact,
+            help: "清空摘要列表（邮件内的总结与待办仍会保留）") {
             store.setSummaryVisibility(hidden: true, all: true)
           }.disabled(listed.isEmpty || store.changingSummaryList)
         }
+        ActionButton(
+          title: store.busy.contains("summarize-unread") ? "正在总结…" : "总结未读邮件",
+          icon: "sparkles", color: Palette.accent, emphasis: .tinted, size: .compact
+        ) { store.summarizeUnread() }.disabled(
+          store.busy.contains("summarize-unread") || store.busy.contains("agent")
+            || store.unreadInboxMessages.allSatisfy { $0.summary != nil })
       }
       if selecting {
         HStack(spacing: 12) {
@@ -189,8 +178,6 @@ struct SummaryOverviewView: View {
           .background(Palette.accentSoft, in: RoundedRectangle(cornerRadius: 8)).transition(
             .opacity)
       }
-      Text(showingRemoved ? "恢复后会重新收录到列表，邮件内容不变。" : "移除或清空仅整理此列表，邮件内的 AI 总结与待办仍保留。")
-        .font(UIType.small).foregroundStyle(Palette.muted)
     }
   }
 
@@ -221,7 +208,8 @@ struct SummaryOverviewView: View {
             .foregroundStyle(Palette.muted)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 3)
         HStack(spacing: 4) {
-          ActionButton(title: "打开邮件", icon: "arrow.up.right", color: Palette.accent) {
+          if message.summary != nil { disclosure(for: message.id) }
+          IconButton(icon: "arrow.up.right", help: "打开邮件", color: Palette.accent, size: 28) {
             store.openMail(message, tab: .summary)
           }
           IconButton(
@@ -235,28 +223,19 @@ struct SummaryOverviewView: View {
       if let summary = message.summary {
         if expanded.contains(message.id) {
           SummaryCard(
-            store: store, message: message, summary: summary, embedded: true,
-            keyInfoInitiallyExpanded: false, allowsCollapse: false)
+            store: store, message: message, summary: summary, embedded: true, allowsCollapse: false)
         } else {
-          Text(AITextStyle.inline(summary.overviewText)).font(UIType.body).lineSpacing(4)
+          Text(AITextStyle.preview(summary.overviewText)).font(UIType.body).lineSpacing(4)
             .lineLimit(3).frame(maxWidth: 820, alignment: .leading)
           let pending = summary.todos.filter { !$0.done }
           if !pending.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
               ForEach(Array(pending.prefix(2))) { todo in
-                Button {
+                SummaryTodoRow(todo: todo, compact: true, canToggle: !store.busy.contains("todo")) {
                   store.toggleTodo(message: message, todo: todo)
-                } label: {
-                  HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "circle").foregroundStyle(Palette.muted)
-                    Text(todo.title).lineLimit(2)
-                    if !todo.due.isEmpty {
-                      Text(todo.due).foregroundStyle(Palette.amber).lineLimit(1)
-                    }
-                  }.font(UIType.caption).foregroundStyle(Palette.ink)
-                    .controlLabel(size: .compact, verticalInset: 4, alignment: .leading)
-                }.buttonStyle(ControlFeedback()).controlFocus()
-                  .accessibilityLabel(todo.title).accessibilityValue("待处理")
+                } collect: {
+                  store.collectFollowUp(message: message, todo: todo)
+                }
               }
               if pending.count > 2 {
                 Text("另有 \(pending.count - 2) 项待办").font(UIType.small).foregroundStyle(
@@ -265,20 +244,6 @@ struct SummaryOverviewView: View {
             }
           }
         }
-        ActionButton(
-          title: expanded.contains(message.id) ? "收起详情" : "展开详情",
-          icon: expanded.contains(message.id) ? "chevron.up" : "chevron.down",
-          color: Palette.muted, size: .compact
-        ) {
-          withAnimation(UIMotion.disclosure(reduceMotion)) {
-            if expanded.contains(message.id) {
-              expanded.remove(message.id)
-            } else {
-              expanded.insert(message.id)
-            }
-          }
-        }
-          .accessibilityValue(expanded.contains(message.id) ? "已展开" : "已收起")
       }
     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
       .overlay(alignment: .bottom) {
@@ -294,4 +259,14 @@ struct SummaryOverviewView: View {
       }
   }
 
+  private func disclosure(for id: String) -> some View {
+    let isExpanded = expanded.contains(id)
+    return ActionButton(title: isExpanded ? "收起详情" : "展开详情",
+      icon: isExpanded ? "chevron.up" : "chevron.down", color: Palette.muted, size: .compact) {
+      withAnimation(UIMotion.disclosure(reduceMotion)) {
+        if isExpanded { expanded.remove(id) }
+        else { expanded.insert(id) }
+      }
+    }.accessibilityValue(isExpanded ? "已展开" : "已收起")
+  }
 }

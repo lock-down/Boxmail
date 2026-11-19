@@ -7,15 +7,14 @@ struct AttachmentsView: View {
   init(store: MailStore) {
     self.store = store
     _pages = ViewState(
-      initialValue: AttachmentPageStore(backend: store.backend, accountId: store.accountId))
+      initialValue: store.attachmentWorkspace())
   }
   var body: some View {
-    VStack(alignment: .leading, spacing: 22) {
-      HStack {
-        PageHeading(title: "附件中心", subtitle: "查找、预览和下载附件，在原邮件中使用 AI 理解")
-        Spacer()
+    VStack(alignment: .leading, spacing: 20) {
+      WorkspaceHeader(title: "附件中心", subtitle: "集中查找、预览和比较附件") {
         if let page = pages.visiblePage {
-          Tag(text: "\(page.analyzedTotal) 个 AI 已解析", ai: true)
+          Text("\(page.analyzedTotal) 个已有理解结果").font(UIType.caption).foregroundStyle(Palette.muted)
+            .monospacedDigit()
         }
       }
       ViewThatFits(in: .horizontal) {
@@ -29,16 +28,19 @@ struct AttachmentsView: View {
           typeFilters
         }
       }
-      HStack {
+      HStack(spacing: 8) {
         Text(
           pages.showsPreviousPage
             ? (pages.loading ? "正在更新附件…" : "保留上次加载的附件")
             : pages.visiblePage.map { "\($0.total) 个附件" } ?? "正在加载附件…"
-        )
-        .font(.system(size: 12, weight: .medium))
+        ).font(UIType.caption).monospacedDigit().foregroundStyle(Palette.muted)
         if pages.loading { ProgressView().controlSize(.mini) }
-        Spacer()
-        Text("支持文档、图片和 ZIP 资料包理解").font(UIType.small).foregroundStyle(Palette.muted)
+        Spacer(minLength: 8)
+        comparisonControls
+        if !pages.sourceMessageId.isEmpty {
+          Text("· 已限定来源邮件").font(UIType.caption).foregroundStyle(Palette.muted)
+          ActionButton(title: "清除来源", size: .compact) { pages.sourceMessageId = "" }
+        }
       }
       if let error = pages.error {
         PageStoreErrorRow(
@@ -49,11 +51,22 @@ struct AttachmentsView: View {
       if let page = pages.visiblePage, !page.items.isEmpty {
         AttachmentListView(
           items: page.items, sortOrder: $pages.sortOrder,
-          preview: { store.previewAttachment = $0 },
-          openMail: { id in
-            if let message = store.messages.first(where: { $0.id == id }) {
-              store.openMail(message, tab: .attachment)
+          preview: {
+            pages.selectedAttachmentId = $0.id
+            store.previewFile($0)
+          },
+          scrollPosition: pages.scrollPosition, externalSelection: $pages.selectedAttachmentId,
+          onlySource: { pages.sourceMessageId = $0 },
+          selectComparison: { id in
+            if store.assistant.attachmentIds.contains(id) {
+              store.assistant.attachmentIds.remove(id)
+            } else {
+              store.assistant.attachmentIds.insert(id)
             }
+          },
+          comparisonSelection: store.assistant.attachmentIds,
+          openMail: { id in
+            store.openSourceMessage(id)
           }, download: { store.download($0) }
         ) {
           ListPagination(
@@ -68,11 +81,25 @@ struct AttachmentsView: View {
       } else {
         Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
       }
-    }.workspacePage().background(Palette.canvas)
-      .onChange(of: store.accountId) { _, id in pages.accountId = id }
+    }.workspacePage().background(Palette.paper)
+      .onChange(of: pages.request) { _, _ in pages.scrollPosition.origin = .zero }
+      .onChange(of: store.accountId) { _, _ in pages = store.attachmentWorkspace() }
       .task(id: RefreshKey(request: pages.request, revision: store.workspaceListRevision)) {
         await pages.load(revision: store.workspaceListRevision)
       }
+  }
+  @ViewBuilder private var comparisonControls: some View {
+    if !store.assistant.attachmentIds.isEmpty {
+      HStack(spacing: 8) {
+        Text("已选 \(store.assistant.attachmentIds.count) 个").font(UIType.caption).foregroundStyle(
+          Palette.muted
+        ).monospacedDigit()
+        ActionButton(title: "清除", size: .compact) { store.assistant.attachmentIds.removeAll() }
+        ActionButton(title: "比较附件", icon: "doc.on.doc", color: Palette.accent, emphasis: .tinted) {
+          store.assistant.beginAttachmentComparison()
+        }.disabled(store.assistant.attachmentIds.count < 2 || store.assistant.busy)
+      }
+    }
   }
   private var emptyState: some View {
     let hasFiles = (pages.visiblePage?.accountTotal ?? 0) > 0

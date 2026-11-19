@@ -7,6 +7,8 @@ struct MailReplyView: View {
   let message: MailMessage
   @ViewState<ReplyPreset?> private var selectedPreset: ReplyPreset?
   @ViewState<String> private var request = ""
+  @ViewState<String> private var tone = "正式"
+  @ViewState<String> private var length = "适中"
   @ViewState<Set<String>> private var hiddenPreviews = []
   @FocusState private var requestFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -33,7 +35,6 @@ struct MailReplyView: View {
           SelectionButton(title: preset.title, selected: selectedPreset == preset,
             size: .form, fillsWidth: true, surface: Palette.paper) {
             selectedPreset = preset
-            generate()
           }.help(preset.detail)
             .disabled(store.busy.contains("agent"))
         }
@@ -63,8 +64,10 @@ struct MailReplyView: View {
       }
       .focused($requestFocused)
       .animation(UIMotion.feedback(reduceMotion), value: requestFocused)
+      AIWritingParameters(tone: $tone, length: $length)
+        .disabled(store.busy.contains("agent"))
       HStack {
-        ActionButton(title: "生成回复预览", icon: "sparkles", color: Palette.accent) { generate() }
+        ActionButton(title: preview == nil ? "生成回复预览" : "重新生成回复预览", icon: "sparkles", color: Palette.accent) { generate() }
           .disabled(
             store.busy.contains("agent")
               || (selectedPreset == nil
@@ -89,15 +92,12 @@ struct MailReplyView: View {
           MailAIContextNotice(context: result.context, attachmentCount: message.attachmentIds.count)
           Text(result.subject ?? "").font(.system(size: 12, weight: .medium)).textSelection(
             .enabled)
-          Text(result.body ?? "").font(.system(size: 13)).lineSpacing(5).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+          AnalysisDocumentView(text: result.body ?? "")
           HStack {
             ActionButton(title: "使用内容", icon: "square.and.pencil", color: Palette.accent) {
               store.useReply(preview)
             }
             .disabled(store.busy.contains("agent") || store.busy.contains("use-reply"))
-            ActionButton(title: "重新生成", icon: "arrow.clockwise") { generate() }
-              .disabled(store.busy.contains("agent"))
             Spacer(minLength: 0)
           }
           Text("使用后可在草稿中继续编辑，发送前仍需确认。").font(UIType.small).foregroundStyle(Palette.muted)
@@ -140,6 +140,7 @@ struct MailReplyView: View {
   }
   private func generate() {
     store.generate(
-      task: "reply", message: message, prompt: request, replyPreset: selectedPreset, preview: true)
+      task: "reply", message: message, prompt: request, replyPreset: selectedPreset, preview: true,
+      tone: tone, length: length)
   }
 }

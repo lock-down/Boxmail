@@ -3,8 +3,28 @@ import PDFKit
 import Quartz
 import SwiftUI
 
+struct OriginalAttachmentView: View {
+  let url: URL
+  let isPDF: Bool
+  let contentType: String
+
+  static func isMarkdown(name: String, contentType: String) -> Bool {
+    let ext = (name as NSString).pathExtension.lowercased()
+    let mime = contentType.split(separator: ";", maxSplits: 1).first?.trimmingCharacters(in: .whitespaces)
+    return ["md", "markdown"].contains(ext) || mime?.lowercased() == "text/markdown"
+  }
+
+  var body: some View {
+    if Self.isMarkdown(name: url.lastPathComponent, contentType: contentType) {
+      MarkdownAttachmentPreview(url: url)
+    } else {
+      SystemAttachmentPreview(url: url, isPDF: isPDF)
+    }
+  }
+}
+
 /// SwiftUI owns the file URL. The native views own only the rendering lifecycle.
-struct OriginalAttachmentView: NSViewRepresentable {
+struct SystemAttachmentPreview: NSViewRepresentable {
   let url: URL
   let isPDF: Bool
 

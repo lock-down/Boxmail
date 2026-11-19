@@ -10,11 +10,12 @@ struct AttachmentPreviewView: View {
   @ViewState<AttachmentPreviewFile?> private var previewFile: AttachmentPreviewFile?
   @ViewState<URL?> private var documentPreviewURL: URL?
   @ViewState<String?> private var workbookHTML: String?
-  @ViewState<Bool> private var previewLoading = false
+  @ViewState<Bool> private var previewLoading = true
   @ViewState<String> private var previewError = ""
   @ViewState<String> private var tab = "原文件预览"
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  var attachment: MailAttachment? { store.attachments.first { $0.id == attachmentId } }
+  private var currentId: String { store.attachmentPreviewIds.indices.contains(store.attachmentPreviewIndex) ? store.attachmentPreviewIds[store.attachmentPreviewIndex] : attachmentId }
+  var attachment: MailAttachment? { store.attachments.first { $0.id == currentId } }
   var body: some View {
     VStack(spacing: 0) {
       if let attachment {
@@ -25,6 +26,11 @@ struct AttachmentPreviewView: View {
           Text(fileSize(attachment.size)).font(.system(size: 11)).foregroundStyle(Palette.muted)
             .fixedSize()
           Spacer()
+          if store.attachmentPreviewIds.count > 1 {
+            IconButton(icon: "chevron.left", help: "上一个来源附件") { store.attachmentPreviewIndex -= 1 }.disabled(store.attachmentPreviewIndex == 0)
+            Text("\(store.attachmentPreviewIndex + 1)/\(store.attachmentPreviewIds.count)").font(UIType.small)
+            IconButton(icon: "chevron.right", help: "下一个来源附件") { store.attachmentPreviewIndex += 1 }.disabled(store.attachmentPreviewIndex + 1 == store.attachmentPreviewIds.count)
+          }
           ActionButton(title: "打开原文件", icon: "arrow.up.right.square") {
             store.download(attachment, preview: true)
           }
@@ -100,13 +106,12 @@ struct AttachmentPreviewView: View {
       }
     }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white).tint(Palette.blue)
       .animation(UIMotion.disclosure(reduceMotion), value: tab)
-      .task(id: attachmentId) {
-        tab = "原文件预览"
-        await store.loadAttachment(attachmentId)
-      }
-      .task(id: "\(attachmentId)-\(tab)") {
-        guard attachment?.isArchive != true, tab == "原文件预览", previewFile == nil, workbookHTML == nil
-        else { return }
+      .task(id: "\(currentId)-\(tab)") {
+        previewLoading = true
+        previewFile?.remove(); previewFile = nil; documentPreviewURL = nil; workbookHTML = nil
+        let id = currentId
+        await store.loadAttachment(id)
+        guard !Task.isCancelled, currentId == id, attachment?.isArchive != true, tab == "原文件预览" else { return }
         await loadOriginal()
       }
       .onDisappear {
@@ -131,11 +136,13 @@ struct AttachmentPreviewView: View {
         if let documentPreviewURL {
           SandboxedWebPreview(source: .file(documentPreviewURL))
         } else {
-          OriginalAttachmentView(url: previewFile.url, isPDF: attachment.isPDF)
+          OriginalAttachmentView(url: previewFile.url, isPDF: attachment.isPDF, contentType: attachment.contentType)
         }
       }.frame(maxWidth: .infinity, maxHeight: .infinity).id(previewFile.url)
       HStack {
-        Text(attachment.isPDF ? "PDF 原文件 · 可滚动查看全部页面" : "系统原文件预览 · 保留文档格式、表格与图片")
+        Text(attachment.isPDF ? "PDF 原文件 · 可滚动查看全部页面"
+          : OriginalAttachmentView.isMarkdown(name: attachment.name, contentType: attachment.contentType)
+            ? "Markdown 原文件预览" : "系统原文件预览 · 保留文档格式、表格与图片")
           .font(.system(size: 11)).foregroundStyle(Palette.muted)
         Spacer()
         Text("特殊格式可使用上方“打开原文件”查看").font(.system(size: 11)).foregroundStyle(Palette.muted)
@@ -150,25 +157,27 @@ struct AttachmentPreviewView: View {
     }
   }
   private func loadOriginal() async {
+    let id = currentId
     previewLoading = true
     previewError = ""
-    defer { previewLoading = false }
+    defer { if currentId == id { previewLoading = false } }
     do {
       if attachment?.usesWorkbookPreview == true {
         let preview: WorkbookPreviewResponse = try await BackendService.shared.request(
-          "/attachments/\(attachmentId)/preview")
+          "/attachments/\(id)/preview")
         try Task.checkCancellation()
+        guard id == currentId else { return }
         workbookHTML = preview.html
         return
       }
       let loaded = try await AttachmentPreviewLoader.load(
-        path: "/attachments/\(attachmentId)", isPDF: attachment?.isPDF == true,
+        path: "/attachments/\(id)", isPDF: attachment?.isPDF == true,
         isWord: attachment?.kind == .word)
-      try Task.checkCancellation()
+      if Task.isCancelled || id != currentId { loaded.file.remove(); return }
       documentPreviewURL = loaded.documentURL
       previewFile = loaded.file
     } catch is CancellationError {
-    } catch { previewError = error.localizedDescription }
+    } catch { if currentId == id { previewError = error.localizedDescription } }
   }
 }
 private struct WorkbookPreviewResponse: Decodable { let html: String }

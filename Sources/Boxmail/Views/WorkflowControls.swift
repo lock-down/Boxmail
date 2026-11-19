@@ -25,7 +25,7 @@ struct WorkflowField<Content: View>: View {
   var detail = ""
   @ViewBuilder let content: () -> Content
   var body: some View {
-    VStack(alignment: .leading, spacing: 7) {
+    VStack(alignment: .leading, spacing: 8) {
       HStack {
         Text(title).font(UIType.caption).foregroundStyle(Palette.muted)
         Spacer(minLength: 4)

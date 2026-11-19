@@ -1,3 +1,6 @@
+import { AccountSyncCoordinator } from './account-sync-coordinator.js';
+import { RealtimeMail } from './realtime-mail.js';
+import { ApplicationServices } from './application-services.js';
 import { recoverInterruptedArchives } from './attachment-archive-store.js';
 import './check-node.js';
 import { textSlice, unicodeJSON } from './unicode.js';
@@ -37,10 +40,9 @@ import { createBackup, inspectBackup, restoreBackup } from './backups.js';
 import { exportConfiguration, inspectConfiguration, importConfiguration } from './configuration.js';
 import { AIProgress } from './ai-progress.js';
 import { setSummaryVisibility } from './summary-overview.js';
-import { updateMessageBatch } from './mail-batch.js';
+import { updateMessageBatch, updateAccountMessageBatch } from './mail-batch.js';
 import { savedForwardFields, upgradeForwardDraft } from './forward-content.js';
 import { serviceLifecycle } from './service-lifecycle.js';
-import { syncSession } from './sync-session.js';
 import { Diagnostics, accountReference, diagnosticRoute, errorDiagnostic } from './diagnostics.js';
 import { SyncQueue } from './sync-queue.js';
 
@@ -54,6 +56,9 @@ export async function startServer({
   mailEmptyTrash = emptyTrash,
   agentRun = runAgent,
   organizerComplete,
+  mailSend,
+  assistantComplete,
+  credentials,
   backupCreate = createBackup,
   syncConcurrency = 2,
   syncStallTimeoutMs = 120000,
@@ -110,7 +115,7 @@ export async function startServer({
   const organizer = new Organizer(repo, { ...(organizerComplete ? { complete: organizerComplete } : {}), onProgress });
   const attachmentBatch = new AttachmentBatch(repo, { run: agentRun, onProgress });
   function requireIdle() {
-    if (activeWrites > 1 || locks.size || repo.list('account').some(account => organizer.busy(account.id) || attachmentBatch.busy(account.id)))
+    if (services.busy || activeWrites > 1 || locks.size || repo.list('account').some(account => organizer.busy(account.id) || attachmentBatch.busy(account.id)))
       throw new ServiceError('请等待同步、发送或 AI 任务完成后再维护本机数据', 409);
   }
   const defaults = {
@@ -151,6 +156,9 @@ export async function startServer({
     return config;
   }
   categoryCatalog(repo);
+  const services = new ApplicationServices(repo, { locks, onProgress,
+    send: mailSend, complete: assistantComplete, agent: agentRun, credentials,
+    blocked: () => maintenance || locks.size > 0 || activeWrites > 0 });
   function presentMessage(message) {
     if (message.folder === 'trash') return { ...message,
       restoreFolder: trashRestoreFolder(message, repo.get('account', message.accountId)) };
@@ -173,8 +181,16 @@ export async function startServer({
       sync: syncStatus(),
       categories: categoryCatalog(repo),
       searchIndex: repo.searchIndex.status(),
+      messageRevision: repo.messageRevision,
     };
   }
+  const syncCoordinator = new AccountSyncCoordinator(repo, { locks, tasks: syncTasks, queue: syncQueue,
+    diagnostics, mailSync, stallTimeoutMs: syncStallTimeoutMs,
+    credentials: () => services.credentials, afterSync: (id, ids) => services.afterSync(id, ids) });
+  const realtime = new RealtimeMail(repo, services.credentials, {
+    synchronize: id => syncCoordinator.start({ accountId: id, folder: 'inbox' }).promise,
+    blocked: id => maintenance || locks.has(id),
+  });
   const server = http.createServer(async (req, res) => {
     const requestStarted = performance.now();
     const suppliedID = req.headers['x-boxmail-request-id'];
@@ -228,8 +244,12 @@ export async function startServer({
       if (maintenance && (req.method !== 'GET' || archiveRequest)) throw new ServiceError('正在维护本机数据，请稍候', 409);
       if (req.method !== 'GET' || archiveRequest) { activeWrites++; countedWrite = true; }
       let result;
+      const domain = await services.route(req.method, route, body, url.searchParams);
+      if (domain.handled) result = domain.result;
+      else
       if (req.method === 'GET' && route === '/health') result = { ok: true };
       else if (req.method === 'GET' && route === '/state') result = state(url.searchParams.get('compact') === '1', url.searchParams.get('previews') === '1');
+      else if (req.method === 'GET' && route === '/realtime-status') result = repo.list('realtimeSync');
       else if (req.method === 'GET' && route === '/sync-status') result = syncStatus();
       else if (req.method === 'POST' && route === '/summaries/visibility') result = setSummaryVisibility(repo, body);
       else if (req.method === 'POST' && route === '/configuration/export') result = exportConfiguration(repo, body.settings);
@@ -277,7 +297,16 @@ export async function startServer({
           || (revealId && revealId.length > 256)) throw new ServiceError('发件人聚合参数无效');
         result = repo.messagePage({ accountId: url.searchParams.get('accountId'),
           folder: url.searchParams.get('folder'), filter: url.searchParams.get('filter'),
-          query: url.searchParams.get('q') || '', offset, limit, groupBy, senderGroup, revealId });
+          query: url.searchParams.get('q') || '', category: url.searchParams.get('category'), offset, limit, groupBy, senderGroup, revealId });
+        const base = repo.messageWhere({ accountId: url.searchParams.get('accountId'), folder: url.searchParams.get('folder'),
+          query: url.searchParams.get('q') || '', filter: url.searchParams.get('filter') });
+        const counts = repo.db.prepare(`SELECT coalesce(json_extract(m.data,'$.category'),'未分类') AS category,
+          count(*) AS total FROM records m WHERE ${base.where} GROUP BY category`).all(...base.params);
+        result.categoryCounts = Object.fromEntries(counts.map(row => [row.category, row.total]));
+        const scoped = repo.messageWhere({ accountId: url.searchParams.get('accountId'), folder: url.searchParams.get('folder'),
+          query: url.searchParams.get('q') || '', filter: url.searchParams.get('filter'), category: url.searchParams.get('category') });
+        result.unreadCount = repo.db.prepare(`SELECT count(*) AS total FROM records m WHERE ${scoped.where}
+          AND json_extract(m.data,'$.unread')=1`).get(...scoped.params).total;
         result.messages = result.messages.map(presentMessage);
         if (result.revealedMessage) result.revealedMessage = presentMessage(result.revealedMessage);
       } else if (req.method === 'GET' && /^\/messages\/[^/]+$/.test(route)) {
@@ -287,7 +316,7 @@ export async function startServer({
         result = { ...presentMessage(result),
           ...(result.draftId ? {} : { preview: repo.messageHeader(result).preview }), bodyLoaded: true };
       } else if (req.method === 'POST' && route === '/messages/batch') {
-        result = updateMessageBatch(repo, body, locks);
+        result = (body.perAccount === true ? updateAccountMessageBatch : updateMessageBatch)(repo, body, locks);
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/restore$/.test(route)) {
         const id = route.split('/')[2], message = repo.get('message', id);
         if (message && locks.has(message.accountId))
@@ -348,6 +377,8 @@ export async function startServer({
             .flatMap((m) => m.attachmentIds || []),
         );
         repo.transaction(() => {
+          for (const plan of repo.list('sendPlan', { accountId: id }).filter(plan => ['waiting','failed','paused'].includes(plan.status)))
+            repo.put('sendPlan', { ...plan, status: 'cancelled', error: '来源账户已移除，投递计划已取消' });
           repo.remove('account', id);
           for (const kind of [
             'message',
@@ -365,49 +396,7 @@ export async function startServer({
         await removeUnusedAttachments(repo, candidates);
         result = { ok: true };
       } else if (req.method === 'POST' && route === '/sync') {
-        if (body.folder && !['inbox','sent','trash','drafts','archive','spam'].includes(body.folder))
-          throw new ServiceError('请选择有效的邮件文件夹');
-        const a = repo.get('account', body.accountId);
-        if (!a || a.isDemo) throw new ServiceError('请先添加真实邮箱');
-        if (locks.has(a.id)) throw new ServiceError('该账户正在同步', 409);
-        locks.add(a.id);
-        const controller = new AbortController();
-        const task = { status: 'queued', phase: 'queued', controller, requestID };
-        syncTasks.set(a.id, task);
-        diagnostics.record('sync.queued', { account: accountReference(a.id), requestID, queued: syncQueue.pending.length + 1,
-          active: syncQueue.active });
-        const run = async () => {
-          task.status = 'running'; task.phase = 'connect'; task.startedAt = new Date().toISOString();
-          task.lastProgress = performance.now();
-          diagnostics.record('sync.started', { account: accountReference(a.id), requestID });
-          const watchdog = setInterval(() => {
-            if (performance.now() - task.lastProgress < syncStallTimeoutMs || controller.signal.aborted) return;
-            const error = new ServiceError('同步长时间没有进展，已暂停本次任务并保留已下载邮件，请检查网络后重试。', 504);
-            error.code = 'SYNC_STALLED';
-            diagnostics.record('sync.stalled', { account: accountReference(a.id), phase: task.phase,
-              durationMs: performance.now() - task.lastProgress, code: error.code });
-            controller.abort(error);
-          }, Math.min(1000, Math.max(10, syncStallTimeoutMs / 4)));
-          watchdog.unref();
-          try {
-            const result = await syncSession(repo, a, body.password, {
-              syncBatch: mailSync, folder: body.folder || undefined, signal: controller.signal, requestID });
-            task.status = result.partial ? 'paused' : 'completed'; return result;
-          } finally { clearInterval(watchdog); }
-        };
-        task.promise = syncQueue.run(run, controller.signal).catch(error => {
-          const stalled = controller.signal.reason?.code === 'SYNC_STALLED';
-          task.status = controller.signal.aborted && !stalled ? 'paused' : 'failed';
-          task.error = stalled ? controller.signal.reason.message
-            : controller.signal.aborted ? '同步已停止，已下载邮件已保留'
-              : error instanceof ServiceError ? error.message : '同步未完成，请检查网络与邮箱配置后重试';
-          diagnostics.record('sync.failed', { account: accountReference(a.id), phase: task.phase, requestID,
-            ...errorDiagnostic(error) });
-          throw error;
-        }).finally(() => {
-          locks.delete(a.id);
-          diagnostics.record(`sync.${task.status}`, { account: accountReference(a.id), phase: task.phase, requestID });
-        });
+        const task = syncCoordinator.start(body, requestID);
         if (body.background === true) {
           task.promise.catch(() => {});
           result = { ok: true, status: 'running' };
@@ -561,7 +550,7 @@ export async function startServer({
         const editableOld = old && upgradeForwardDraft(old,
           () => old.sourceMessageId ? repo.get('message', old.sourceMessageId) : null);
         if (body.bodyLoaded === false) throw new ServiceError('草稿正文尚未加载，请重新打开草稿后保存', 409);
-        if (old && ['sent', 'sending', 'uncertain'].includes(old.status))
+        if (old && ['sent', 'sending', 'uncertain', 'queued'].includes(old.status))
           throw new ServiceError('该草稿不能修改，请另存为新草稿', 409);
         const draft = {
           id,
@@ -595,7 +584,7 @@ export async function startServer({
       } else if (req.method === 'DELETE' && route.startsWith('/drafts/')) {
         const id = route.split('/')[2];
         const draft = repo.get('draft', id);
-        if (['sending', 'uncertain'].includes(draft?.status))
+        if (['sending', 'uncertain', 'queued'].includes(draft?.status))
           throw new ServiceError('该草稿的发送结果待确认', 409);
         if (draft) {
           queueDraftDeletion(repo, draft);
@@ -624,7 +613,7 @@ export async function startServer({
       } else if (req.method === 'GET' && route === '/attachments') {
         const direction = url.searchParams.get('direction') || 'desc';
         if (!['asc', 'desc'].includes(direction)) throw new ServiceError('附件排序方向无效');
-        result = repo.attachmentPage({ accountId: url.searchParams.get('accountId') || '',
+        result = repo.attachmentPage({ sourceMessageId: url.searchParams.get('messageId') || '', accountId: url.searchParams.get('accountId') || '',
           query: textSlice(url.searchParams.get('q') || '', 0, 4000),
           type: url.searchParams.get('type') || 'all', sort: url.searchParams.get('sort') || 'date',
           ascending: direction === 'asc', offset: Number(url.searchParams.get('offset') || 0),
@@ -677,6 +666,8 @@ export async function startServer({
   });
   await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
   diagnostics.record('service.started');
+  const serviceTimer = setInterval(() => { void Promise.all([services.tick(), realtime.tick()]).catch(error => diagnostics.record('services.failed', errorDiagnostic(error))); }, 1000);
+  serviceTimer.unref();
   let previousTick = performance.now(), previousCPU = process.cpuUsage();
   const runtimeTimer = setInterval(() => {
     void diagnostics.flush();
@@ -694,8 +685,11 @@ export async function startServer({
     port: server.address().port,
     close: async () => {
       clearInterval(runtimeTimer);
+      clearInterval(serviceTimer);
       for (const task of syncTasks.values()) if (['queued', 'running'].includes(task.status)) task.controller.abort();
       for (const task of agentTasks.values()) task.controller.abort();
+      await realtime.close();
+      await services.close();
       await Promise.allSettled([...syncTasks.values(), ...agentTasks.values()].map(task => task.promise));
       await organizer.close();
       await attachmentBatch.close();

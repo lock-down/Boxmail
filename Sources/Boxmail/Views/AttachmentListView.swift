@@ -5,17 +5,26 @@ struct AttachmentListView: View {
   let items: [AttachmentPageItem]
   @Binding var sortOrder: [KeyPathComparator<AttachmentPageItem>]
   let preview: (MailAttachment) -> Void
+  var scrollPosition: ScrollPositionState? = nil
+  var externalSelection: Binding<String?>? = nil
+  var onlySource: ((String) -> Void)? = nil
+  var selectComparison: ((String) -> Void)? = nil
+  var comparisonSelection: Set<String> = []
   let openMail: (String) -> Void
   let download: (MailAttachment) -> Void
   @ViewBuilder var footer: () -> ListPagination
-  @ViewState<String?> private var selection: String?
+  @ViewState<String?> private var localSelection: String?
+  private var selection: String? {
+    get { externalSelection?.wrappedValue ?? localSelection }
+    nonmutating set { if let externalSelection { externalSelection.wrappedValue = newValue } else { localSelection = newValue } }
+  }
   @FocusState private var focused: Bool
 
   var body: some View {
     GeometryReader { geometry in
       let columns = AttachmentListLayout(width: geometry.size.width)
       ScrollViewReader { scroll in
-        WorkspaceList(items: items) {
+        WorkspaceList(items: items, scrollPosition: scrollPosition) {
           HStack(spacing: AttachmentListLayout.gap) {
             Color.clear.frame(width: AttachmentListLayout.icon, height: 1).accessibilityHidden(true)
             sortHeader("附件名称", keyPath: \.name).frame(width: columns.name, alignment: .leading)
@@ -42,11 +51,26 @@ struct AttachmentListView: View {
             }
           ) {
             HStack(spacing: AttachmentListLayout.gap) {
-              AttachmentIcon(attachment: item.attachment, size: 18).frame(width: AttachmentListLayout.icon)
+              if let selectComparison {
+                Button { selectComparison(item.id) } label: {
+                  Image(systemName: comparisonSelection.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 16)).foregroundStyle(
+                      comparisonSelection.contains(item.id) ? Palette.blue : Palette.muted)
+                    .frame(width: AttachmentListLayout.icon, height: 32).contentShape(Rectangle())
+                }.buttonStyle(ControlFeedback()).controlFocus()
+                  .help(comparisonSelection.contains(item.id) ? "取消附件比较选择" : "选入附件比较")
+                  .accessibilityLabel("\(comparisonSelection.contains(item.id) ? "取消选择" : "选择比较") \(item.name)")
+                  .accessibilityAddTraits(comparisonSelection.contains(item.id) ? .isSelected : [])
+              } else {
+                AttachmentIcon(attachment: item.attachment, size: 18).frame(width: AttachmentListLayout.icon)
+              }
               VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                if selectComparison != nil { AttachmentIcon(attachment: item.attachment, size: 14) }
                 Text(item.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
                   .truncationMode(
                     .middle)
+                }
                 if !columns.showsSource {
                   HStack(spacing: 8) {
                     if !columns.showsStatus { status(item).fixedSize() }
@@ -84,6 +108,10 @@ struct AttachmentListView: View {
           }
           .foregroundStyle(Palette.ink)
           .contextMenu {
+            if let onlySource { Button("只看此邮件附件") { onlySource(item.source.id) } }
+            if let selectComparison {
+              Button(comparisonSelection.contains(item.id) ? "取消附件比较选择" : "选入附件比较") { selectComparison(item.id) }
+            }
             Button("预览附件") { preview(item.attachment) }
             Button("打开原邮件") { openMail(item.source.id) }
             Button("下载附件") { download(item.attachment) }

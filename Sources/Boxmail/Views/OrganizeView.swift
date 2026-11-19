@@ -3,18 +3,15 @@ import SwiftUI
 
 struct OrganizeView: View {
   @Bindable var store: MailStore
-  @ViewState<String> private var scope = "unclassified"
-  @ViewState<Int> private var limit = 50
-  @ViewState private var pages: OrganizationPageStore
-  @ViewState<Int> private var reviewOffset = 0
+  @Bindable var workspace: OrganizationWorkspaceState
+  private var pages: OrganizationPageStore { workspace.pages }
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @ViewState<Bool> private var managingCategories = false
   private var categories: [String] { store.categories.map(\.name) }
   var latest: AgentJob? { store.latestOrganization }
   init(store: MailStore) {
     self.store = store
-    _pages = ViewState(
-      initialValue: OrganizationPageStore(backend: store.backend, accountId: store.accountId))
+    workspace = store.organizationWorkspace()
   }
   var running: Bool { latest?.status == "running" }
   var hasReview: Bool {
@@ -38,15 +35,18 @@ struct OrganizeView: View {
   }
   var body: some View {
     GeometryReader { geometry in
-      let compact = geometry.size.height < 720 || running || hasReview
+      let compact = geometry.size.height < 720 || running || hasReview || latest?.status == "applied"
       VStack(alignment: .leading, spacing: compact ? 8 : 22) {
         heading(compact: compact)
-        controls(compact: compact)
+        if latest?.status != "applied" || workspace.showsNewTask { controls(compact: compact) }
         if let error = store.organizeError {
           Label(error, systemImage: "exclamationmark.circle").font(.system(size: 12))
             .foregroundStyle(Palette.amber)
         }
-        if let job = latest { jobStatus(job, compact: compact) }
+        if let job = latest {
+          if job.status == "applied" { completedTask(job) }
+          else { jobStatus(job, compact: compact) }
+        }
         if let job = latest, showsSuggestions {
           reviewSection(job, compact: compact)
         }
@@ -64,7 +64,8 @@ struct OrganizeView: View {
           if pages.showsPreviousPage {
             Text("保留上次加载的分类邮件").font(UIType.small).foregroundStyle(Palette.muted)
           }
-          WorkspaceList(items: page.items, emptyMessage: "这个分类暂时没有邮件") {
+          WorkspaceList(items: page.items, emptyMessage: "这个分类暂时没有邮件",
+            scrollPosition: workspace.scrollPosition) {
             EmptyView()
           } footer: {
             ListPagination(
@@ -72,13 +73,16 @@ struct OrganizeView: View {
               unit: "封", subject: "分类邮件", loading: pages.loading || pages.showsPreviousPage,
               previous: { pages.previous() }, next: { pages.next() })
           } row: { mail in
-            WorkspaceListRow(action: { store.openMail(mail) }) {
+            WorkspaceListRow(selected: workspace.selectedMessageId == mail.id, action: {
+              workspace.selectedMessageId = mail.id
+              store.openMail(mail)
+            }) {
               HStack(spacing: 20) {
                 Text(mail.sender).font(.system(size: 12, weight: .medium)).lineLimit(1)
                   .frame(width: 130, alignment: .leading)
                 Text(mail.subject).font(UIType.caption).lineLimit(1)
                   .frame(maxWidth: .infinity, alignment: .leading)
-                Tag(text: mail.category)
+                Tag(text: mail.category, tone: store.categoryTone(mail.category))
                 Text(displayTime(mail.date)).font(UIType.small).foregroundStyle(Palette.muted)
                   .frame(width: 80, alignment: .trailing)
               }.foregroundStyle(Palette.ink)
@@ -101,11 +105,12 @@ struct OrganizeView: View {
           pages.category = ""
         }
       }
-      .onChange(of: store.accountId) { _, id in
-        pages.accountId = id
-        reviewOffset = 0
+      .onChange(of: pages.request) { _, _ in workspace.scrollPosition.origin = .zero }
+      .onChange(of: latest?.id) { _, _ in
+        workspace.reviewOffset = 0
+        workspace.showsTaskDetails = false
+        workspace.showsNewTask = false
       }
-      .onChange(of: latest?.id) { _, _ in reviewOffset = 0 }
       .task(id: RefreshKey(request: pages.request, revision: store.workspaceListRevision)) {
         await pages.load(revision: store.workspaceListRevision)
       }
@@ -130,12 +135,12 @@ struct OrganizeView: View {
   }
   private var scopeSelection: some View {
     WorkflowSelection(
-      title: "整理范围", selection: $scope,
+      title: "整理范围", selection: $workspace.scope,
       options: [("unclassified", "尚未分类的收件邮件"), ("inbox", "全部收件邮件")])
   }
   private var limitSelection: some View {
     WorkflowSelection(
-      title: "邮件数量", selection: $limit,
+      title: "邮件数量", selection: $workspace.limit,
       options: [10, 50, 100, 200].map { ($0, "最近 \($0) 封") })
   }
   private func controls(compact: Bool) -> some View {
@@ -150,7 +155,7 @@ struct OrganizeView: View {
         }
         Spacer(minLength: 0)
         ActionButton(title: "开始整理", icon: "wand.and.stars", color: Palette.blue) {
-          store.organize(scope: scope, limit: limit)
+          store.organize(scope: workspace.scope, limit: workspace.limit)
         }.disabled(
           running || hasReview || store.busy.contains("organize-control")
             || (pages.visiblePage?.accountTotal ?? 0) == 0)
@@ -169,7 +174,7 @@ struct OrganizeView: View {
         Spacer()
         if compact {
           WorkflowSelection(
-            title: "筛选收件箱分类", selection: $pages.category,
+            title: "筛选收件箱分类", selection: Binding(get: { pages.category }, set: { pages.category = $0 }),
             options: [("", "全部分类")]
               + categories.map { category in
                 (
@@ -187,15 +192,14 @@ struct OrganizeView: View {
       if !compact {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 128))], spacing: 8) {
           ForEach(categories, id: \.self) { value in
+            let tone = store.categoryTone(value)
             Button {
               withAnimation(UIMotion.selection(reduceMotion)) {
                 pages.category = pages.category == value ? "" : value
               }
             } label: {
               HStack {
-                Image(systemName: value == "账单票据" ? "doc.text" : "folder").foregroundStyle(
-                  pages.category == value ? Palette.accent : Palette.muted
-                ).font(.system(size: 13))
+                Image(systemName: "tag").foregroundStyle(tone.ink).font(.system(size: 13))
                 Text(value).font(.system(size: 12, weight: .medium))
                   .lineLimit(1).truncationMode(.middle).help(value)
                 Spacer()
@@ -210,7 +214,7 @@ struct OrganizeView: View {
                   Rectangle()
                 )
                 .background(
-                  pages.category == value ? Palette.accentSoft : .white,
+                  pages.category == value ? tone.fill : Palette.paper,
                   in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
                 )
             }.buttonStyle(ControlFeedback(selected: pages.category == value))
@@ -253,9 +257,42 @@ struct OrganizeView: View {
   private func reviewList(_ job: AgentJob) -> some View {
     OrganizationReviewList(
       jobId: job.id, items: job.result?.items ?? [], output: streamingOutput,
-      offset: $reviewOffset,
+      offset: $workspace.reviewOffset,
       message: { id in store.messages.first { $0.id == id } },
+      categoryTone: { store.categoryTone($0) },
       openMail: { store.openMail($0) })
+  }
+
+  private func completedTask(_ job: AgentJob) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 12) { completionLabel(job); Spacer(minLength: 0); completionActions(job) }
+        VStack(alignment: .leading, spacing: 8) { completionLabel(job); completionActions(job) }
+      }
+      if workspace.showsTaskDetails {
+        Text("已分析 \(job.progress?.completed ?? job.result?.items?.count ?? 0) 封 · 本机分类建议 \(job.result?.items?.count ?? 0) 条")
+          .font(UIType.small).foregroundStyle(Palette.muted)
+        reviewList(job).frame(height: 180)
+      }
+    }.padding(12)
+      .background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
+  }
+  private func completionLabel(_ job: AgentJob) -> some View {
+    Label("分类已应用 · \(job.result?.items?.count ?? 0) 封", systemImage: "checkmark.circle")
+      .font(UIType.caption).foregroundStyle(Palette.success)
+  }
+  private func completionActions(_ job: AgentJob) -> some View {
+    HStack(spacing: 8) {
+      ActionButton(title: workspace.showsTaskDetails ? "收起详情" : "查看详情", size: .compact) {
+        workspace.showsTaskDetails.toggle()
+      }
+      ActionButton(title: "撤销本次整理", icon: "arrow.uturn.backward", size: .compact) {
+        store.action("undo") { try await store.backend.perform("/jobs/\(job.id)/undo") }
+      }.disabled(store.busy.contains("undo"))
+      ActionButton(title: workspace.showsNewTask ? "收起新整理" : "再次整理", size: .compact) {
+        workspace.showsNewTask.toggle()
+      }
+    }
   }
 
   private func jobStatus(_ job: AgentJob, compact: Bool) -> some View {

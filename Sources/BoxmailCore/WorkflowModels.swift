@@ -2,6 +2,7 @@ import Foundation
 
 public struct MailCategory: Codable, Identifiable, Hashable {
   public var id, name, description: String
+  public var color: String? = nil
   public static var defaults: [MailCategory] {
     ["工作项目", "订阅资讯", "账单票据", "社交通知", "个人往来", "未分类"].map {
       MailCategory(id: $0 == "未分类" ? "unclassified" : $0, name: $0, description: "")

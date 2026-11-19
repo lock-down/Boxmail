@@ -18,7 +18,7 @@ function prepareFunctions(db) {
 
 /** SQL filters and sorts the whole account; only one compact page crosses the process boundary. */
 export function attachmentPage(repo, { accountId = '', query = '', type = 'all', sort = 'date',
-  ascending = false, offset = 0, limit = 50 } = {}) {
+  ascending = false, offset = 0, limit = 50, sourceMessageId = '' } = {}) {
   if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw new ServiceError('附件分页参数无效');
   if (!['all', ...new Set(Object.values(extensions)), 'other'].includes(type)
@@ -29,6 +29,7 @@ export function attachmentPage(repo, { accountId = '', query = '', type = 'all',
   const stats = repo.db.prepare(`SELECT count(*) AS accountTotal,
     coalesce(sum(length(coalesce(json_extract(a.data,'$.analysis'),''))>0),0) AS analyzedTotal ${from}`).get(accountId);
   const clauses = [], parameters = [accountId];
+  if (sourceMessageId) { clauses.push('m.id=?'); parameters.push(sourceMessageId); }
   if (type !== 'all') {
     clauses.push("attachment_kind(json_extract(a.data,'$.name'),json_extract(a.data,'$.contentType'))=?");
     parameters.push(type);

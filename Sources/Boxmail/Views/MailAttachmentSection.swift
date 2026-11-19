@@ -40,10 +40,8 @@ struct MailAttachmentSection: View {
         Label("\(message.attachmentIds.count) 个附件", systemImage: "paperclip")
           .font(.system(size: 12, weight: .semibold))
         Spacer()
-        ActionButton(title: "理解整封邮件", icon: "sparkles", color: Palette.accent) {
-          store.generate(task: "summary", message: message)
-        }.disabled(running || controlling || store.busy.contains("agent"))
-        IconMenu(icon: "ellipsis", help: "附件独立分析") {
+        IconMenu(icon: "ellipsis", help: "附件更多操作") {
+          Button("只看此邮件附件") { store.showAttachments(from: message) }
           Button(buttonTitle) {
             startAnalysis(force: unfinished == 0, retry: retryable ? job : nil)
           }.disabled(running || controlling || store.busy.contains("agent"))
@@ -52,7 +50,7 @@ struct MailAttachmentSection: View {
       if let job {
         progress(job)
       }
-      Text("整封理解会结合正文与所有可读附件；需要单文件深入分析时，打开附件或使用右侧菜单。")
+      Text("顶部“整封理解”会结合正文与附件。需要单文件分析时，打开附件或使用右侧菜单。")
         .font(UIType.small).foregroundStyle(Palette.muted)
       if let error = store.attachmentBatchErrors[message.id] {
         Label(error, systemImage: "exclamationmark.circle").font(.system(size: 11))
@@ -61,7 +59,7 @@ struct MailAttachmentSection: View {
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 9)], spacing: 9) {
         ForEach(files) { file in
           AttachmentCard(attachment: file, batchItem: items.first { $0.id == file.id }) {
-            store.previewAttachment = file
+            store.previewFile(file)
           }
         }
       }

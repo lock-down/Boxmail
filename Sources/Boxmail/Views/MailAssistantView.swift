@@ -7,7 +7,7 @@ struct MailAIBar: View {
   let message: MailMessage
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: 4) {
       ForEach([MailAITab.summary, .translate, .reply, .conversation]) { tab in
         SelectionButton(title: title(tab), icon: tab.icon, selected: store.mailAITab == tab, size: .compact) {
           if tab != .translate && store.mailAITab == tab { store.mailAITab = nil }
@@ -28,7 +28,7 @@ struct MailAIBar: View {
     switch tab {
     case .summary: return "整封理解"
     case .translate: return store.isShowingTranslation(message) ? "显示原文" : message.translation == nil ? "翻译" : "显示译文"
-    case .conversation: return "会话 AI"
+    case .conversation: return "会话"
     default: return "AI 回复"
     }
   }
@@ -38,6 +38,7 @@ struct MailAssistantView: View {
   @Bindable var store: MailStore
   let message: MailMessage
   let tab: MailAITab
+  var showOriginal: (() -> Void)? = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var working: Bool { store.busy.contains("agent") && store.activeAIMessageId == message.id }
   var body: some View {
@@ -76,7 +77,7 @@ struct MailAssistantView: View {
     if let output = store.aiOutput(task: "summary", messageId: message.id) {
       AIStreamingView(output: output)
     } else if let summary = message.summary {
-      SummaryCard(store: store, message: message, summary: summary, embedded: true)
+      SummaryCard(store: store, message: message, summary: summary, embedded: true, showOriginal: showOriginal)
     } else {
       Text("结合正文与全部附件，梳理整体结论、待办、关键数据和跨文件差异。").font(.system(size: 12)).foregroundStyle(Palette.muted)
       if !working {

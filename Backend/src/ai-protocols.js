@@ -1,3 +1,4 @@
+import { providerUsage } from './ai-usage.js';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
@@ -28,8 +29,12 @@ export function providerClient(config, apiKey) {
       defaultHeaders: apiKey ? {} : { Authorization: null } });
 }
 
-export function validateModelInput(config, instructions, content, images, { inlineImages = true } = {}) {
+export function validateModelInput(config, instructions, content, images, { inlineImages = true, maxOutputTokens } = {}) {
   const capability = selectedModel(config);
+  if (maxOutputTokens !== undefined) {
+    capability.maxTokens = Math.min(capability.maxTokens, maxOutputTokens);
+    capability.configuredMaxTokens = capability.maxTokens;
+  }
   if (config.apiProtocol === 'openai-responses' && capability.configuredMaxTokens < 16)
     throw new ServiceError('Responses 的最大输出 token 数至少为 16');
   if (images.length && !capability.input.includes('image'))
@@ -51,7 +56,7 @@ export function validateModelInput(config, instructions, content, images, { inli
   return { capability, reasoning, context };
 }
 
-export async function protocolCompletion(config, apiKey, instructions, prepared, { signal, responseParts, onText }) {
+export async function protocolCompletion(config, apiKey, instructions, prepared, { signal, responseParts, onText, onUsage }) {
   const { capability, reasoning, context } = prepared;
   const model = { id: capability.id, name: capability.name, provider: `boxmail-${config.providerId}`,
     api: config.apiProtocol, baseUrl: config.apiProtocol === 'anthropic-messages' ? anthropicBaseURL(config.baseURL) : config.baseURL,
@@ -73,6 +78,8 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
       return response;
     },
     onProviderStreamEvent: event => {
+      const usage = providerUsage(config.apiProtocol, event);
+      if (usage) onUsage?.(usage);
       if (config.apiProtocol === 'openai-responses') {
         if (event.item?.type === 'message' && event.item.role !== 'assistant') throw new Error('Invalid assistant role');
         if (event.type === 'response.completed' && event.response?.status === 'completed') {
@@ -122,6 +129,14 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
     if (signal.aborted) throw signal.reason;
     const result = await events.result();
     if (httpStatus >= 400) {
+      const inputTooLarge = httpStatus === 413 || ([400, 422].includes(httpStatus)
+        && /context_length_exceeded|context window|maximum context length|input (?:is )?too long|prompt (?:is )?too long/i.test(result.errorMessage || ''));
+      if (inputTooLarge) {
+        const error = new ServiceError('模型拒绝了过长的输入，请检查模型的上下文设置或把问题问得更具体', 502);
+        error.code = 'MODEL_CONTEXT_LIMIT';
+        error.upstreamStatus = httpStatus;
+        throw error;
+      }
       const error = new ServiceError(`AI 服务返回 HTTP ${httpStatus}，请检查地址、密钥、协议和模型`, 502);
       error.upstreamStatus = httpStatus; throw error;
     }

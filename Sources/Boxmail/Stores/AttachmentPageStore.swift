@@ -7,9 +7,11 @@ struct AttachmentPageRequest: Hashable {
   let accountId, query, type, sort: String
   let ascending: Bool
   let offset: Int
+  var sourceMessageId = ""
   var path: String {
     var components = URLComponents()
     components.queryItems = [
+      .init(name: "messageId", value: sourceMessageId),
       .init(name: "accountId", value: accountId), .init(name: "q", value: query),
       .init(name: "type", value: type), .init(name: "sort", value: sort),
       .init(name: "direction", value: ascending ? "asc" : "desc"),
@@ -25,14 +27,18 @@ extension AttachmentPageRequest: PagedRequest {
   func sameFilters(as other: Self) -> Bool {
     accountId == other.accountId && query == other.query && type == other.type
       && sort == other.sort && ascending == other.ascending
+      && sourceMessageId == other.sourceMessageId
   }
 }
 
 @Observable @MainActor final class AttachmentPageStore {
+  let scrollPosition = ScrollPositionState()
+  var selectedAttachmentId: String?
   private let paging: PagedListStore<AttachmentPageRequest, AttachmentPage>
   @ObservationIgnored private var loadedFilters:
     (query: String, type: String, sort: [KeyPathComparator<AttachmentPageItem>])?
   var accountId: String { didSet { if accountId != oldValue { paging.resetOffset() } } }
+  var sourceMessageId = "" { didSet { if sourceMessageId != oldValue { paging.resetOffset() } } }
   var query = "" { didSet { if query != oldValue { paging.resetOffset() } } }
   var type = "全部" { didSet { if type != oldValue { paging.resetOffset() } } }
   var sortOrder = [KeyPathComparator(\AttachmentPageItem.date, order: .reverse)] {
@@ -55,7 +61,7 @@ extension AttachmentPageRequest: PagedRequest {
     ]
     return .init(
       accountId: accountId, query: query, type: types[type] ?? "all", sort: sort,
-      ascending: sortOrder.first?.order == .forward, offset: paging.offset)
+      ascending: sortOrder.first?.order == .forward, offset: paging.offset, sourceMessageId: sourceMessageId)
   }
   var page: AttachmentPage? { paging.page }
   var loadedRequest: AttachmentPageRequest? { paging.loadedRequest }
@@ -74,6 +80,7 @@ extension AttachmentPageRequest: PagedRequest {
     guard canRestoreLoadedPage, let loadedRequest, loadedRequest.accountId == accountId,
       let loadedFilters
     else { return }
+    sourceMessageId = loadedRequest.sourceMessageId
     query = loadedFilters.query
     type = loadedFilters.type
     sortOrder = loadedFilters.sort

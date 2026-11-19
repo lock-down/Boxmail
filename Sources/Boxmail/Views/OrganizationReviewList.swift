@@ -7,6 +7,7 @@ struct OrganizationReviewList: View {
   let output: AIStreamOutput?
   @Binding var offset: Int
   let message: (String) -> MailMessage?
+  let categoryTone: (String) -> CategoryTone
   let openMail: (MailMessage) -> Void
 
   private var pageOffset: Int { min(offset, max(0, (items.count - 1) / 50) * 50) }
@@ -29,9 +30,9 @@ struct OrganizationReviewList: View {
               VStack(alignment: .leading, spacing: 5) {
                 Text(message(item.id)?.subject ?? "邮件已不在本机")
                   .font(.system(size: 12, weight: .medium)).lineLimit(1)
-                Text(item.reason).font(UIType.small).foregroundStyle(Palette.muted).lineLimit(2)
+                Text(AITextStyle.inline(item.reason)).font(UIType.small).foregroundStyle(Palette.muted).lineLimit(2)
               }.frame(maxWidth: .infinity, alignment: .leading)
-              Tag(text: item.category)
+              Tag(text: item.category, tone: categoryTone(item.category))
             }.foregroundStyle(Palette.ink)
           } actions: {
             EmptyView()

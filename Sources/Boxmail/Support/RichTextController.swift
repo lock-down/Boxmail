@@ -9,11 +9,13 @@ import Observation
   var fontSize: Double? = RichTextStyle.defaultFontSize
   var color: String?
   var hasMixedColor = false
+  var hasSelection = false
 
   func updateSelection() {
     guard let view = textView else { return }
     var styles: [[NSAttributedString.Key: Any]] = []
     let range = view.selectedRange()
+    hasSelection = range.length > 0
     if range.length > 0, let storage = view.textStorage, NSMaxRange(range) <= storage.length {
       storage.enumerateAttributes(in: range) { attributes, _, _ in styles.append(attributes) }
     } else {
@@ -33,6 +35,27 @@ import Observation
       styles.map { ($0[.foregroundColor] as? NSColor).flatMap(RichTextStyle.hexColor) })
     hasMixedColor = colors.count > 1
     color = hasMixedColor ? nil : colors.first ?? nil
+  }
+
+  struct RewriteSelection {
+    let source: String
+    let document: RichTextDocument
+    let range: NSRange
+    let text: String
+  }
+  func rewriteSelection() -> RewriteSelection? {
+    guard let view = textView, !view.hasMarkedText(), view.selectedRange().length > 0 else { return nil }
+    let range = view.selectedRange()
+    guard let storage = view.textStorage else { return nil }
+    return RewriteSelection(source: view.string, document: RichTextCodec.document(storage), range: range, text: (view.string as NSString).substring(with: range))
+  }
+  @discardableResult func adopt(_ text: String, expectedSource: String, selection: RewriteSelection? = nil) -> Bool {
+    guard let view = textView, view.isEditable, view.string == expectedSource, !view.hasMarkedText(), let storage = view.textStorage else { return false }
+    if let selection, selection.document != RichTextCodec.document(storage) { return false }
+    let range = selection?.range ?? NSRange(location: 0, length: storage.length)
+    let attributes = range.location < storage.length ? storage.attributes(at: range.location, effectiveRange: nil) : view.typingAttributes
+    let replacement = selection == nil ? RichTextCodec.attributed(.init(text: text)) : NSAttributedString(string: text, attributes: attributes)
+    return replace(replacement, selection: NSRange(location: range.location + replacement.length, length: 0), name: selection == nil ? "采用 AI 正文" : "改写选区", affectedRange: range, fragment: true)
   }
 
   func toggleBold() {
@@ -128,11 +151,11 @@ import Observation
     return true
   }
 
-  private func replace(
+  @discardableResult private func replace(
     _ value: NSAttributedString, selection: NSRange, name: String, affectedRange: NSRange? = nil,
     fragment: Bool = false
-  ) {
-    guard let view = textView, view.isEditable, let storage = view.textStorage else { return }
+  ) -> Bool {
+    guard let view = textView, view.isEditable, let storage = view.textStorage else { return false }
     view.breakUndoCoalescing()
     let range = affectedRange ?? NSRange(location: 0, length: storage.length)
     let replacementRange =
@@ -143,7 +166,7 @@ import Observation
     let plain =
       replacement.string == storage.attributedSubstring(from: range).string
       ? nil : replacement.string
-    guard view.shouldChangeText(in: range, replacementString: plain) else { return }
+    guard view.shouldChangeText(in: range, replacementString: plain) else { return false }
     storage.replaceCharacters(in: range, with: replacement)
     let location = min(selection.location, storage.length)
     view.setSelectedRange(
@@ -152,5 +175,6 @@ import Observation
     view.undoManager?.setActionName(name)
     view.window?.makeFirstResponder(view)
     updateSelection()
+    return true
   }
 }

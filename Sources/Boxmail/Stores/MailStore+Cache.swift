@@ -6,7 +6,7 @@ extension MailStore {
       (selectedMessage?.attachmentIds ?? [])
         + (conversationAnchor == selectedMessageId
           ? conversationBodies.values.flatMap(\.attachmentIds) : [])
-        + [previewAttachment?.id].compactMap { $0 })
+        + attachmentPreviewIds + [previewAttachment?.id].compactMap { $0 })
   }
 
   func cacheAttachment(_ attachment: MailAttachment) {
@@ -14,11 +14,11 @@ extension MailStore {
     attachmentCache[attachment.id] = attachment
     if let index = attachments.firstIndex(where: { $0.id == attachment.id }) {
       attachments[index] = attachment
-    }
+    } else { attachments.append(attachment) }
   }
 
   func trimAttachmentCache(keeping ids: [String]) {
-    let kept = Set(ids + [previewAttachment?.id].compactMap { $0 })
+    let kept = Set(ids + attachmentPreviewIds + [previewAttachment?.id].compactMap { $0 })
     attachmentCache = attachmentCache.filter { kept.contains($0.key) }
     attachments = attachments.map { kept.contains($0.id) ? $0 : $0.compact }
   }

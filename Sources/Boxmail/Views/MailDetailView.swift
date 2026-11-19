@@ -18,10 +18,11 @@ struct MailDetailView: View {
             store.newDraft(reply: message)
           }
         }
-        IconMenu(icon: "chevron.down", help: "回复和转发") {
-          Button("回复") { store.newDraft(reply: message) }
+        IconMenu(icon: "chevron.down", help: "更多回复选项") {
           Button("全部回复") { store.newDraft(reply: message, all: true) }
-          Button("转发") { store.newDraft(reply: message, forward: true) }
+        }
+        ActionButton(title: "转发", icon: "arrowshape.turn.up.right", color: Palette.accent) {
+          store.newDraft(reply: message, forward: true)
         }
         Spacer(minLength: 4)
         if message.folder != "archive" && message.folder != "trash" {
@@ -47,6 +48,10 @@ struct MailDetailView: View {
           store.update(message, ["starred": !message.starred])
         }
         IconMenu(icon: "ellipsis", help: "更多邮件操作") {
+          Button("收录跟进") { store.collectFollowUp(message: message) }
+          Button("稍后处理…") { store.collectFollowUp(message: message, snooze: true) }
+          Button("向助手询问此邮件") { store.assistant.begin(scope: .init(kind: "message", messageId: message.id)) }
+          Button("向助手询问此会话") { store.assistant.begin(scope: .init(kind: "conversation", messageId: message.id)) }
           Button("复制邮件正文") { NSPasteboard.general.copy(message.body) }
           Button(message.unread ? "标记已读" : "标记未读") {
             store.update(message, ["unread": !message.unread])
@@ -60,7 +65,11 @@ struct MailDetailView: View {
       Divider().overlay(Palette.softBorder)
       ScrollViewReader { reader in
         OverlayScrollView {
-          ConversationTimelineView(store: store, selected: message) { selectedContent }
+          ConversationTimelineView(store: store, selected: message) {
+            selectedContent {
+              withAnimation(UIMotion.disclosure(reduceMotion)) { reader.scrollTo("mail-body", anchor: .top) }
+            }
+          }
             .frame(maxWidth: UILayout.reading, alignment: .leading)
             .padding(.horizontal, 24).padding(.vertical, 20).frame(
               maxWidth: .infinity, alignment: .top)
@@ -75,34 +84,34 @@ struct MailDetailView: View {
       }
     }.background(.white)
   }
-  private var selectedContent: some View {
+  private func selectedContent(showOriginal: @escaping () -> Void) -> some View {
     VStack(alignment: .leading, spacing: 14) {
       Text(message.subject).font(.system(size: 20, weight: .semibold)).tracking(-0.35).lineSpacing(4)
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
-      if message.category != "未分类" || message.starred {
-        HStack(spacing: 6) {
-          if message.category != "未分类" { Tag(text: message.category) }
-          if message.starred { Tag(text: "星标邮件") }
-        }
+      if message.category != "未分类" {
+        Tag(text: message.category, tone: store.categoryTone(message.category))
       }
       HStack(alignment: .top, spacing: 11) {
         SenderAvatar(name: message.sender, size: 28)
         VStack(alignment: .leading, spacing: 5) {
-          HStack {
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(message.sender).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+              .layoutPriority(1).help(message.sender)
+            if !message.senderEmail.isEmpty && message.sender.caseInsensitiveCompare(message.senderEmail) != .orderedSame {
+              Text(message.senderEmail).font(UIType.small).foregroundStyle(Palette.muted)
+                .textSelection(.enabled).lineLimit(1).truncationMode(.middle).help(message.senderEmail)
+            }
             Spacer(minLength: 8)
             Text(displayTime(message.date)).font(.system(size: 11)).monospacedDigit()
               .foregroundStyle(Palette.muted).fixedSize()
           }
-          Text(message.senderEmail).font(.system(size: 11)).foregroundStyle(Palette.muted)
-            .textSelection(.enabled)
-            .lineLimit(1).truncationMode(.middle)
+          Text("账户：" + (store.accounts.first { $0.id == message.accountId }?.email ?? "来源账户")).font(UIType.small).foregroundStyle(Palette.muted)
           RecipientDetailsView(to: message.to, cc: message.cc).id(message.id)
         }
       }
       if let tab = store.mailAITab, tab != .attachment, tab != .translate {
-        MailAssistantView(store: store, message: message, tab: tab).id("mail-assistant")
+        MailAssistantView(store: store, message: message, tab: tab, showOriginal: showOriginal).id("mail-assistant")
           .transition(UIMotion.reveal(reduceMotion))
       }
       HStack(spacing: 12) {
@@ -116,13 +125,18 @@ struct MailDetailView: View {
             ProgressView().controlSize(.mini)
             Text(output.stage ?? "正在翻译…").font(UIType.small).foregroundStyle(Palette.muted)
           }
-          ActionButton(title: "重新翻译", icon: "arrow.clockwise") {
+          ActionButton(title: message.translation == nil ? "生成译文" : "重新翻译", icon: "arrow.clockwise") {
             store.generate(task: "translate", message: message)
           }.disabled(store.busy.contains("agent"))
         }
       }.id("mail-body")
       if store.isShowingTranslation(message), let error = store.mailAIErrors[message.id] {
         Label(error, systemImage: "exclamationmark.circle").font(UIType.small).foregroundStyle(Palette.amber)
+      }
+      if store.isShowingTranslation(message), message.translation == nil,
+        store.aiOutput(task: "translate", messageId: message.id) == nil {
+        Text("生成译文后在此阅读，当前仍显示邮件原文。")
+          .font(UIType.small).foregroundStyle(Palette.muted)
       }
       QuoteCollapsingBodyView(message: store.translatedMessage(message), preferences: store.settings.preferences,
         updatesTextOnly: true).id(message.id)

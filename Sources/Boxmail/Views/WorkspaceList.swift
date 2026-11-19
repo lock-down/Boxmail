@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Shared scroll boundary: chrome stays fixed while the supplied list content scrolls.
 struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
+  var scrollPosition: ScrollPositionState? = nil
+  var bordered = true
   @ViewBuilder var header: () -> Header
   @ViewBuilder var content: () -> Content
   @ViewBuilder var footer: () -> Footer
@@ -9,7 +11,7 @@ struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       header()
-      OverlayScrollView {
+      OverlayScrollView(scrollPosition: scrollPosition) {
         content().frame(maxWidth: .infinity, alignment: .leading)
       }
       footer()
@@ -17,8 +19,10 @@ struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
     .background(Palette.paper)
     .clipShape(RoundedRectangle(cornerRadius: 10))
     .overlay {
-      RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.softBorder, lineWidth: 1)
-        .allowsHitTesting(false)
+      if bordered {
+        RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.softBorder, lineWidth: 1)
+          .allowsHitTesting(false)
+      }
     }
     .accessibilityElement(children: .contain)
   }
@@ -28,12 +32,14 @@ struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
 struct WorkspaceList<Item: Identifiable, Header: View, Row: View, Footer: View>: View {
   let items: [Item]
   var emptyMessage: String? = nil
+  var scrollPosition: ScrollPositionState? = nil
+  var bordered = true
   @ViewBuilder var header: () -> Header
   @ViewBuilder var footer: () -> Footer
   @ViewBuilder var row: (Item) -> Row
 
   var body: some View {
-    WorkspaceListSurface {
+    WorkspaceListSurface(scrollPosition: scrollPosition, bordered: bordered) {
       header()
     } content: {
       rows
@@ -48,7 +54,7 @@ struct WorkspaceList<Item: Identifiable, Header: View, Row: View, Footer: View>:
           .frame(maxWidth: .infinity).padding(32)
       }
       ForEach(items) { item in
-        row(item)
+        row(item).id(item.id)
         if item.id != items.last?.id { Divider().overlay(Palette.softBorder) }
       }
     }

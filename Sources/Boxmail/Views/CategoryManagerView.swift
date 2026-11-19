@@ -6,6 +6,7 @@ struct CategoryManagerView: View {
   @Environment(\.dismiss) private var dismiss
   @ViewState<String> private var name = ""
   @ViewState<String> private var description = ""
+  @ViewState<String> private var color = CategoryTone.presets[0].hex
   @ViewState<String?> private var editingID = nil
   @ViewState<MailCategory?> private var deleting = nil
   @ViewState<Bool> private var saving = false
@@ -24,6 +25,7 @@ struct CategoryManagerView: View {
         editor.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
     }.background(Palette.paper).tint(Palette.blue).workspaceSheet(.categories)
+      .onAppear { color = CategoryTone.suggestedHex(in: store.categories) }
       .disabled(saving)
       .alert("删除分类？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), presenting: deleting) { category in
         Button("取消", role: .cancel) { deleting = nil }
@@ -47,9 +49,10 @@ struct CategoryManagerView: View {
           ForEach(store.categories) { category in
             Button { edit(category) } label: {
               HStack(alignment: .top, spacing: 10) {
-                Image(systemName: category.id == "unclassified" ? "tray" : "tag")
-                  .font(.system(size: 12)).frame(width: 16).padding(.top, 2)
-                  .foregroundStyle(editingID == category.id ? Palette.blue : Palette.muted)
+                Circle().fill(store.categoryTone(category.name).swatch)
+                  .overlay { Circle().strokeBorder(Palette.border.opacity(0.5), lineWidth: 1) }
+                  .frame(width: 12, height: 12)
+                  .padding(.top, 2).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
                   Text(category.name).font(.system(size: 13, weight: editingID == category.id ? .medium : .regular))
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
@@ -90,6 +93,7 @@ struct CategoryManagerView: View {
             WorkflowField(title: "分类名称", detail: "\(name.count) / 32") {
               WorkflowTextInput(label: "分类名称", placeholder: "例如：合同审批", text: $name)
             }
+            CategoryColorField(hex: $color, name: name.trimmingCharacters(in: .whitespacesAndNewlines))
             WorkflowField(title: "分类说明", detail: "\(description.count) / 500") {
               WorkflowTextInput(label: "分类说明", placeholder: "例如：需要审核的采购合同、补充协议及审批进度", text: $description, lines: 4)
             }
@@ -107,6 +111,7 @@ struct CategoryManagerView: View {
           if editingID != nil { ActionButton(title: "取消编辑") { reset() } }
           ActionButton(title: saving ? "正在保存…" : editingID == nil ? "添加分类" : "保存修改", icon: "checkmark", color: Palette.blue) { save() }
             .disabled(saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 32 || description.count > 500)
+            .disabled(CategoryTone.canonicalHex(color) == nil)
             .keyboardShortcut("s", modifiers: .command)
         }
       }
@@ -114,9 +119,14 @@ struct CategoryManagerView: View {
   }
   private func edit(_ category: MailCategory) {
     editingID = category.id; name = category.name; description = category.description; error = nil
+    color = CategoryTone.hex(for: category.name, category: category)
   }
-  private func reset() { editingID = nil; name = ""; description = ""; error = nil }
+  private func reset() {
+    editingID = nil; name = ""; description = ""; error = nil
+    color = CategoryTone.suggestedHex(in: store.categories)
+  }
   private func save() {
+    guard let color = CategoryTone.canonicalHex(color) else { return }
     saving = true; error = nil
     let id = editingID
     let previousIDs = Set(store.categories.map(\.id))
@@ -124,7 +134,7 @@ struct CategoryManagerView: View {
       defer { saving = false }
       do {
         let response: CategoryResponse = try await BackendService.shared.request(id.map { "/categories/\($0)" } ?? "/categories",
-          method: id == nil ? "POST" : "PATCH", body: ["name": name, "description": description])
+          method: id == nil ? "POST" : "PATCH", body: ["name": name, "description": description, "color": color])
         try await store.refresh()
         if let category = response.categories.first(where: { id == nil ? !previousIDs.contains($0.id) : $0.id == id }) { edit(category) }
       } catch { self.error = error.localizedDescription }

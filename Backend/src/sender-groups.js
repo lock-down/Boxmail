@@ -42,9 +42,9 @@ function senderSnapshot(repo, where, params) {
 
 // Group over all matching metadata, then project only the requested mail headers.
 // A large newsletter must not consume every slot before another sender can appear.
-export function senderMessagePage(repo, { accountId, folder, filter, query = '', offset = 0,
+export function senderMessagePage(repo, { accountId, folder, filter, category, query = '', offset = 0,
   limit = 100, senderGroup, revealId } = {}) {
-  const { where, params } = repo.messageWhere({ accountId, folder, filter, query });
+  const { where, params } = repo.messageWhere({ accountId, folder, filter, category, query });
   const { metadata, groups } = senderSnapshot(repo, where, params);
   const header = repo.db.prepare(`SELECT ${messageHeaderJSON()} AS data,
     ${messagePreviewColumns()}

@@ -36,4 +36,9 @@ public struct MailUndoItem: Codable {
 public struct MailBatchResponse: Decodable {
   public let changedCount: Int
   public let undo: [MailUndoItem]
+  public var failures: [MailBatchFailure]?
+}
+public struct MailBatchFailure: Decodable {
+  public let accountId, message: String
+  public let updates: [MailUndoItem]
 }

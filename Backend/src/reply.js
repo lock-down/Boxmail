@@ -50,6 +50,7 @@ export function createReplyDraft(repo, id, options) {
   if (!message) throw new ServiceError('原邮件不存在，请刷新后重试', 404);
   const account = repo.get('account', message.accountId);
   if (!account) throw new ServiceError('原邮件所属账户不存在', 404);
-  const signature = repo.get('settings', 'settings')?.preferences.signature || '';
+  const preferences = repo.get('settings', 'settings')?.preferences;
+  const signature = preferences?.accountSignatures?.[message.accountId] ?? preferences?.signature ?? '';
   return repo.put('draft', buildReplyDraft(message, { ...account, signature }, options));
 }

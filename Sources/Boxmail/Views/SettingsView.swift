@@ -213,6 +213,8 @@ struct SettingsView: View {
               ("compose", "AI 写信"),
               ("translate", "邮件翻译"),
               ("conversationSummary", "会话总结"), ("conversationReply", "会话回复"),
+              ("question", "邮件问答"), ("compare", "附件比较"),
+              ("archiveSummary", "资料包总览"),
             ], id: \.0
           ) { item in
             SelectionButton(title: item.1, selected: promptTab == item.0, size: .compact) {
@@ -272,6 +274,7 @@ struct SettingsView: View {
     VStack(spacing: 16) {
       syncSettings
       readSettings
+      NotificationPreferencesView(preferences: $preferences, coordinator: store.notifications)
       composeSettings
       spamSettings
     }
@@ -285,6 +288,9 @@ struct SettingsView: View {
           Task { await store.syncAll() }
         }.disabled(store.busy.contains("sync"))
       }
+      Toggle("实时接收新邮件", isOn: Binding(
+        get: { preferences.realtimeSync ?? false }, set: { preferences.realtimeSync = $0 }
+      )).font(UIType.body)
       Text("应用打开时按间隔同步，并逐批补齐历史邮件。可在主窗口停止；下次同步会继续补齐。")
         .font(.system(size: 12)).foregroundStyle(Palette.muted)
     }

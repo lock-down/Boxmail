@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { ServiceError } from './validation.js';
+import { renameQueryCategory, ruleRevision } from './mail-query.js';
 
 export const DEFAULT_CATEGORIES = ['工作项目', '订阅资讯', '账单票据', '社交通知', '个人往来', '未分类'];
+export const isCategoryColor = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
 export function categoryCatalog(repo) {
   let catalog = repo.get('categoryCatalog', 'categories');
   if (!catalog) {
@@ -21,18 +23,26 @@ export function editCategory(repo, id, input = {}, remove = false) {
   if (previous?.id === 'unclassified') throw new ServiceError('未分类用于接收未整理邮件，不能修改或删除');
   const name = remove ? '未分类' : String(input.name ?? previous?.name ?? '').normalize('NFKC').trim();
   const description = String(input.description ?? previous?.description ?? '').trim();
+  const color = input.color === undefined ? previous?.color : input.color;
   if (!name || [...name].length > 32 || /[\r\n\u0000-\u001f]/u.test(name))
     throw new ServiceError('分类名称需为 1 至 32 个字符，不能包含换行');
   if (description.length > 500) throw new ServiceError('分类说明最多 500 个字符');
+  if (color != null && !isCategoryColor(color)) throw new ServiceError('分类颜色需要使用六位十六进制色值');
   if (!remove && categories.some(item => item.id !== id && item.name.toLocaleLowerCase() === name.toLocaleLowerCase()))
     throw new ServiceError('已有同名分类');
   if (!id && categories.length >= 100) throw new ServiceError('最多保存 100 个分类，请先整理已有分类');
   return repo.transaction(() => {
-    const item = { id: previous?.id || randomUUID(), name, description };
+    const item = { id: previous?.id || randomUUID(), name, description, ...(color ? { color: color.toUpperCase() } : {}) };
     const items = remove ? categories.filter(item => item.id !== id)
       : previous ? categories.map(value => value.id === id ? item : value) : [...categories, item];
     repo.put('categoryCatalog', { id: 'categories', items });
     if (previous && previous.name !== name) {
+      for (const view of repo.list('savedSearch')) if (renameQueryCategory(view.query, previous.name, name)) repo.put('savedSearch', view);
+      for (const rule of repo.list('mailRule')) {
+        let changed = renameQueryCategory(rule.query, previous.name, name);
+        if (rule.actions.category === previous.name) { rule.actions.category = name; changed = true; }
+        if (changed) repo.put('mailRule', { ...rule, revision: ruleRevision(rule.query, rule.actions) });
+      }
       repo.db.prepare("UPDATE records SET data=json_set(data,'$.category',?) WHERE kind='message' AND json_extract(data,'$.category')=?").run(name, previous.name);
       repo.invalidateMessagePreviews();
       repo.searchIndex.schedule();

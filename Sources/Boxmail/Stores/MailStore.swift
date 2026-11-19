@@ -5,13 +5,27 @@ import Observation
 import SwiftUI
 
 @Observable @MainActor final class MailStore {
+  let followUps: FollowUpStore
+  let sendQueue: SendQueueStore
+  let rules: RuleWorkspaceStore
+  let assistant: AssistantWorkspaceStore
+  let notifications: NotificationCoordinator
+  var attachmentWorkspaces: [String: AttachmentPageStore] = [:]
+  var attachmentPreviewIds: [String] = []
+  var attachmentPreviewIndex = 0
   @ObservationIgnored let backend: BackendService
   @ObservationIgnored let readMailPassword: @MainActor (String) throws -> String
   @ObservationIgnored var conversationBodyRequests: [String: UUID] = [:]
   @ObservationIgnored private var refreshGeneration = UUID()
   @ObservationIgnored private var draftOpenGeneration = UUID()
   init(backend: BackendService? = nil, readMailPassword: (@MainActor (String) throws -> String)? = nil) {
-    self.backend = backend ?? .shared
+    let service = backend ?? .shared
+    self.backend = service
+    followUps = FollowUpStore(backend: service)
+    sendQueue = SendQueueStore(backend: service)
+    rules = RuleWorkspaceStore(backend: service)
+    assistant = AssistantWorkspaceStore(backend: service)
+    notifications = NotificationCoordinator(backend: service)
     self.readMailPassword = readMailPassword ?? CredentialService.mailPassword(for:)
   }
 
@@ -19,6 +33,8 @@ import SwiftUI
   var messages: [MailMessage] = []
   var drafts: [MailDraft] = []
   var attachments: [MailAttachment] = []
+  @ObservationIgnored var lastWorkspaceStatus: WorkspaceStatusSnapshot?
+  var lastMessageRevision = 0
   var workspaceListRevision = 0
   var jobs: [AgentJob] = []
   var events: [AuditEvent] = []
@@ -26,15 +42,30 @@ import SwiftUI
   var categories = MailCategory.defaults
   var searchIndex: SearchIndexStatus?
   var searchAllAccounts = false
+  var unifiedInbox = false
+  var listCategory = ""
+  var showSummaryPreview = false
+  var savedSearches: [SavedSearch] = []
+  var activeSavedSearchId: String?
   var conversation: MailConversation?
   var conversationAnchor: String?
   var conversationError: String?
   var conversationBodies: [String: MailMessage] = [:]
-  var restoreRevision = 0
+  var restoreRevision = 0 {
+    didSet {
+      organizationWorkspaces = [:]
+      attachmentWorkspaces = [:]
+      mailSource = nil
+    }
+  }
   var accountId = ""
   var selectedMessageId: String?
   var selectedMessageIds: Set<String> = []
+  var mailListFocusRequest = 0
+  var restoredMailQueryKey: String?
   var mailRevealRequest: MailRevealRequest?
+  var mailSource: MailSourceContext?
+  var organizationWorkspaces: [String: OrganizationWorkspaceState] = [:]
   var selectionQueryKey = ""
   var mailChange: MailChange?
   var mailActionError: String?
@@ -83,6 +114,8 @@ import SwiftUI
   var senderRevealedMessage: MailMessage?
   @ObservationIgnored var senderGroupRevision = UUID()
   @ObservationIgnored var senderGroupGenerations: [String: UUID] = [:]
+  var listCategoryCounts: [String: Int] = [:]
+  var listUnreadCount = 0
   var pageTotal = 0
   var nextOffset: Int?
   var pageKey = ""
@@ -120,7 +153,7 @@ import SwiftUI
       selectedMails.first?.id == message.id else { return nil }
     return message
   }
-  var accountMessages: [MailMessage] { messages.filter { $0.accountId == accountId } }
+  var accountMessages: [MailMessage] { messages.filter { unifiedInbox && supportsUnifiedScope || $0.accountId == accountId } }
   var trashMessages: [MailMessage] { accountMessages.filter { $0.folder == "trash" } }
   var unreadInboxMessages: [MailMessage] {
     accountMessages.filter { $0.folder == "inbox" && $0.unread }
@@ -203,8 +236,13 @@ import SwiftUI
     guard generation == refreshGeneration, revision == restoreRevision else { return }
     measure("snapshot")
     accounts = state.accounts
+    organizationWorkspaces = organizationWorkspaces.filter { key, _ in accounts.contains { $0.id == key } }
+    if let source = mailSource, !accounts.contains(where: { $0.id == source.accountId }) {
+      mailSource = nil
+    }
     credentialIssueAccounts.formIntersection(accounts.map(\.id))
     messages = state.messages
+    lastMessageRevision = state.messageRevision ?? 0
     drafts = state.drafts
     let keptAttachments = Set(
       (selectedMessage?.attachmentIds ?? []) + [previewAttachment?.id].compactMap { $0 })
@@ -256,11 +294,16 @@ import SwiftUI
     }
   }
   func navigate(_ value: MailDestination) {
+    if mailSource?.destination == value { returnToMailSource(); return }
+    mailSource = nil
     mailRevealRequest = nil
+    restoredMailQueryKey = nil
     selectedMessageIds = []
     mailAITab = nil
     destination = value
     filter = "全部"
+    listCategory = ""
+    activeSavedSearchId = nil
     search = ""
     selectedMessageId = filteredMessages.first?.id
   }
@@ -277,6 +320,7 @@ import SwiftUI
   }
   func editDraft(_ id: String) {
     guard composer == nil else { return }
+    if drafts.first(where: { $0.id == id })?.status == "queued" { navigate(.outbox); return }
     guard let draft = drafts.first(where: { $0.id == id }), draft.status != "sending" else {
       error = "草稿已发送、移除或正在发送，请刷新后重试。"
       return
@@ -307,6 +351,16 @@ import SwiftUI
     }
   }
   func openMail(_ message: MailMessage, tab: MailAITab? = nil) {
+    if isMailWorkspace, filteredMessages.contains(where: { $0.id == message.id }) {
+      select(message); mailAITab = tab
+      mailRevealRequest = .init(messageId: message.id, queryKey: mailQueryKey)
+      return
+    }
+    if [.organize, .summary, .attachments].contains(destination) && search.isEmpty {
+      mailSource = captureSourceContext()
+    }
+    unifiedInbox = false
+    listCategory = ""
     accountId = message.accountId
     destination = MailDestination(rawValue: message.folder) ?? .inbox
     search = ""
@@ -321,7 +375,6 @@ import SwiftUI
     if tab == .translate { toggleTranslation(message); return }
     mailAITab = tab
     if activeAIMessageId != message.id { mailAIErrors[message.id] = nil }
-    if tab == .summary && message.summary == nil { generate(task: "summary", message: message) }
   }
   func update(_ message: MailMessage, _ changes: [String: Any], undoable: Bool = true) {
     if undoable {
@@ -369,12 +422,13 @@ import SwiftUI
       }
       composer = MailDraft(
         accountId: accountId,
-        body: settings.preferences.signature.isEmpty ? "" : "\n\n" + settings.preferences.signature)
+        body: signature(for: accountId).isEmpty ? "" : "\n\n" + signature(for: accountId))
     }
   }
   func runAI(
     task: String, message: MailMessage? = nil, attachment: MailAttachment? = nil,
     prompt: String = "", body: String = "", tone: String = "正式", length: String = "适中",
+    outputLanguage: String = "跟随来信", writingStyle: String = "",
     replyPreset: ReplyPreset? = nil, preview: Bool = false, background: Bool = false
   ) async throws -> AgentJob {
     let runsInBackground = background || ["summary", "reply"].contains(task)
@@ -387,7 +441,7 @@ import SwiftUI
       "task": task, "apiKey": key, "providerId": settings.ai.providerId,
       "accountId": message?.accountId ?? accountId, "prompt": prompt,
       "body": body,
-      "tone": tone, "length": length,
+      "tone": tone, "length": length, "outputLanguage": outputLanguage, "writingStyle": writingStyle,
     ]
     if let message { input["messageId"] = message.id }
     if let attachment { input["attachmentId"] = attachment.id }
@@ -423,7 +477,7 @@ import SwiftUI
   }
   func generate(
     task: String, message: MailMessage, attachment: MailAttachment? = nil, prompt: String = "",
-    replyPreset: ReplyPreset? = nil, preview: Bool = false
+    replyPreset: ReplyPreset? = nil, preview: Bool = false, tone: String = "正式", length: String = "适中"
   ) {
     guard !busy.contains("agent"), activeAIMessageId == nil else { return }
     if let tab = MailAITab(rawValue: task) { mailAITab = tab }
@@ -438,7 +492,7 @@ import SwiftUI
       do {
         let job = try await runAI(
           task: task, message: message, attachment: attachment, prompt: prompt,
-          replyPreset: replyPreset, preview: preview)
+          tone: tone, length: length, replyPreset: replyPreset, preview: preview)
         if !preview, let id = job.result?.draftId { editDraft(id) }
       } catch {
         mailAIErrors[message.id] = error.localizedDescription

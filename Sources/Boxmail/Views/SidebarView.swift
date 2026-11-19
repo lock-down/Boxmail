@@ -19,7 +19,7 @@ struct SidebarView: View {
         }.frame(width: 28, height: 28).accessibilityHidden(true)
         Text("Boxmail").font(.system(size: 14, weight: .semibold))
         Spacer(minLength: 0)
-      }.padding(.horizontal, 22).padding(.top, 38).padding(.bottom, 18)
+      }.padding(.horizontal, 20).padding(.top, 36).padding(.bottom, 16)
         .accessibilityElement(children: .combine).accessibilityLabel("Boxmail")
       ActionButton(title: "写邮件", icon: "square.and.pencil", color: Palette.blue,
         emphasis: .tinted, size: .form, fillsWidth: true, alignment: .leading) { store.newDraft() }
@@ -32,24 +32,30 @@ struct SidebarView: View {
             HStack(spacing: 8) {
               SenderAvatar(name: store.currentAccount?.sidebarName ?? "Boxmail", size: 30).fixedSize()
               VStack(alignment: .leading, spacing: 3) {
-                Text(store.currentAccount?.sidebarName ?? "添加邮箱账号").font(
+                Text(store.scopeTitle).font(
                   .system(size: 12, weight: .semibold)
                 ).lineLimit(1).truncationMode(.middle)
-                  .help(store.currentAccount?.sidebarName ?? "添加邮箱账号")
-                Text(store.currentAccount?.email ?? "连接你的邮箱").font(.system(size: 11))
+                  .help(store.scopeTitle)
+                Text(store.unifiedInbox && store.supportsUnifiedScope ? "跨账户收件与处理" : store.currentAccount?.email ?? "连接你的邮箱").font(.system(size: 11))
                   .foregroundStyle(
                     Palette.muted
                   ).lineLimit(1).truncationMode(.middle)
-                  .help(store.currentAccount?.email ?? "连接你的邮箱")
+                  .help(store.unifiedInbox && store.supportsUnifiedScope ? "跨账户收件与处理" : store.currentAccount?.email ?? "连接你的邮箱")
               }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
               Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundStyle(
                 Palette.muted).frame(width: 12)
-            }.padding(.horizontal, 7).frame(height: 58).contentShape(Rectangle())
+            }.padding(.horizontal, 8).frame(height: 56).contentShape(Rectangle())
           }.buttonStyle(ControlFeedback()).controlFocus()
             .popover(isPresented: $showAccounts) {
               VStack(alignment: .leading, spacing: 10) {
+                ActionButton(title: "所有账户", icon: "tray.full") {
+                  store.unifiedInbox = true
+                  store.navigate(.inbox)
+                  showAccounts = false
+                }
                 ForEach(store.accounts) { account in
                   Button {
+                    store.unifiedInbox = false
                     store.accountId = account.id
                     store.mailAITab = nil
                     store.selectedMessageId = store.filteredMessages.first?.id
@@ -85,12 +91,26 @@ struct SidebarView: View {
               }.padding(12).frame(width: 360)
             }
           sectionTitle("邮箱")
-          ForEach([MailDestination.inbox, .starred, .drafts, .sent, .trash, .archive, .spam, .attachments])
+          ForEach([MailDestination.inbox, .followUps, .starred, .drafts, .outbox, .sent, .trash, .archive, .spam, .attachments])
           {
             destination in row(destination)
           }
-          sectionTitle("智能工具").padding(.top, 7)
-          ForEach([MailDestination.summary, .organize]) { destination in
+          if !store.savedSearches.isEmpty { sectionTitle("保存的视图") }
+          ForEach(store.savedSearches) { saved in
+            Button { store.openSavedSearch(saved) } label: {
+              HStack(spacing: 8) {
+                Image(systemName: "bookmark").font(.system(size: UILayout.iconSize)).frame(width: 20)
+                Text(saved.name).font(UIType.body).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+              }.foregroundStyle(store.activeSavedSearchId == saved.id ? Palette.blue : Palette.muted)
+                .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
+                .background(store.activeSavedSearchId == saved.id ? Palette.blueSoft : .clear,
+                  in: RoundedRectangle(cornerRadius: UILayout.navigationRadius))
+            }.buttonStyle(ControlFeedback(selected: store.activeSavedSearchId == saved.id)).controlFocus()
+              .help(saved.name).accessibilityAddTraits(store.activeSavedSearchId == saved.id ? .isSelected : [])
+          }
+          sectionTitle("智能工具")
+          ForEach([MailDestination.organize, .rules]) { destination in
             row(destination)
           }
         }.padding(.horizontal, 12).padding(.bottom, 12)
@@ -131,27 +151,28 @@ struct SidebarView: View {
   private func sectionTitle(_ text: String) -> some View {
     Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.muted).frame(
       maxWidth: .infinity, alignment: .leading
-    ).padding(.leading, 10).padding(.top, 10).padding(.bottom, 6)
+    ).padding(.leading, 10).padding(.top, 16).padding(.bottom, 4)
   }
   private func count(_ destination: MailDestination) -> Int {
     switch destination {
     case .inbox: return store.unreadInboxMessages.count
     case .drafts: return store.drafts.filter { $0.accountId == store.accountId }.count
-    case .sent: return store.cachedMessageCount(accountId: store.accountId, folder: "sent")
+    case .sent: return store.cachedMessageCount(accountId: store.unifiedInbox && store.supportsUnifiedScope ? nil : store.accountId, folder: "sent")
     case .attachments: return store.accountAttachments.count
-    case .summary: return store.summaryOverviewMessages.count
     default: return 0
     }
   }
   private func row(_ destination: MailDestination) -> some View {
-    let selected = store.search.isEmpty && store.destination == destination
+    let selected = store.search.isEmpty && (store.destination == destination
+      || destination == .followUps && store.destination == .summary)
     return Button {
       store.navigate(destination)
     } label: {
-      HStack(spacing: 9) {
-        Image(systemName: destination.icon).font(.system(size: 14, weight: .regular)).frame(width: 18)
+      HStack(spacing: 8) {
+        Image(systemName: destination.icon).font(.system(size: UILayout.iconSize, weight: .regular)).frame(width: 20)
           .foregroundStyle(selected ? Palette.blue : Palette.muted)
-        Text(destination.title).font(.system(size: 13, weight: selected ? .semibold : .regular))
+        Text(destination == .followUps ? "邮件工作台" : destination.title)
+          .font(.system(size: 13, weight: selected ? .semibold : .regular))
         Spacer()
         if destination == .organize, store.latestOrganization?.status == "running" {
           ProgressView().controlSize(.mini)
@@ -162,7 +183,7 @@ struct SidebarView: View {
               selected ? Palette.blue : Palette.muted)
         }
       }.foregroundStyle(selected ? Palette.blue : Palette.ink)
-        .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 36)
+        .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 32)
         .contentShape(Rectangle()).background(
           selected ? Palette.blueSoft : Color.clear,
           in: RoundedRectangle(cornerRadius: UILayout.navigationRadius, style: .continuous))

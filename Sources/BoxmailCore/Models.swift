@@ -197,6 +197,8 @@ public struct Preferences: Codable, Hashable {
   public var markRead = true, launchAtLogin = false, notifications = false,
     blockRemoteImages = true, spamFilter = true
   public var signature = "", language = "简体中文"
+  public var accountSignatures: [String: String]?
+  public var newMailNotifications, followUpNotifications, badgeEnabled, realtimeSync: Bool?
   public init() {}
 }
 public struct SettingsData: Codable {
@@ -237,7 +239,7 @@ public enum MailAITab: String, CaseIterable, Identifiable {
   }
   public var icon: String {
     switch self {
-    case .summary: return "sparkles"
+    case .summary: return "text.alignleft"
     case .translate: return "character.bubble"
     case .attachment: return "doc.text.magnifyingglass"
     case .reply: return "arrowshape.turn.up.left"
@@ -274,6 +276,7 @@ public struct AppSnapshot: Codable {
   public var settings: SettingsData
   public var events: [AuditEvent]
   public var pendingMutations: Int
+  public var messageRevision: Int?
   public var sync: MailSyncSnapshot?
   public var categories: [MailCategory]?
   public var searchIndex: SearchIndexStatus?
@@ -285,6 +288,8 @@ public struct MailPage: Codable {
   public var senderGroups: [MailSenderGroup]?
   public var groupTotal: Int?
   public var revealedMessage: MailMessage?
+  public var categoryCounts: [String: Int]?
+  public var unreadCount: Int?
 }
 public struct MailSyncFolder: Codable, Identifiable {
   public var id, accountId, folder, status: String
@@ -314,7 +319,7 @@ extension MailDestination {
 }
 public enum MailDestination: String, CaseIterable, Identifiable {
   case inbox, starred, drafts, sent, attachments, trash, summary, replies, organize, analysis,
-    archive, spam
+    archive, spam, followUps, rules, outbox
   public var id: String { rawValue }
   public var title: String {
     switch self {
@@ -324,11 +329,14 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     case .sent: return "已发送"
     case .attachments: return "附件中心"
     case .trash: return "已删除"
-    case .summary: return "摘要集合"
+    case .summary: return "摘要"
     case .replies: return "自动回复"
     case .organize: return "智能整理"
     case .analysis: return "附件解析"
     case .archive: return "已归档"
+    case .followUps: return "跟进"
+    case .rules: return "规则与用量"
+    case .outbox: return "发送管理"
     case .spam: return "垃圾邮件"
     }
   }
@@ -340,11 +348,14 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     case .sent: return "paperplane"
     case .attachments: return "paperclip"
     case .trash: return "trash"
-    case .summary: return "sparkles"
+    case .summary: return "text.alignleft"
     case .replies: return "arrowshape.turn.up.left.2"
-    case .organize: return "wand.and.stars"
+    case .organize: return "tray.2"
     case .analysis: return "doc.text.magnifyingglass"
     case .archive: return "archivebox"
+    case .followUps: return "checklist"
+    case .rules: return "slider.horizontal.3"
+    case .outbox: return "tray.and.arrow.up"
     case .spam: return "exclamationmark.shield"
     }
   }

@@ -13,7 +13,7 @@ extension MailStore {
     filteredMessages.filter { selectedMessageIds.contains($0.id) && $0.draftId == nil }
   }
   var isMailWorkspace: Bool {
-    !search.isEmpty || [.inbox, .starred, .sent, .trash, .archive].contains(destination)
+    !search.isEmpty || supportsUnifiedScope
   }
 
   func reconcileMailSelection() {
@@ -100,7 +100,8 @@ extension MailStore {
       defer { busy.remove("mail-batch") }
       do {
         let result: MailBatchResponse = try await self.backend.request(
-          "/messages/batch", method: "POST", body: ["updates": updates])
+          "/messages/batch", method: "POST", body: ["updates": updates, "perAccount": true])
+        mailActionError = result.failures?.isEmpty == false ? result.failures?.map(\.message).joined(separator: "\n") : nil
         if result.changedCount == 0 && !undoing {
           if mailChange == nil { mailChange = MailChange(title: "邮件状态无需更改", undo: []) }
           return
@@ -108,7 +109,7 @@ extension MailStore {
         // Once committed, keep the undo even if refreshing the view fails.
         mailUndoManager?.removeAllActions(withTarget: self)
         mailChange = MailChange(title: result.changedCount == 0 ? "邮件状态无需更改"
-          : "\(title) · \(result.changedCount) 封", undo: undoing ? [] : result.undo)
+          : "\(title) · \(result.changedCount) 封", undo: undoing ? result.failures?.flatMap(\.updates) ?? [] : result.undo)
         do { try await refresh() }
         catch { mailActionError = "操作已保存，列表刷新未完成，请重新加载。" }
         if !undoing && !result.undo.isEmpty {

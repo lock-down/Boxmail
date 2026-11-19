@@ -12,6 +12,8 @@ struct PlainTextEditor: NSViewRepresentable {
   var accessibilityLabel: String
   var bottomAnchoredText = ""
   var onPaste: ((NSPasteboard) -> Bool)?
+  var submitShortcut: TextSubmitShortcut?
+  var onSubmit: (() -> Void)?
   @Environment(\.isEnabled) private var enabled
 
   func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
@@ -84,6 +86,8 @@ struct PlainTextEditor: NSViewRepresentable {
     textView.placeholder = placeholder
     textView.bottomAnchoredText = bottomAnchoredText
     textView.onPaste = onPaste
+    textView.submitShortcut = submitShortcut
+    textView.onSubmit = onSubmit
     textView.isEditable = enabled
     textView.setAccessibilityLabel(accessibilityLabel)
   }
@@ -124,6 +128,8 @@ class PlaceholderTextView: NSTextView {
   var placeholder = ""
   var bottomAnchoredText = ""
   var onPaste: ((NSPasteboard) -> Bool)?
+  var submitShortcut: TextSubmitShortcut?
+  var onSubmit: (() -> Void)?
   private var anchorInput: AnchorInput?
   private var updatingAnchor = false
 
@@ -211,6 +217,21 @@ class PlaceholderTextView: NSTextView {
   override func paste(_ sender: Any?) {
     if isEditable, onPaste?(.general) == true { return }
     super.paste(sender)
+  }
+
+  override func keyDown(with event: NSEvent) {
+    if isEditable, !hasMarkedText(), [36, 76].contains(event.keyCode), let submitShortcut {
+      if submitShortcut.matches(event.modifierFlags), let onSubmit {
+        onSubmit()
+        return
+      }
+      let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+      if modifiers.isEmpty || modifiers == .shift {
+        insertNewline(nil)
+        return
+      }
+    }
+    super.keyDown(with: event)
   }
 
   override func draw(_ dirtyRect: NSRect) {

@@ -18,6 +18,11 @@ extension MailStore {
             if event.type == "snapshot" {
               self.aiOutputs = Dictionary((event.outputs ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
             } else if let output = event.output {
+              if output.status != "running" && (output.task == "question" || output.task == "compare") {
+                // The assistant commits its own session through the ask response.
+                self.aiOutputs[output.id] = nil
+                return
+              }
               self.aiOutputs[output.id] = output
               if output.status != "running" {
                 Task {
@@ -45,17 +50,8 @@ extension MailStore {
       translatedMessageIds.remove(message.id)
       if mailAITab == .translate { mailAITab = nil }
     } else {
-      let needsTranslation = message.translation == nil || (message.html?.isEmpty == false && message.translationHTML == nil)
-      if needsTranslation, busy.contains("agent"), aiOutput(task: "translate", messageId: message.id) == nil {
-        notice = "AI 正在执行任务，完成后可翻译这封邮件。"
-        return
-      }
       translatedMessageIds.insert(message.id)
       mailAITab = .translate
-      // Legacy plain-text translations are regenerated once to recover the original layout.
-      if needsTranslation {
-        generate(task: "translate", message: message)
-      }
     }
   }
 
@@ -65,8 +61,7 @@ extension MailStore {
     if let output = aiOutput(task: "translate", messageId: message.id), !output.text.isEmpty {
       value.body = output.text
       value.html = output.html
-    } else if let text = message.translation,
-      message.html?.isEmpty != false || message.translationHTML != nil {
+    } else if let text = message.translation {
       value.body = text
       value.html = message.translationHTML
     }
