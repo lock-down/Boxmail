@@ -2,7 +2,7 @@
 
 后端由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护，使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖。客户端和后台领域服务按各自调用路径读取本机 `.env`，SQLite 结构版本仍为 2。
 
-本文对应 Boxmail 0.1.10 的本机 HTTP 接口。安装包内置 Node.js 26.13.1 LTS，开发构建使用本机通过版本检查的 Node.js。构建与打包见 [开发说明](../docs/DEVELOPMENT.md)。
+本文对应 Boxmail 0.1.11 的本机 HTTP 接口，接口与数据契约沿用 0.1.10。安装包内置 Node.js 26.13.1 LTS，开发构建使用本机通过版本检查的 Node.js。构建与打包见 [开发说明](../docs/DEVELOPMENT.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件信息折叠与按指针位置滚动仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 

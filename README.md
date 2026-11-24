@@ -4,7 +4,7 @@
 
 Boxmail 是 macOS 邮件客户端。它用 IMAP 和 SMTP 收发邮件，在本机保存邮件与索引。要使用 AI 功能，可以接入自己的 API 密钥，支持 OpenAI Responses、Chat Completions 和 Anthropic Messages。
 
-当前源码为 **0.1.10（build 49）**。这一版可以在右栏查问当前文件夹，把摘要待办收进跟进，也能先预览整理规则、安排邮件发送。功能及安装要求见 [0.1.10 更新说明](docs/RELEASE_NOTES.md)。公开版本和下载见 [GitHub Releases](https://github.com/lock-down/Boxmail/releases)。
+当前本地版本为 **0.1.11（build 50）**。这一版以 coss UI 规范重做原生界面，统一菜单、表格、日历、写信格式栏和 Remix Icon 图标。[0.1.11 更新说明](docs/RELEASE_NOTES.md) · [公开版本与下载](https://github.com/lock-down/Boxmail/releases)
 
 ## 功能
 
@@ -50,7 +50,7 @@ Boxmail 是 macOS 邮件客户端。它用 IMAP 和 SMTP 收发邮件，在本�
 
 产物位于 `dist/`，文件名为 `Boxmail-v<版本>-macos-<架构>-clean.zip`，附 SHA-256 校验文件。包内包含 App、Node.js、生产依赖、使用说明、更新说明和版本信息。包内记录完整源码提交号，新安装关闭演示数据。
 
-App 声明最低 macOS 14。本地 0.1.10 安装包在 Apple Silicon、macOS 27.2.1、Swift 6.4.2 和 Node.js 26.13.1 LTS 下验证，使用临时签名。安装与首次配置见 [使用指南](docs/USER_GUIDE.md)。
+App 声明最低 macOS 14。本地 0.1.11 安装包在 Apple Silicon、macOS 27.2.1、Swift 6.4.2 和 Node.js 26.13.1 LTS 下验证，使用临时签名。安装与首次配置见 [使用指南](docs/USER_GUIDE.md)。
 
 ## 文档
 
@@ -64,7 +64,7 @@ App 声明最低 macOS 14。本地 0.1.10 安装包在 Apple Silicon、macOS 27.
 | [Filo 对标调研](docs/research/FILO_BENCHMARK_2026-11-16.md) | Boxmail 日常版与 Filo 实机步骤、UI／UE 问题、官方资料及路线取舍，调研于 2026-11-16 |
 | [代码审查](docs/CODE_REVIEW.md) | 已完成的合并、保留边界与维护入口 |
 | [整封邮件 AI 上下文](docs/MAIL_AI_CONTEXT.md) | 正文与附件联合理解、模型调用、覆盖范围及兼容边界 |
-| [更新说明](docs/RELEASE_NOTES.md) | 0.1.10 的功能、修复与安装 |
+| [更新说明](docs/RELEASE_NOTES.md) | 0.1.11 的界面改动与安装 |
 | [变更记录](CHANGELOG.md) | 各版本变化和验证记录 |
 | 官网说明（独立分支） | 官网分支的 `README.md` 说明静态预览及发布维护；当前工作区副本位于 `website/` |
 

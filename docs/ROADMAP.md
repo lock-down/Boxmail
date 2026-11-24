@@ -2,7 +2,7 @@
 
 Boxmail 继续以通用 IMAP/SMTP、原生 macOS 界面和自带 API 密钥的 AI 功能为主。2026-11-16 的调研基于两个 Boxmail 账户和 Filo 2.4.8。
 
-0.1.10 本地版包含 R0 到 R5，功能范围见 [0.1.10 变更](../CHANGELOG.md#0110--2026-11-19)。Gmail、Outlook 专用接入和 OAuth 暂未排期。
+0.1.10 完成 R0 至 R5，0.1.11 本地版统一原生组件和图标。Gmail、Outlook 专用接入和 OAuth 暂未排期。[0.1.10 变更](../CHANGELOG.md#0110--2026-11-19) · [0.1.11 变更](../CHANGELOG.md#0111--2026-11-24)
 
 完整证据、文档与实机差异见 [Filo 对标调研](research/FILO_BENCHMARK_2026-11-16.md)。[UI 规范](DESIGN.md)保留现行实现，R0 已同步现行源码规范，R1-R5 现行交互已另列，D6、D7 保留为未实现候选。
 

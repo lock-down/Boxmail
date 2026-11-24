@@ -1,6 +1,6 @@
 # 开发与维护
 
-本文以 Boxmail 0.1.10（build 49）为准。客户端、后端与打包入口见下文。操作见 [使用指南](USER_GUIDE.md)，接口见 [后端文档](../Backend/README.md)。
+本文以 Boxmail 0.1.11（build 50）为准。客户端、后端与打包入口见下文。操作见 [使用指南](USER_GUIDE.md)，接口见 [后端文档](../Backend/README.md)。
 
 ## 源码入口
 
@@ -316,7 +316,7 @@ codesign --verify --deep --strict dist/Boxmail.app
 
 App 发布后，在官网独立分支同步版本、下载链接、系统要求及对应版本的指南链接。官网截图与功能说明以公开安装包为准，不将未发布的源码变化写成下载版能力；本地内容位于 `website/`，预览方式见官网分支的 `README.md`。
 
-发布模式用 Release 构建，只复制后端源码及生产依赖，关闭演示数据，不关闭或启动日常 App。`docs/USER_GUIDE.md` 复制为包内 `使用说明.md`，`docs/RELEASE_NOTES.md` 复制为 `更新说明.md`。两份说明均可在解压后直接阅读。`版本信息.txt`记录版本、源码标识和上海时区生成时间。产物在 `dist/`，日常 App 为 `dist/Boxmail.app`。
+发布模式以 Release 构建，包内含后端源码及生产依赖、SwiftPM 资源和内置运行时。界面图标位于 `Boxmail_Boxmail.bundle`，核心共享资源位于 `Boxmail_BoxmailCore.bundle`。发布包关闭演示数据，日常 App 在打包期间继续运行。`docs/USER_GUIDE.md` 复制为包内 `使用说明.md`，`docs/RELEASE_NOTES.md` 复制为 `更新说明.md`。两份说明均可在解压后直接阅读。`版本信息.txt`记录版本、源码标识和上海时区生成时间。产物在 `dist/`，日常 App 为 `dist/Boxmail.app`。
 
 已发布标签保持不动，同版本重打包使用新的 `v<版本>-repack.N` 标签。GitHub Release 按版本发布安装包；历史版本及源码可通过 Release、Git 提交与标签追溯。
 

@@ -64,6 +64,10 @@ R0 中，`OrganizationWorkspaceState` 按账户保存分类工作区状态，`Sc
 | 富文本样式与分页响应模型 | 双端必要校验和扁平 wire 字段各自保留，避免为少量常量引入额外加载或改变接口 |
 | 基准夹具与小段 AppKit 初始化 | 继续按各场景维护，没有足够收益支持额外抽象 |
 
+## 0.1.11 界面组件维护
+
+`CossMenu` 统一菜单和选择项，`CossPopover` 负责锚定浮层。`CossDatePicker` 处理搜索日期，定时发送与发送管理共用 `SendScheduleForm`。写信和分类共用 `CossColorEditor`，文本编辑仍由原生控件处理。界面 SVG 通过 `RemixGlyph` 引用，打包时核对图标资源及其许可文件。[UI 规范](DESIGN.md)
+
 ## 后续维护
 
 - 合并同一职责和同一业务规则，保留有依据的协议、生命周期与兼容差异。
