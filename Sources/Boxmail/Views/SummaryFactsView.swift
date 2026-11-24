@@ -20,7 +20,7 @@ struct SummaryFactsView: View {
             }
           }.font(UIType.caption).padding(.vertical, 7).padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-          if group.id != groups.last?.id { Divider().overlay(Palette.softBorder).padding(.leading, 10) }
+          if group.id != groups.last?.id { CossSeparator().padding(.leading, 10) }
         }
       }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
     }

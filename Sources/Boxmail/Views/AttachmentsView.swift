@@ -34,7 +34,7 @@ struct AttachmentsView: View {
             ? (pages.loading ? "正在更新附件…" : "保留上次加载的附件")
             : pages.visiblePage.map { "\($0.total) 个附件" } ?? "正在加载附件…"
         ).font(UIType.caption).monospacedDigit().foregroundStyle(Palette.muted)
-        if pages.loading { ProgressView().controlSize(.mini) }
+        if pages.loading { CossSpinner(size: 12) }
         Spacer(minLength: 8)
         comparisonControls
         if !pages.sourceMessageId.isEmpty {
@@ -95,7 +95,7 @@ struct AttachmentsView: View {
           Palette.muted
         ).monospacedDigit()
         ActionButton(title: "清除", size: .compact) { store.assistant.attachmentIds.removeAll() }
-        ActionButton(title: "比较附件", icon: "doc.on.doc", color: Palette.accent, emphasis: .tinted) {
+        ActionButton(title: "比较附件", icon: .fileCopyLine, color: Palette.accent, emphasis: .tinted) {
           store.assistant.beginAttachmentComparison()
         }.disabled(store.assistant.attachmentIds.count < 2 || store.assistant.busy)
       }
@@ -109,7 +109,7 @@ struct AttachmentsView: View {
         ? "添加邮箱并同步后，可以在这里查找和预览附件。"
         : hasFiles
           ? "当前搜索或文件类型没有结果，可以清除条件后查看全部附件。"
-          : "同步邮箱后，附件会集中显示在这里。", icon: "paperclip",
+          : "同步邮箱后，附件会集中显示在这里。", icon: .attachment2,
       actionTitle: store.currentAccount == nil
         ? "添加邮箱"
         : hasFiles

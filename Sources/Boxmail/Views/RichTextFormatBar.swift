@@ -10,37 +10,49 @@ struct RichTextFormatBar: View {
   @ViewState<String> private var customHex = RichTextStyle.defaultColor
 
   var body: some View {
-    HStack(spacing: UILayout.iconGap) {
-      formatButton("bold", help: "粗体（Command-B）", selected: controller.bold) {
+    HStack(spacing: 8) {
+      formatButton(.bold, help: "粗体（Command-B）", selected: controller.bold) {
         controller.toggleBold()
       }
-      colorMenu
-      WorkflowSelection(
-        title: "字号",
-        selection: Binding(
-          get: { controller.fontSize }, set: { if let size = $0 { controller.setFontSize(size) } }),
-        options: sizeOptions, style: .toolbar,
-        displayTitle: controller.fontSize == nil ? "混合" : nil
-      ).frame(width: 64, height: UILayout.iconControl)
-      formatButton("list.bullet", help: "项目符号列表", selected: controller.list == "bullet") {
-        controller.toggleList("bullet")
+      CossSeparator(axis: .vertical).frame(height: 18)
+      HStack(spacing: 4) {
+        fontSizeMenu
+        colorMenu
       }
-      formatButton("list.number", help: "编号列表", selected: controller.list == "numbered") {
-        controller.toggleList("numbered")
+      CossSeparator(axis: .vertical).frame(height: 18)
+      HStack(spacing: UILayout.iconGap) {
+        formatButton(.listUnordered, help: "项目符号列表", selected: controller.list == "bullet") {
+          controller.toggleList("bullet")
+        }
+        formatButton(.listOrdered, help: "编号列表", selected: controller.list == "numbered") {
+          controller.toggleList("numbered")
+        }
+        IconButton(icon: .link, help: "添加链接（Command-K）") { showingLink = true }
+          .cossPopover(isPresented: $showingLink) { linkEditor }
       }
-      IconButton(icon: "link", help: "添加链接（Command-K）") { showingLink = true }
-        .popover(isPresented: $showingLink) { linkEditor }
-    }
+    }.accessibilityElement(children: .contain).accessibilityLabel("富文本格式")
   }
 
-  private var sizeOptions: [(Double?, String)] {
+  private var fontSizeMenu: some View {
+    let size = controller.fontSize.map { $0.formatted(.number.grouping(.never)) + " pt" } ?? "混合字号"
+    return CossMenu(title: "字号", value: size, width: 148, emphasis: .secondary, prefersSelection: true) {
+      if controller.fontSize == nil { CossMenuItem.note("当前选区包含多个字号") }
+      for value in sizeOptions {
+        CossMenuItem.command(value.formatted(.number.grouping(.never)) + " pt",
+          mark: .choice(value == controller.fontSize)) { controller.setFontSize(value) }
+      }
+    } trigger: {
+      CossMenuLabel(title: size, icon: .fontSize, size: .compact)
+    }.fixedSize()
+  }
+
+  private var sizeOptions: [Double] {
     var sizes = RichTextStyle.fontSizes
     if let current = controller.fontSize, !sizes.contains(current) {
       sizes.append(current)
       sizes.sort()
     }
-    let options = sizes.map { (Optional($0), "\($0.formatted(.number.grouping(.never))) pt") }
-    return controller.fontSize == nil ? [(nil, "混合字号")] + options : options
+    return sizes
   }
 
   private var colorMenu: some View {
@@ -52,64 +64,50 @@ struct RichTextFormatBar: View {
         showingColor = true
       }
     )
-    .frame(width: UILayout.iconControl, height: UILayout.iconControl)
-    .popover(isPresented: $showingColor) {
+    .cossPopover(isPresented: $showingColor) {
       VStack(alignment: .leading, spacing: 12) {
-        Text("文字颜色").font(UIType.section)
-        ColorPicker(
-          "自定文字颜色",
-          selection: Binding(
-            get: { Color(nsColor: RichTextStyle.nsColor(customHex)) },
-            set: { customHex = RichTextStyle.hexColor(NSColor($0)) ?? RichTextStyle.defaultColor }
-          ), supportsOpacity: false)
-        HStack {
-          Text("色值").font(UIType.caption).foregroundStyle(Palette.muted)
-          TextField("#RRGGBB", text: $customHex).settingsTextInput()
-            .accessibilityLabel("十六进制色值").onSubmit { applyCustomColor() }
-        }
-        if !validCustomColor {
-          Text("请输入 # 开头的六位色值。").font(UIType.small).foregroundStyle(Palette.amber)
-        }
+        Text("自定文字颜色").font(UIType.section).accessibilityAddTraits(.isHeader)
+        CossColorEditor(hex: $customHex, fallbackHex: RichTextStyle.defaultColor, submit: applyCustomColor)
         HStack {
           ActionButton(title: "取消") { showingColor = false }
           Spacer()
-          ActionButton(title: "应用颜色", color: Palette.accent) {
+          ActionButton(title: "应用颜色", emphasis: .primary) {
             applyCustomColor()
           }.disabled(!validCustomColor)
         }
-      }.padding(16).frame(width: 260)
+      }.padding(16).frame(width: 320)
     }
   }
 
-  private var validCustomColor: Bool {
-    customHex.range(of: #"^#[0-9a-fA-F]{6}$"#, options: .regularExpression) != nil
-  }
+  private var validCustomColor: Bool { CategoryTone.canonicalHex(customHex) != nil }
 
   private func applyCustomColor() {
-    guard validCustomColor else { return }
-    controller.setColor(customHex)
+    guard let color = CategoryTone.canonicalHex(customHex) else { return }
+    controller.setColor(color)
     showingColor = false
   }
 
   private func formatButton(
-    _ icon: String, help: String, selected: Bool, action: @escaping () -> Void
+    _ icon: RemixGlyph, help: String, selected: Bool, action: @escaping () -> Void
   ) -> some View {
     IconButton(
-      icon: icon, help: help, color: selected ? Palette.blue : Palette.muted,
+      icon: icon, help: help, color: selected ? Palette.accent : Palette.muted,
       selected: selected, action: action
     )
   }
 
   private var linkEditor: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("添加链接").font(UIType.section)
-      TextField("https://example.com", text: $link).settingsTextInput()
-        .accessibilityLabel("链接地址").onSubmit { insertLink() }
-      if let linkError { Text(linkError).font(UIType.small).foregroundStyle(Palette.amber) }
+      Text("添加链接").font(UIType.section).accessibilityAddTraits(.isHeader)
+      WorkflowField(title: "链接地址") {
+        WorkflowTextInput(label: "链接地址", placeholder: "https://example.com", text: $link)
+          .onSubmit { insertLink() }
+      }
+      if let linkError { WorkflowNotice(text: linkError, icon: .errorWarningLine, color: Palette.destructive) }
       HStack {
         ActionButton(title: "取消") { showingLink = false }
         Spacer()
-        ActionButton(title: "插入链接", icon: "link", color: Palette.accent) { insertLink() }
+        ActionButton(title: "插入链接", icon: .link, emphasis: .primary) { insertLink() }
       }
     }.padding(16).frame(width: 320)
   }

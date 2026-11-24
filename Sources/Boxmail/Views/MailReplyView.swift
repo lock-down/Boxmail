@@ -35,7 +35,7 @@ struct MailReplyView: View {
           SelectionButton(title: preset.title, selected: selectedPreset == preset,
             size: .form, fillsWidth: true, surface: Palette.paper) {
             selectedPreset = preset
-          }.help(preset.detail)
+          }.cossTooltip(preset.detail)
             .disabled(store.busy.contains("agent"))
         }
       }
@@ -56,18 +56,13 @@ struct MailReplyView: View {
       )
       .textFieldStyle(.plain).lineLimit(2...4).font(.system(size: 12)).foregroundStyle(Palette.ink)
       .padding(.horizontal, 11).padding(.vertical, 10)
-      .background(Palette.paper, in: RoundedRectangle(cornerRadius: 8))
-      .overlay {
-        RoundedRectangle(cornerRadius: 8).strokeBorder(
-          requestFocused ? Palette.accent : Palette.accent.opacity(0.45),
-          lineWidth: requestFocused ? 1.6 : 1.2)
-      }
+      .controlFieldSurface(focused: requestFocused)
       .focused($requestFocused)
       .animation(UIMotion.feedback(reduceMotion), value: requestFocused)
       AIWritingParameters(tone: $tone, length: $length)
         .disabled(store.busy.contains("agent"))
       HStack {
-        ActionButton(title: preview == nil ? "生成回复预览" : "重新生成回复预览", icon: "sparkles", color: Palette.accent) { generate() }
+        ActionButton(title: preview == nil ? "生成回复预览" : "重新生成回复预览", icon: .sparkling2Line, color: Palette.accent) { generate() }
           .disabled(
             store.busy.contains("agent")
               || (selectedPreset == nil
@@ -86,15 +81,15 @@ struct MailReplyView: View {
             .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.accent)
             Spacer()
             CopyButton(help: "复制回复预览") { result.body ?? "" }
-            IconButton(icon: "xmark", help: "关闭回复预览") { hiddenPreviews.insert(preview.id) }
+            IconButton(icon: .closeLine, help: "关闭回复预览") { hiddenPreviews.insert(preview.id) }
           }
-          Divider()
+          CossSeparator()
           MailAIContextNotice(context: result.context, attachmentCount: message.attachmentIds.count)
           Text(result.subject ?? "").font(.system(size: 12, weight: .medium)).textSelection(
             .enabled)
           AnalysisDocumentView(text: result.body ?? "")
           HStack {
-            ActionButton(title: "使用内容", icon: "square.and.pencil", color: Palette.accent) {
+            ActionButton(title: "使用内容", icon: .editBoxLine, color: Palette.accent) {
               store.useReply(preview)
             }
             .disabled(store.busy.contains("agent") || store.busy.contains("use-reply"))

@@ -19,14 +19,17 @@ enum UIControlSize {
 }
 
 enum ButtonEmphasis {
-  case plain, tinted, secondary, primary
+  case plain, tinted, secondary, primary, destructive
+
+  var isSolid: Bool { self == .primary || self == .destructive }
 
   var surface: Color {
     switch self {
     case .plain: return .clear
-    case .tinted: return Palette.blueSoft
+    case .tinted: return Palette.accentSoft
     case .secondary: return Palette.paper
-    case .primary: return Palette.blue
+    case .primary: return Palette.primary
+    case .destructive: return Palette.destructive
     }
   }
 }
@@ -40,8 +43,8 @@ enum ControlStateAppearance {
     enabled: Bool, pressed: Bool, hovered: Bool, emphasis: ButtonEmphasis = .plain
   ) -> Double {
     guard enabled else { return 0 }
-    if pressed { return emphasis == .primary ? 0.16 : 0.08 }
-    return hovered ? emphasis == .primary ? 0.08 : 0.045 : 0
+    if pressed { return emphasis.isSolid ? 0.16 : 0.08 }
+    return hovered ? emphasis.isSolid ? 0.08 : 0.045 : 0
   }
 }
 
@@ -74,14 +77,16 @@ struct ControlFeedback: ButtonStyle {
         .contentShape(shape)
         .overlay {
           shape.fill(
-            (selected ? Palette.blue : Palette.ink).opacity(
+            (emphasis.isSolid ? Palette.primaryForeground : selected ? Palette.accent : Palette.ink).opacity(
               ControlStateAppearance.overlayOpacity(
                 enabled: enabled, pressed: configuration.isPressed, hovered: hovered, emphasis: emphasis)
             )
           ).allowsHitTesting(false)
         }
         .overlay {
-          if emphasis == .secondary { shape.strokeBorder(Palette.border, lineWidth: 1) }
+          if emphasis == .secondary {
+            shape.strokeBorder(Palette.border, lineWidth: 1).allowsHitTesting(false)
+          }
         }
         .opacity(enabled ? 1 : ControlStateAppearance.disabledOpacity)
         .onHover { hovered = $0 }
@@ -100,10 +105,10 @@ private struct ControlFocus: ViewModifier {
     content.focused($focused).overlay {
       if focused && enabled {
         RoundedRectangle(cornerRadius: corner + 3, style: .continuous)
-          .stroke(Palette.blue.opacity(ControlStateAppearance.focusOpacity), lineWidth: 2)
+          .stroke(Palette.accent.opacity(ControlStateAppearance.focusOpacity), lineWidth: 2)
           .padding(-3).allowsHitTesting(false)
       }
-    }
+    }.preference(key: CossControlFocusKey.self, value: focused && enabled)
   }
 }
 
@@ -120,5 +125,13 @@ extension View {
 
   func controlFocus(corner: CGFloat = UILayout.controlRadius) -> some View {
     modifier(ControlFocus(corner: corner))
+  }
+
+  func controlFieldSurface(focused: Bool, fill: Color = Palette.paper) -> some View {
+    let shape = RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
+    return background(fill, in: shape).overlay {
+      shape.strokeBorder(focused ? Palette.accent : Palette.border, lineWidth: focused ? 2 : 1)
+        .allowsHitTesting(false)
+    }
   }
 }

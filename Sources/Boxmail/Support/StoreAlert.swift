@@ -7,8 +7,8 @@ extension View {
     isPresented: @escaping () -> Bool,
     dismiss: @escaping () -> Void
   ) -> some View {
-    alert(title, isPresented: Binding(get: isPresented, set: { if !$0 { dismiss() } })) {
-      Button("确定") { dismiss() }
+    cossAlert(title, isPresented: Binding(get: isPresented, set: { if !$0 { dismiss() } })) {
+      CossAlertAction("确定")
     } message: {
       Text(text() ?? "")
     }

@@ -36,7 +36,7 @@ struct AssistantTurnView: View {
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
           .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.radius))
       }
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
     }
   }
 }

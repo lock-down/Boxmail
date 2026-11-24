@@ -12,7 +12,7 @@ struct AIResultDisclosure<Content: View>: View {
       HStack(spacing: 0) {
         Button { isExpanded.toggle() } label: {
           HStack(spacing: 9) {
-            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+            RemixIcon(.arrowRightSLine, size: 10)
               .rotationEffect(.degrees(isExpanded ? 90 : 0))
               .foregroundStyle(Palette.muted).frame(width: 12).accessibilityHidden(true)
             Text(title).font(.system(size: 12, weight: .medium)).lineLimit(2).multilineTextAlignment(.leading)
@@ -20,7 +20,7 @@ struct AIResultDisclosure<Content: View>: View {
           }.foregroundStyle(Palette.ink).padding(.horizontal, 12).padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(ControlFeedback()).controlFocus()
-          .accessibilityLabel(title).accessibilityValue(isExpanded ? "已展开" : "已收起").help(title)
+          .accessibilityLabel(title).accessibilityValue(isExpanded ? "已展开" : "已收起").cossTooltip(title)
         if let copy { CopyButton(help: copyHelp, action: copy).padding(.trailing, 6) }
       }
       if isExpanded {

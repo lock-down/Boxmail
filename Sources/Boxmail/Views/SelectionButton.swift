@@ -3,7 +3,7 @@ import SwiftUI
 /// Standalone choices and filter groups share the same control, including moving highlights.
 struct SelectionButton: View {
   let title: String
-  var icon: String? = nil
+  var icon: RemixGlyph? = nil
   var selected = false
   var size: UIControlSize = .regular
   var fillsWidth = false
@@ -18,7 +18,7 @@ struct SelectionButton: View {
   var body: some View {
     Button(action: action) {
       ActionLabel(title: title, icon: icon, font: size.font)
-        .foregroundStyle(selected ? appearance == .segmented ? Palette.ink : Palette.blue : Palette.muted)
+        .foregroundStyle(selected ? appearance == .segmented ? Palette.ink : Palette.accent : Palette.muted)
         .controlLabel(size: size, fillsWidth: fillsWidth)
         .background {
           ZStack {
@@ -42,7 +42,12 @@ struct SelectionButton: View {
   }
 
   private var selectedSurface: some View {
-    shape.fill(appearance == .segmented ? Palette.paper : Palette.blueSoft)
-      .shadow(color: .black.opacity(appearance == .segmented ? 0.07 : 0), radius: 2, x: 0, y: 1)
+    shape.fill(appearance == .segmented ? Palette.paper : Palette.accentSoft)
+      .overlay {
+        if appearance == .segmented {
+          shape.strokeBorder(Palette.softBorder, lineWidth: 1).allowsHitTesting(false)
+        }
+      }
+      .shadow(color: .black.opacity(appearance == .segmented ? 0.08 : 0), radius: 1, y: 1)
   }
 }

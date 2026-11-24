@@ -14,10 +14,13 @@ struct MailListFilters: View {
         categoryMenu
       }
       HStack(spacing: 6) {
-        Picker("邮件状态", selection: $store.filter) {
-          ForEach(statuses, id: \.self) { Text($0).tag($0) }
-        }.pickerStyle(.menu).labelsHidden().fixedSize()
-          .accessibilityLabel("邮件状态")
+        CossMenu(title: "邮件状态", value: store.filter, width: 156, prefersSelection: true) {
+          for status in statuses {
+            CossMenuItem.command(status, mark: .choice(status == store.filter)) { store.filter = status }
+          }
+        } trigger: {
+          CossMenuLabel(title: store.filter, size: .compact)
+        }.fixedSize()
         Spacer(minLength: 4)
         categoryMenu
       }
@@ -26,21 +29,18 @@ struct MailListFilters: View {
 
   private var categoryMenu: some View {
     let title = store.listCategory.isEmpty ? "全部分类" : store.listCategory
-    return Menu {
-      Picker("邮件分类", selection: $store.listCategory) {
-        Text("全部分类").tag("")
-        ForEach(store.categories) { category in
-          Text("\(category.name)（\(store.listCategoryCounts[category.name] ?? 0)）").tag(category.name)
-        }
-      }.pickerStyle(.inline)
-      Divider()
-      Button("管理分类…") { store.navigate(.organize) }
-    } label: {
-      ActionLabel(title: menuTitle(title, limit: 20), icon: "tag", font: UIControlSize.compact.font)
-        .foregroundStyle(store.listCategory.isEmpty ? Palette.muted : store.categoryTone(title).ink)
-        .controlLabel(size: .compact)
-    }.menuStyle(.borderlessButton).fixedSize()
-      .help(title).accessibilityLabel("邮件分类，\(title)")
+    return CossMenu(title: "邮件分类", value: title, prefersSelection: true) {
+      CossMenuItem.command("全部分类", mark: .choice(store.listCategory.isEmpty)) { store.listCategory = "" }
+      for category in store.categories {
+        CossMenuItem.command("\(category.name)（\(store.listCategoryCounts[category.name] ?? 0)）",
+          mark: .choice(category.name == store.listCategory)) { store.listCategory = category.name }
+      }
+      CossMenuItem.divider
+      CossMenuItem.command("管理分类…", icon: .settings3Line) { store.navigate(.organize) }
+    } trigger: {
+      CossMenuLabel(title: menuTitle(title, limit: 20), icon: .priceTag3Line, size: .compact,
+        color: store.listCategory.isEmpty ? Palette.muted : store.categoryTone(title).ink)
+    }.fixedSize().cossTooltip(title)
   }
 }
 
@@ -50,10 +50,10 @@ struct SaveMailQueryButton: View {
   @ViewState private var name = ""
 
   var body: some View {
-    IconButton(icon: store.activeSavedSearchId == nil ? "bookmark" : "bookmark.fill", help: "保存当前查询", size: 28) {
+    IconButton(icon: store.activeSavedSearchId == nil ? .bookmarkLine : .bookmarkFill, help: "保存当前查询", size: 28) {
       name = store.savedSearches.first { $0.id == store.activeSavedSearchId }?.name ?? ""; saving = true
     }
-    .popover(isPresented: $saving) {
+    .cossPopover(isPresented: $saving) {
       VStack(alignment: .leading, spacing: 12) {
         Text("保存查询").font(UIType.section)
         Text("\(store.scopeTitle) · \(store.destination.title) · \(store.filter) · \(store.listCategory.isEmpty ? "全部分类" : store.listCategory)")

@@ -5,6 +5,7 @@ struct DateTimeSelection: View {
   let title: String
   @Binding var date: Date
   var wholeHours = false
+  private var calendar: Calendar { .current }
   private var day: Binding<Date?> {
     Binding(get: { date }, set: { value in
       guard let value else { return }
@@ -12,32 +13,34 @@ struct DateTimeSelection: View {
         date = FollowUpHour.move(date, to: value)
         return
       }
-      let time = Calendar.current.dateComponents([.hour, .minute], from: date)
-      if let selected = Calendar.current.date(bySettingHour: time.hour ?? 0,
+      let time = calendar.dateComponents([.hour, .minute], from: date)
+      if let selected = calendar.date(bySettingHour: time.hour ?? 0,
         minute: time.minute ?? 0, second: 0, of: value) { date = selected }
     })
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
+      CalendarMonthView(title: title, selection: day)
+      CossSeparator()
       if wholeHours {
-        HStack(alignment: .center, spacing: 16) {
-          CalendarMonthView(title: title, selection: day)
-          VStack(spacing: 8) {
-            Text("整点").font(UIType.caption).foregroundStyle(Palette.muted)
-            HourScrollPicker(title: title, date: $date)
-          }
+        WorkflowField(title: "整点") {
+          WorkflowSelection(title: title + "整点",
+            selection: Binding(get: { calendar.component(.hour, from: date) }, set: { hour in
+              if let selected = FollowUpHour.time(on: date, hour: hour, calendar: calendar) {
+                date = selected
+              }
+            }), options: FollowUpHour.hours(on: date, calendar: calendar).map { ($0, String(format: "%02d:00", $0)) })
+            .frame(width: 156)
         }
-        Divider().overlay(Palette.softBorder)
       } else {
-        CalendarMonthView(title: title, selection: day)
-        Divider().overlay(Palette.softBorder)
-        HStack {
-          Text("时间").font(UIType.body)
-          Spacer()
-          DatePicker(title, selection: $date, displayedComponents: .hourAndMinute)
-            .datePickerStyle(.field).labelsHidden().font(UIType.body)
-            .accessibilityLabel(title)
-        }
+        HStack(spacing: 12) {
+          WorkflowField(title: "小时") {
+            CossNumberField(title: title + "小时", value: time(.hour), range: 0...23, digits: 2)
+          }
+          WorkflowField(title: "分钟") {
+            CossNumberField(title: title + "分钟", value: time(.minute), range: 0...59, digits: 2)
+          }
+        }.frame(maxWidth: 244)
       }
       HStack(spacing: 8) {
         ActionButton(title: wholeHours ? "下个整点" : "一小时后", emphasis: .secondary, size: .compact) {
@@ -54,6 +57,17 @@ struct DateTimeSelection: View {
         .font(UIType.small).foregroundStyle(Palette.muted).monospacedDigit()
     }
   }
+
+  private func time(_ component: Calendar.Component) -> Binding<Int> {
+    Binding(get: { calendar.component(component, from: date) }, set: { value in
+      let hour = component == .hour ? value : calendar.component(.hour, from: date)
+      let minute = component == .minute ? value : calendar.component(.minute, from: date)
+      if let selected = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: date,
+        matchingPolicy: .strict), calendar.isDate(selected, inSameDayAs: date) {
+        date = selected
+      }
+    })
+  }
 }
 
 struct FollowUpDateTimeField: View {
@@ -62,10 +76,10 @@ struct FollowUpDateTimeField: View {
   @ViewState<Bool> private var showingCalendar = false
   @ViewState<Date> private var selection = .now
   var body: some View {
-    SearchDatePicker(title: title, value: .constant(date.formatted(date: .abbreviated, time: .shortened))) {
+    CossDateTrigger(title: title, value: date.formatted(date: .abbreviated, time: .shortened)) {
       selection = FollowUpHour.roundedUp(date)
       showingCalendar = true
-    }.popover(isPresented: $showingCalendar) {
+    }.cossPopover(isPresented: $showingCalendar) {
       VStack(alignment: .leading, spacing: 16) {
         Text(title).font(UIType.heading)
         DateTimeSelection(title: title, date: $selection, wholeHours: true)
@@ -76,7 +90,7 @@ struct FollowUpDateTimeField: View {
             showingCalendar = false
           }
         }
-      }.padding(24).frame(width: 480).background(Palette.paper)
+      }.padding(24).frame(width: 360).background(Palette.paper)
     }
   }
 }

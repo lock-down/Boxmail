@@ -37,14 +37,15 @@ struct MailAttachmentSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Label("\(message.attachmentIds.count) 个附件", systemImage: "paperclip")
+        Label("\(message.attachmentIds.count) 个附件", icon: .attachment2)
           .font(.system(size: 12, weight: .semibold))
         Spacer()
-        IconMenu(icon: "ellipsis", help: "附件更多操作") {
-          Button("只看此邮件附件") { store.showAttachments(from: message) }
-          Button(buttonTitle) {
+        IconMenu(icon: .moreLine, help: "附件更多操作") {
+          CossMenuItem.command("只看此邮件附件", icon: .attachment2) { store.showAttachments(from: message) }
+          CossMenuItem.command(buttonTitle, icon: .fileSearchLine,
+            enabled: !running && !controlling && !store.busy.contains("agent")) {
             startAnalysis(force: unfinished == 0, retry: retryable ? job : nil)
-          }.disabled(running || controlling || store.busy.contains("agent"))
+          }
         }
       }
       if let job {
@@ -53,7 +54,7 @@ struct MailAttachmentSection: View {
       Text("顶部“整封理解”会结合正文与附件。需要单文件分析时，打开附件或使用右侧菜单。")
         .font(UIType.small).foregroundStyle(Palette.muted)
       if let error = store.attachmentBatchErrors[message.id] {
-        Label(error, systemImage: "exclamationmark.circle").font(.system(size: 11))
+        Label(error, icon: .errorWarningLine).font(.system(size: 11))
           .foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
       }
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 9)], spacing: 9) {
@@ -83,11 +84,11 @@ struct MailAttachmentSection: View {
         }
       }
     }.padding(.top, 8)
-      .confirmationDialog("分批理解附件", isPresented: $confirmBatch, titleVisibility: .visible) {
-        Button("理解本批 \(batchSelection.count) 个附件") {
+      .cossAlert("分批理解附件", isPresented: $confirmBatch) {
+        CossAlertAction("取消", role: .cancel)
+        CossAlertAction("理解本批 \(batchSelection.count) 个附件", enabled: !batchSelection.isEmpty) {
           store.analyzeAttachments(in: message, force: forceBatch, attachmentIds: batchSelection)
-        }.disabled(batchSelection.isEmpty)
-        Button("取消", role: .cancel) {}
+        }
       } message: {
         Text("本次最多发起 \(batchSelection.count) 次模型请求，费用由当前 AI 服务商计收。其余附件可在本批结束后继续。")
       }
@@ -107,7 +108,7 @@ struct MailAttachmentSection: View {
   private func progress(_ job: AgentJob) -> some View {
     VStack(alignment: .leading, spacing: 9) {
       HStack(spacing: 8) {
-        if running { ProgressView().controlSize(.mini) }
+        if running { CossSpinner(size: 12) }
         Text(statusTitle(job)).font(.system(size: 11, weight: .medium))
           .contentTransition(reduceMotion ? .identity : .numericText())
         Spacer()
@@ -121,6 +122,7 @@ struct MailAttachmentSection: View {
       }.foregroundStyle(Palette.accent)
       if running {
         ProgressView(value: Double(items.filter(\.isFinished).count), total: Double(max(1, items.count)))
+            .progressViewStyle(CossProgressStyle())
         if let item = items.first(where: { $0.status == "running" }) {
           Text("正在理解：\(item.name)").lineLimit(1).truncationMode(.middle)
         }

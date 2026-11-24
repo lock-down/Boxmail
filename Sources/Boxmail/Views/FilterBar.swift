@@ -14,12 +14,13 @@ struct FilterBar: View {
     HStack(spacing: 4) {
       ForEach(values, id: \.self) { value in
         SelectionButton(title: value, selected: selection == value,
-          size: compact ? .compact : .regular, fillsWidth: fillsWidth, highlight: highlight) {
+          size: compact ? .compact : .regular, fillsWidth: fillsWidth,
+          appearance: .segmented, highlight: highlight) {
           withAnimation(UIMotion.selection(reduceMotion)) { selection = value }
           onSelect(value)
         }
       }
-    }.fixedSize(horizontal: !fillsWidth, vertical: false)
+    }.segmentedSurface().fixedSize(horizontal: !fillsWidth, vertical: false)
   }
 }
 
@@ -38,10 +39,15 @@ struct SegmentedSelection: View {
           withAnimation(UIMotion.selection(reduceMotion)) { selection = value }
         }
       }
-    }.padding(4)
-      .background(
-        Palette.sidebar,
-        in: RoundedRectangle(cornerRadius: UILayout.segmentRadius, style: .continuous))
+    }.segmentedSurface()
       .accessibilityElement(children: .contain).accessibilityLabel(title)
+  }
+}
+
+extension View {
+  func segmentedSurface() -> some View {
+    padding(UILayout.segmentInset)
+      .background(Palette.sidebar,
+        in: RoundedRectangle(cornerRadius: UILayout.segmentRadius, style: .continuous))
   }
 }

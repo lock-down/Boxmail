@@ -21,7 +21,7 @@ struct CopyButton: View {
     self.init(help: help) { NSPasteboard.general.copy(text()) }
   }
   var body: some View {
-    IconButton(icon: copied ? "checkmark" : "doc.on.doc", help: copied ? "已复制" : help,
+    IconButton(icon: copied ? .checkLine : .fileCopyLine, help: copied ? "已复制" : help,
       color: copied ? Palette.success : Palette.muted) {
       action()
       copied = true

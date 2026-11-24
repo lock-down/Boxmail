@@ -237,15 +237,6 @@ public enum MailAITab: String, CaseIterable, Identifiable {
     case .conversation: return "会话 AI"
     }
   }
-  public var icon: String {
-    switch self {
-    case .summary: return "text.alignleft"
-    case .translate: return "character.bubble"
-    case .attachment: return "doc.text.magnifyingglass"
-    case .reply: return "arrowshape.turn.up.left"
-    case .conversation: return "bubble.left.and.bubble.right"
-    }
-  }
 }
 public struct AgentResult: Codable {
   public var context: MailAIContext?
@@ -338,25 +329,6 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     case .rules: return "规则与用量"
     case .outbox: return "发送管理"
     case .spam: return "垃圾邮件"
-    }
-  }
-  public var icon: String {
-    switch self {
-    case .inbox: return "tray"
-    case .starred: return "star"
-    case .drafts: return "square.and.pencil"
-    case .sent: return "paperplane"
-    case .attachments: return "paperclip"
-    case .trash: return "trash"
-    case .summary: return "text.alignleft"
-    case .replies: return "arrowshape.turn.up.left.2"
-    case .organize: return "tray.2"
-    case .analysis: return "doc.text.magnifyingglass"
-    case .archive: return "archivebox"
-    case .followUps: return "checklist"
-    case .rules: return "slider.horizontal.3"
-    case .outbox: return "tray.and.arrow.up"
-    case .spam: return "exclamationmark.shield"
     }
   }
   public var isAI: Bool { [.summary, .replies, .organize, .analysis].contains(self) }

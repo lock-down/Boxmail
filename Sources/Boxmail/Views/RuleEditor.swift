@@ -73,7 +73,7 @@ struct RuleEditor: View {
               .font(UIType.small).foregroundStyle(Palette.muted)
           }
           if let error = workspace.error { WorkflowNotice(text: error, color: Palette.amber) }
-        }.font(UIType.body).toggleStyle(.checkbox).padding(16).frame(maxWidth: 800)
+        }.font(UIType.body).toggleStyle(CossToggleStyle()).padding(16).frame(maxWidth: 800)
           .frame(maxWidth: .infinity)
       }
       SettingsActionBar(

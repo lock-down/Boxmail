@@ -25,7 +25,7 @@ struct SummaryOverviewView: View {
       toolbar
       if let change = store.summaryListChange, change.accountId == store.accountId {
         HStack(spacing: 10) {
-          Image(systemName: "checkmark.circle").foregroundStyle(Palette.success)
+          RemixIcon(.checkboxCircleLine).foregroundStyle(Palette.success)
             .accessibilityHidden(true)
           Text(
             change.hidden
@@ -35,17 +35,17 @@ struct SummaryOverviewView: View {
           .font(UIType.caption).foregroundStyle(Palette.muted)
           .fixedSize(horizontal: false, vertical: true)
           Spacer(minLength: 8)
-          ActionButton(title: "撤销", icon: "arrow.uturn.backward", color: Palette.accent) {
+          ActionButton(title: "撤销", icon: .arrowGoBackLine, color: Palette.accent) {
             store.undoSummaryListChange()
           }
           .disabled(store.changingSummaryList)
-          IconButton(icon: "xmark", help: "关闭摘要列表提示", size: 28) { store.summaryListChange = nil }
+          IconButton(icon: .closeLine, help: "关闭摘要列表提示", size: 28) { store.summaryListChange = nil }
         }.padding(.horizontal, 14).padding(.vertical, 8)
           .background(Palette.accentSoft.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
           .transition(.opacity)
       }
       if let error = store.summaryListError {
-        WorkflowNotice(text: error, icon: "exclamationmark.circle", color: Palette.amber)
+        WorkflowNotice(text: error, icon: .errorWarningLine, color: Palette.amber)
       }
       if let progress = store.unreadSummaryProgress {
         Text(progress).font(UIType.caption).foregroundStyle(Palette.muted)
@@ -116,7 +116,7 @@ struct SummaryOverviewView: View {
           subtitle: showingRemoved
             ? "从列表移除的摘要会出现在这里，可随时恢复。"
             : removed.isEmpty ? "打开邮件后点击“AI 总结”，或在这里总结未读邮件。" : "邮件内的总结仍然保留，可在“已移除”中恢复。",
-          icon: showingRemoved ? "tray" : "sparkles"
+          icon: showingRemoved ? .inboxLine : .sparkling2Line
         )
         .frame(minHeight: 240)
       }
@@ -133,23 +133,23 @@ struct SummaryOverviewView: View {
           showingRemoved = true
         }
         Spacer(minLength: 8)
-        if store.changingSummaryList { ProgressView().controlSize(.small) }
+        if store.changingSummaryList { CossSpinner() }
         ActionButton(
-          title: selecting ? "取消多选" : "多选", icon: selecting ? "xmark" : "checklist",
+          title: selecting ? "取消多选" : "多选", icon: selecting ? .closeLine : .listCheck3,
           color: Palette.accent, size: .compact
         ) {
           selecting.toggle()
           selected = []
         }.disabled(messages.isEmpty || store.changingSummaryList)
         if !showingRemoved {
-          ActionButton(title: "清空列表", icon: "tray", size: .compact,
+          ActionButton(title: "清空列表", icon: .inboxLine, size: .compact,
             help: "清空摘要列表（邮件内的总结与待办仍会保留）") {
             store.setSummaryVisibility(hidden: true, all: true)
           }.disabled(listed.isEmpty || store.changingSummaryList)
         }
         ActionButton(
           title: store.busy.contains("summarize-unread") ? "正在总结…" : "总结未读邮件",
-          icon: "sparkles", color: Palette.accent, emphasis: .tinted, size: .compact
+          icon: .sparkling2Line, color: Palette.accent, emphasis: .tinted, size: .compact
         ) { store.summarizeUnread() }.disabled(
           store.busy.contains("summarize-unread") || store.busy.contains("agent")
             || store.unreadInboxMessages.allSatisfy { $0.summary != nil })
@@ -160,7 +160,7 @@ struct SummaryOverviewView: View {
             selected = selected == messageIDs ? [] : messageIDs
           } label: {
             HStack(spacing: 7) {
-              Image(systemName: selected == messageIDs ? "checkmark.square.fill" : "square")
+              RemixIcon(selected == messageIDs ? .checkboxFill : .checkboxBlankLine)
                 .frame(width: 16).foregroundStyle(Palette.accent)
               Text(selected == messageIDs ? "取消全选" : "全选")
             }.font(UIType.caption).padding(.horizontal, 8).frame(height: UIControlSize.regular.height)
@@ -170,7 +170,7 @@ struct SummaryOverviewView: View {
           Spacer()
           ActionButton(
             title: showingRemoved ? "恢复选中" : "移除选中",
-            icon: showingRemoved ? "arrow.uturn.backward" : "minus.circle", color: Palette.accent
+            icon: showingRemoved ? .arrowGoBackLine : .indeterminateCircleLine, color: Palette.accent
           ) {
             store.setSummaryVisibility(ids: Array(selected), hidden: !showingRemoved)
           }.disabled(selected.isEmpty || store.changingSummaryList)
@@ -192,8 +192,8 @@ struct SummaryOverviewView: View {
               selected.insert(message.id)
             }
           } label: {
-            Image(systemName: selected.contains(message.id) ? "checkmark.square.fill" : "square")
-              .font(.system(size: 16)).foregroundStyle(
+            RemixIcon(selected.contains(message.id) ? .checkboxFill : .checkboxBlankLine, size: 16)
+              .foregroundStyle(
                 selected.contains(message.id) ? Palette.accent : Palette.muted
               )
               .frame(width: UILayout.iconControl, height: UILayout.iconControl)
@@ -203,17 +203,17 @@ struct SummaryOverviewView: View {
         }
         VStack(alignment: .leading, spacing: 6) {
           Text(message.subject).font(.system(size: 15, weight: .semibold)).lineSpacing(3)
-            .lineLimit(2).help(message.subject).textSelection(.enabled)
+            .lineLimit(2).cossTooltip(message.subject).textSelection(.enabled)
           Text("\(message.sender) · \(displayTime(message.date))").font(UIType.small)
             .foregroundStyle(Palette.muted)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 3)
         HStack(spacing: 4) {
           if message.summary != nil { disclosure(for: message.id) }
-          IconButton(icon: "arrow.up.right", help: "打开邮件", color: Palette.accent, size: 28) {
+          IconButton(icon: .arrowRightUpLine, help: "打开邮件", color: Palette.accent, size: 28) {
             store.openMail(message, tab: .summary)
           }
           IconButton(
-            icon: showingRemoved ? "arrow.uturn.backward" : "minus.circle",
+            icon: showingRemoved ? .arrowGoBackLine : .indeterminateCircleLine,
             help: showingRemoved ? "恢复摘要：\(message.subject)" : "从列表移除：\(message.subject)", size: 30
           ) {
             store.setSummaryVisibility(ids: [message.id], hidden: !showingRemoved)
@@ -252,7 +252,7 @@ struct SummaryOverviewView: View {
       .overlay {
         if selecting && selected.contains(message.id) {
           RoundedRectangle(cornerRadius: UILayout.radius).stroke(
-            Palette.blue.opacity(0.55), lineWidth: 1
+            Palette.accent.opacity(0.55), lineWidth: 1
           )
           .allowsHitTesting(false)
         }
@@ -262,7 +262,7 @@ struct SummaryOverviewView: View {
   private func disclosure(for id: String) -> some View {
     let isExpanded = expanded.contains(id)
     return ActionButton(title: isExpanded ? "收起详情" : "展开详情",
-      icon: isExpanded ? "chevron.up" : "chevron.down", color: Palette.muted, size: .compact) {
+      icon: isExpanded ? .arrowUpSLine : .arrowDownSLine, color: Palette.muted, size: .compact) {
       withAnimation(UIMotion.disclosure(reduceMotion)) {
         if isExpanded { expanded.remove(id) }
         else { expanded.insert(id) }

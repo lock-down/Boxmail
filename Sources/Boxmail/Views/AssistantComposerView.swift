@@ -20,13 +20,12 @@ struct AssistantComposerView: View {
         Spacer(minLength: 0)
         sendControls
       }.padding(.trailing, 4)
-    }.padding(4).background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
-      .overlay { RoundedRectangle(cornerRadius: UILayout.radius).strokeBorder(Palette.border, lineWidth: 1) }
+    }.padding(4).framedSurface()
   }
 
   @ViewBuilder private var sendControls: some View {
       if workspace.askingSessionID != nil {
-        ActionButton(title: "停止", icon: "stop.fill", size: .compact, help: "停止回答") {
+        ActionButton(title: "停止", icon: .stopFill, size: .compact, help: "停止回答") {
           Task { await workspace.stop() }
         }.disabled(workspace.stopping)
       } else {
@@ -34,25 +33,21 @@ struct AssistantComposerView: View {
           Button(action: sendIfReady) {
             HStack(spacing: 6) {
               Text(shortcut.keycap).font(UIType.small)
-              Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold))
+              RemixIcon(.arrowUpLine, size: 12)
                 .accessibilityHidden(true)
-            }.foregroundStyle(canSend ? Color.white : Palette.muted)
+            }.foregroundStyle(canSend ? Palette.primaryForeground : Palette.muted)
               .padding(.horizontal, 8).frame(height: 24)
           }.buttonStyle(ControlFeedback(emphasis: canSend ? .primary : .plain)).controlFocus()
             .disabled(!canSend).accessibilityLabel("发送问题")
-            .help("\(shortcut.title)，\(shortcut.newlineHint)")
-          Menu {
-            ForEach(TextSubmitShortcut.allCases, id: \.self) { value in
-              Button { shortcut = value } label: {
-                if value == shortcut { Label(value.title, systemImage: "checkmark") }
-                else { Text(value.title) }
-              }
+            .cossTooltip("\(shortcut.title)，\(shortcut.newlineHint)")
+          CossMenu(title: "选择发送快捷键", value: shortcut.title, prefersSelection: true) {
+            for value in TextSubmitShortcut.allCases {
+              CossMenuItem.command(value.title, mark: .choice(value == shortcut)) { shortcut = value }
             }
-          } label: {
-            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+          } trigger: {
+            RemixIcon(.arrowDownSLine, size: 9)
               .foregroundStyle(Palette.muted).frame(width: 22, height: 28)
-          }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .help("\(shortcut.title)，\(shortcut.newlineHint)").accessibilityLabel("选择发送快捷键")
+          }.cossTooltip("\(shortcut.title)，\(shortcut.newlineHint)")
         }
       }
   }

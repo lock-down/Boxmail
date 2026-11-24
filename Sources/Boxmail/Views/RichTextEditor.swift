@@ -76,12 +76,12 @@ struct RichTextEditor: NSViewRepresentable {
     view.placeholder = placeholder
     view.bottomAnchoredText = signature
     view.textContainerInset = NSSize(width: 24, height: 18)
-    view.insertionPointColor = NSColor(Palette.blue)
+    view.insertionPointColor = NSColor(Palette.accent)
     view.linkTextAttributes = [
       .underlineStyle: NSUnderlineStyle.single.rawValue
     ]
     view.selectedTextAttributes = [
-      .backgroundColor: NSColor(Palette.blueSoft), .foregroundColor: NSColor(Palette.ink),
+      .backgroundColor: NSColor(Palette.accentSoft), .foregroundColor: NSColor(Palette.ink),
     ]
     view.isEditable = enabled
     view.setAccessibilityLabel(accessibilityLabel)

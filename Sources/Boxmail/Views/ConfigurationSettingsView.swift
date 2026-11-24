@@ -10,19 +10,19 @@ struct ConfigurationSettingsView: View {
   @ViewState<PendingConfigurationImport?> private var pending: PendingConfigurationImport?
 
   var body: some View {
-    SectionCard(title: "配置导出与导入", icon: "slider.horizontal.3") {
+    SectionCard(title: "配置导出与导入", icon: .equalizer3Line) {
       VStack(alignment: .leading, spacing: 18) {
-        SettingsTransferRow(title: "导出配置", detail: "邮箱账号与授权码、AI 配置与密钥、签名及其他偏好", icon: "square.and.arrow.up") {
-          ActionButton(title: "导出配置…", icon: "square.and.arrow.up", color: Palette.blue) { export() }
+        SettingsTransferRow(title: "导出配置", detail: "邮箱账号与授权码、AI 配置与密钥、签名及其他偏好", icon: .exportLine) {
+          ActionButton(title: "导出配置…", icon: .exportLine, color: Palette.accent) { export() }
         }
-        Divider().overlay(Palette.softBorder)
-        SettingsTransferRow(title: "导入配置", detail: "按邮箱合并账号，应用 AI、签名和其他偏好", icon: "square.and.arrow.down") {
-          ActionButton(title: "选择配置…", icon: "folder") { chooseConfiguration() }
+        CossSeparator()
+        SettingsTransferRow(title: "导入配置", detail: "按邮箱合并账号，应用 AI、签名和其他偏好", icon: .importLine) {
+          ActionButton(title: "选择配置…", icon: .folderLine) { chooseConfiguration() }
         }
       }.disabled(transferring || !store.ready || !store.busy.isEmpty || store.composer != nil)
       if !store.ready {
         WorkflowNotice(text: "本机服务尚未启动，配置导入导出暂不可用。关闭设置后，在主窗口重试启动。",
-          icon: "info.circle", color: Palette.muted)
+          icon: .informationLine, color: Palette.muted)
       }
       if pending == nil { SettingsActionFeedback(action: action) }
       Text("JSON 包含授权码与 API Key，未加密，请妥善保管。导出已保存的配置，不含邮件、附件和本机数据位置。")
@@ -87,9 +87,9 @@ private struct ConfigurationImportReview: View {
       HStack {
         Text("导入配置").font(.system(size: 15, weight: .semibold))
         Spacer()
-        IconButton(icon: "xmark", help: "取消导入") { cancel() }.disabled(importing)
+        IconButton(icon: .closeLine, help: "取消导入") { cancel() }.disabled(importing)
       }.padding(.horizontal, 22).frame(height: 54).background(Palette.chrome)
-      Divider()
+      CossSeparator()
       OverlayScrollView {
         VStack(alignment: .leading, spacing: 18) {
           Text(candidate.fileName).font(UIType.body).lineLimit(2).textSelection(.enabled)
@@ -99,7 +99,7 @@ private struct ConfigurationImportReview: View {
               .font(UIType.section)
             ForEach(candidate.plan.accounts) { account in
               HStack(spacing: 10) {
-                Image(systemName: "envelope").foregroundStyle(Palette.muted).frame(width: 20).accessibilityHidden(true)
+                RemixIcon(.mailLine).foregroundStyle(Palette.muted).frame(width: 20).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                   Text(account.email).font(UIType.caption).textSelection(.enabled)
                   if let source = candidate.archive.configuration.accounts.first(where: { $0.id == account.sourceId }) {
@@ -119,7 +119,7 @@ private struct ConfigurationImportReview: View {
               Text("文件未包含邮箱账号，将只应用 AI、签名和偏好设置。").font(UIType.small).foregroundStyle(Palette.muted)
             }
           }
-          Divider()
+          CossSeparator()
           VStack(alignment: .leading, spacing: 7) {
             Text("AI、签名与偏好").font(UIType.section)
             Text("\(candidate.archive.configuration.settings.ai.providers.count) 个 AI 服务商 · 当前：\(candidate.archive.configuration.settings.ai.activeProvider.name)")
@@ -139,7 +139,7 @@ private struct ConfigurationImportReview: View {
           }
           Text("将更新同邮箱账号的参数与授权码，替换 AI、签名和偏好设置。其他账号及已有邮件、附件和草稿保留。")
             .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
-          if let failure { WorkflowNotice(text: failure, icon: "exclamationmark.circle", color: Palette.amber) }
+          if let failure { WorkflowNotice(text: failure, icon: .errorWarningLine, color: Palette.amber) }
         }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
       }
       SettingsActionBar(
@@ -148,7 +148,7 @@ private struct ConfigurationImportReview: View {
       ) {
         EmptyView()
       }
-    }.frame(width: 560, height: 540).background(Palette.paper).tint(Palette.blue)
+    }.frame(width: 560, height: 540).background(Palette.paper).tint(Palette.accent)
   }
 
   private func hasKey(_ provider: AIProvider) -> Bool {

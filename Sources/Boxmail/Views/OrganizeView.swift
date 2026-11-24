@@ -40,7 +40,7 @@ struct OrganizeView: View {
         heading(compact: compact)
         if latest?.status != "applied" || workspace.showsNewTask { controls(compact: compact) }
         if let error = store.organizeError {
-          Label(error, systemImage: "exclamationmark.circle").font(.system(size: 12))
+          Label(error, icon: .errorWarningLine).font(.system(size: 12))
             .foregroundStyle(Palette.amber)
         }
         if let job = latest {
@@ -52,7 +52,7 @@ struct OrganizeView: View {
         }
         inboxFilters(compact: compact)
         if pages.loading {
-          ProgressView("正在加载分类邮件…").controlSize(.small)
+          CossSpinner(label: "正在加载分类邮件…")
         }
         if let error = pages.error {
           PageStoreErrorRow(
@@ -124,12 +124,12 @@ struct OrganizeView: View {
       } else {
         VStack(alignment: .leading, spacing: 10) {
           PageHeading(title: "智能整理", subtitle: "按主题整理收件箱，确认建议后再应用分类")
-          Label(store.currentAccount?.email ?? "当前账户", systemImage: "tray")
+          Label(store.currentAccount?.email ?? "当前账户", icon: .inboxLine)
             .font(UIType.small).foregroundStyle(Palette.muted)
         }
       }
       Spacer(minLength: 0)
-      ActionButton(title: "管理分类", icon: "tag") { managingCategories = true }
+      ActionButton(title: "管理分类", icon: .priceTag3Line) { managingCategories = true }
         .disabled(running)
     }
   }
@@ -154,7 +154,7 @@ struct OrganizeView: View {
           WorkflowField(title: "处理数量") { limitSelection }.frame(width: 136)
         }
         Spacer(minLength: 0)
-        ActionButton(title: "开始整理", icon: "wand.and.stars", color: Palette.blue) {
+        ActionButton(title: "开始整理", icon: .magicLine, emphasis: .primary) {
           store.organize(scope: workspace.scope, limit: workspace.limit)
         }.disabled(
           running || hasReview || store.busy.contains("organize-control")
@@ -184,7 +184,7 @@ struct OrganizeView: View {
               }
           ).frame(width: 200)
         } else if !pages.category.isEmpty {
-          ActionButton(title: "查看全部", color: Palette.blue, size: .compact) { pages.category = "" }
+          ActionButton(title: "查看全部", color: Palette.accent, size: .compact) { pages.category = "" }
         }
         Text("\(pages.visiblePage?.accountTotal ?? 0) 封邮件").font(.system(size: 11))
           .foregroundStyle(Palette.muted)
@@ -199,9 +199,9 @@ struct OrganizeView: View {
               }
             } label: {
               HStack {
-                Image(systemName: "tag").foregroundStyle(tone.ink).font(.system(size: 13))
+                RemixIcon(.priceTag3Line, size: 13).foregroundStyle(tone.ink)
                 Text(value).font(.system(size: 12, weight: .medium))
-                  .lineLimit(1).truncationMode(.middle).help(value)
+                  .lineLimit(1).truncationMode(.middle).cossTooltip(value)
                 Spacer()
                 Text(
                   "\(pages.visiblePage?.categoryCounts.first { $0.name == value }?.count ?? 0)"
@@ -226,7 +226,7 @@ struct OrganizeView: View {
     }
   }
   private func approveButton(_ job: AgentJob) -> some View {
-    ActionButton(title: "确认应用分类", icon: "checkmark", color: Palette.blue) {
+    ActionButton(title: "确认应用分类", icon: .checkLine, emphasis: .primary) {
       store.action("approve") {
         try await BackendService.shared.perform("/jobs/\(job.id)/approve")
       }
@@ -243,7 +243,7 @@ struct OrganizeView: View {
         reviewList(job)
       }.padding(12).background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
     } else {
-      SectionCard(title: running ? "已完成的建议" : "确认分类建议", icon: "checklist") {
+      SectionCard(title: running ? "已完成的建议" : "确认分类建议", icon: .listCheck3) {
         HStack {
           Text("\(job.result?.items?.count ?? 0) 封邮件 · 仅修改本机标签").font(.system(size: 11))
             .foregroundStyle(Palette.muted)
@@ -278,7 +278,7 @@ struct OrganizeView: View {
       .background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
   }
   private func completionLabel(_ job: AgentJob) -> some View {
-    Label("分类已应用 · \(job.result?.items?.count ?? 0) 封", systemImage: "checkmark.circle")
+    Label("分类已应用 · \(job.result?.items?.count ?? 0) 封", icon: .checkboxCircleLine)
       .font(UIType.caption).foregroundStyle(Palette.success)
   }
   private func completionActions(_ job: AgentJob) -> some View {
@@ -286,7 +286,7 @@ struct OrganizeView: View {
       ActionButton(title: workspace.showsTaskDetails ? "收起详情" : "查看详情", size: .compact) {
         workspace.showsTaskDetails.toggle()
       }
-      ActionButton(title: "撤销本次整理", icon: "arrow.uturn.backward", size: .compact) {
+      ActionButton(title: "撤销本次整理", icon: .arrowGoBackLine, size: .compact) {
         store.action("undo") { try await store.backend.perform("/jobs/\(job.id)/undo") }
       }.disabled(store.busy.contains("undo"))
       ActionButton(title: workspace.showsNewTask ? "收起新整理" : "再次整理", size: .compact) {
@@ -298,9 +298,9 @@ struct OrganizeView: View {
   private func jobStatus(_ job: AgentJob, compact: Bool) -> some View {
     VStack(alignment: .leading, spacing: compact ? 6 : 13) {
       HStack {
-        if running { ProgressView().controlSize(.small) }
+        if running { CossSpinner() }
         Label(
-          statusTitle(job), systemImage: job.status == "applied" ? "checkmark.circle" : "sparkles"
+          statusTitle(job), icon: job.status == "applied" ? .checkboxCircleLine : .sparkling2Line
         )
         .font(.system(size: 14, weight: .semibold)).foregroundStyle(
           job.status == "applied" ? Palette.success : Palette.accent)
@@ -310,15 +310,15 @@ struct OrganizeView: View {
         }
         Spacer()
         if running {
-          ActionButton(title: "暂停", icon: "pause") { store.pauseOrganization(job) }
+          ActionButton(title: "暂停", icon: .pauseLine) { store.pauseOrganization(job) }
             .disabled(store.busy.contains("organize-control"))
         } else if ["partial", "paused", "failed"].contains(job.status), job.progress != nil {
-          ActionButton(title: "继续未完成邮件", icon: "arrow.clockwise", color: Palette.blue) {
+          ActionButton(title: "继续未完成邮件", icon: .refreshLine, color: Palette.accent) {
             store.organize(retry: job)
           }
           .disabled(store.busy.contains("organize-control"))
         } else if job.status == "applied" {
-          ActionButton(title: "撤销本次整理", icon: "arrow.uturn.backward") {
+          ActionButton(title: "撤销本次整理", icon: .arrowGoBackLine) {
             store.action("undo") { try await BackendService.shared.perform("/jobs/\(job.id)/undo") }
           }.disabled(store.busy.contains("undo"))
         }
@@ -326,6 +326,7 @@ struct OrganizeView: View {
       if let progress = job.progress {
         if !["applied", "undone"].contains(job.status) {
           ProgressView(value: Double(progress.completed), total: Double(max(1, progress.total)))
+            .progressViewStyle(CossProgressStyle())
             .tint(
               Palette.accent
             )

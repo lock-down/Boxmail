@@ -16,7 +16,7 @@ struct SendQueueView: View {
         Text(error).font(UIType.caption).foregroundStyle(Palette.amber)
       }
       if workspace.plans.isEmpty {
-        EmptyState(title: "暂无待发送邮件", subtitle: "在写信窗口确认发送或定时发送后，可在这里查看进度与投递结果", icon: "paperplane")
+        EmptyState(title: "暂无待发送邮件", subtitle: "在写信窗口确认发送或定时发送后，可在这里查看进度与投递结果", icon: .sendPlaneLine)
       } else {
         WorkspaceList(
           items: workspace.plans, bordered: false, header: { EmptyView() }, footer: { EmptyView() }
@@ -49,7 +49,7 @@ struct SendQueueView: View {
             }
             HStack {
               if plan.canChange {
-                ActionButton(title: "取消并返回草稿", icon: "arrow.uturn.backward") {
+                ActionButton(title: "取消并返回草稿", icon: .arrowGoBackLine) {
                   Task {
                     await workspace.change(plan, cancel: true)
                     guard workspace.error == nil else { return }

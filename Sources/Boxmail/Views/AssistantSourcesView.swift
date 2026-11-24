@@ -13,17 +13,17 @@ struct AssistantSourcesView: View {
   var body: some View {
     Button { showingSources.toggle() } label: {
       HStack(spacing: 8) {
-        Label("来源", systemImage: "link").foregroundStyle(Palette.ink)
+        Label("来源", icon: .link).foregroundStyle(Palette.ink)
         Text(countLabel).foregroundStyle(Palette.muted).monospacedDigit()
         Spacer(minLength: 0)
-        Image(systemName: "chevron.up.chevron.down").font(UIType.small).foregroundStyle(Palette.muted)
+        RemixIcon(.expandUpDownLine, size: 11).foregroundStyle(Palette.muted)
           .accessibilityHidden(true)
       }.font(UIType.caption).padding(.horizontal, 8).frame(height: 32)
         .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
         .contentShape(Rectangle())
     }.buttonStyle(ControlFeedback()).controlFocus()
       .accessibilityLabel("查看来源，\(countLabel)")
-      .popover(isPresented: $showingSources, arrowEdge: .leading) { sourceList }
+      .cossPopover(isPresented: $showingSources, arrowEdge: .leading) { sourceList }
   }
 
   private var sourceList: some View {
@@ -35,9 +35,9 @@ struct AssistantSourcesView: View {
         Text("回答来源").font(UIType.section).accessibilityAddTraits(.isHeader)
         Spacer()
         Text(countLabel).font(UIType.small).foregroundStyle(Palette.muted).monospacedDigit()
-        IconButton(icon: "xmark", help: "关闭来源", size: 24) { showingSources = false }
+        IconButton(icon: .closeLine, help: "关闭来源", size: 24) { showingSources = false }
       }.padding(.horizontal, 12).frame(height: 40)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       ViewThatFits(in: .vertical) {
         sourceRows(sources, citations: citations, multipleAccounts: multipleAccounts).fixedSize(horizontal: false, vertical: true)
         OverlayScrollView { sourceRows(sources, citations: citations, multipleAccounts: multipleAccounts) }
@@ -50,7 +50,7 @@ struct AssistantSourcesView: View {
       ForEach(sources) { source in
         sourceRow(source, citedAttachments: Set(citations[source.id, default: []].compactMap(\.attachmentId)),
           showAccount: multipleAccounts)
-        if source.id != sources.last?.id { Divider().overlay(Palette.softBorder) }
+        if source.id != sources.last?.id { CossSeparator() }
       }
     }.padding(.horizontal, 8).padding(.vertical, 4)
   }
@@ -64,7 +64,7 @@ struct AssistantSourcesView: View {
         openMailSource(source.id)
       } label: {
         HStack(spacing: 8) {
-          Image(systemName: drafts ? "square.and.pencil" : "envelope")
+          RemixIcon(drafts ? .editBoxLine : .mailLine)
             .frame(width: 16).foregroundStyle(Palette.muted).accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -77,12 +77,12 @@ struct AssistantSourcesView: View {
             }
           }
         }.padding(8).contentShape(Rectangle())
-      }.buttonStyle(ControlFeedback()).controlFocus().help(subject)
+      }.buttonStyle(ControlFeedback()).controlFocus().cossTooltip(subject)
 
       if !source.coverage.attachments.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
           ForEach(source.coverage.attachments.filter { citedAttachments.contains($0.id) && !drafts }) { file in
-            MailSourceButton(sender: file.name, date: "", subject: file.name, icon: "paperclip") {
+            MailSourceButton(sender: file.name, date: "", subject: file.name, icon: .attachment2) {
               showingSources = false
               store.previewSourceAttachment(file.id)
             }

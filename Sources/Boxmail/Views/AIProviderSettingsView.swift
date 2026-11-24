@@ -26,7 +26,7 @@ struct AIProviderSettingsView: View {
   }
 
   var body: some View {
-    SectionCard(title: "模型与连接", icon: "", contentSpacing: 16) {
+    SectionCard(title: "模型与连接", contentSpacing: 16) {
       HStack(spacing: SettingsFormLayout.columnGap) {
         SettingsFormLabel(title: "当前服务商")
         WorkflowSelection(
@@ -34,7 +34,7 @@ struct AIProviderSettingsView: View {
           options: config.providers.map { ($0.id, $0.name) }
         )
         .frame(width: SettingsFormLayout.fieldWidth)
-        SettingsInlineAction(title: "自定义 API", icon: "plus") { addingProvider = true }
+        SettingsInlineAction(title: "自定义 API", icon: .addLine) { addingProvider = true }
           .disabled(config.providers.count >= 20)
       }.frame(maxWidth: SettingsFormLayout.formWidth, alignment: .leading)
       HStack(spacing: SettingsFormLayout.columnGap) {
@@ -42,11 +42,11 @@ struct AIProviderSettingsView: View {
         SettingsAISelectionView(
           model: $config.model, effort: $config.effort, models: catalog,
           effortLevels: effortLevels)
-        SettingsInlineAction(title: "获取模型", icon: "arrow.clockwise") { refreshModels() }
+        SettingsInlineAction(title: "获取模型", icon: .refreshLine) { refreshModels() }
       }.frame(maxWidth: SettingsFormLayout.formWidth, alignment: .leading)
       Text("邮件总结、翻译和写信共用当前模型。内容仅在使用 AI 功能时提交给所选服务商。")
         .font(UIType.small).foregroundStyle(Palette.muted)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       DisclosureGroup("连接设置", isExpanded: $showingConnection) {
         VStack(alignment: .leading, spacing: 14) {
           SettingsFieldRow(
@@ -67,7 +67,7 @@ struct AIProviderSettingsView: View {
             SecureField("", text: key).settingsTextInput()
               .inputPlaceholder("密钥保存在本机 .env 文件", visible: key.wrappedValue.isEmpty)
               .accessibilityLabel("当前服务商 API Key").frame(width: SettingsFormLayout.fieldWidth)
-            SettingsInlineAction(title: "测试连接", icon: "bolt") { testConnection() }
+            SettingsInlineAction(title: "测试连接", icon: .flashlightLine) { testConnection() }
               .disabled(
                 config.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                   || config.validationIssue != nil)
@@ -93,7 +93,7 @@ struct AIProviderSettingsView: View {
           }
         }.padding(.top, 14)
       }.font(UIType.caption)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       DisclosureGroup("模型目录 · \(catalog.count) 个", isExpanded: $showingCatalog) {
         AIModelCatalogEditor(
           models: editableCatalog, selectedModel: $config.model, apiProtocol: config.apiProtocol

@@ -48,15 +48,15 @@ enum ActivityPresentation {
       "archiveSummary": "资料包总览", "conversationSummary": "会话总结", "conversationReply": "会话回复"][task] ?? task
   }
 
-  static func icon(_ event: AuditEvent) -> String {
+  static func icon(_ event: AuditEvent) -> RemixGlyph {
     switch event.type {
-    case "send": "paperplane"
-    case "send-warning": "exclamationmark.triangle"
-    case "sync": "clock"
-    case "draft": "square.and.pencil"
-    case "agent": "sparkles"
-    case "organize": "folder"
-    default: "clock"
+    case "send": .sendPlaneLine
+    case "send-warning": .alertLine
+    case "sync": .timeLine
+    case "draft": .editBoxLine
+    case "agent": .sparkling2Line
+    case "organize": .folderLine
+    default: .timeLine
     }
   }
 }

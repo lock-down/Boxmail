@@ -14,7 +14,7 @@ enum SettingsFormLayout {
 struct SettingsFormLabel: View {
   let title: String
   var body: some View {
-    Text(title).font(UIType.caption).foregroundStyle(Palette.muted)
+    Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.ink)
       .frame(width: SettingsFormLayout.labelWidth, alignment: .leading)
   }
 }
@@ -34,10 +34,11 @@ struct SettingsFieldRow: View {
 }
 
 struct SettingsTransferRow<Action: View>: View {
-  let title, detail, icon: String
+  let title, detail: String
+  let icon: RemixGlyph
   let action: () -> Action
   init(
-    title: String, detail: String, icon: String, @ViewBuilder action: @escaping () -> Action
+    title: String, detail: String, icon: RemixGlyph, @ViewBuilder action: @escaping () -> Action
   ) {
     self.title = title
     self.detail = detail
@@ -46,7 +47,7 @@ struct SettingsTransferRow<Action: View>: View {
   }
   var body: some View {
     HStack(alignment: .center, spacing: 14) {
-      Image(systemName: icon).font(.system(size: 16)).foregroundStyle(Palette.muted)
+      RemixIcon(icon, size: 16).foregroundStyle(Palette.muted)
         .frame(width: 24).accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 5) {
         Text(title).font(.system(size: 13, weight: .medium))
@@ -60,7 +61,7 @@ struct SettingsTransferRow<Action: View>: View {
 
 struct SettingsInlineAction: View {
   let title: String
-  let icon: String
+  let icon: RemixGlyph
   var color: Color = Palette.accent
   let action: () -> Void
 
@@ -75,15 +76,8 @@ private struct SettingsInputSurface: ViewModifier {
   func body(content: Content) -> some View {
     content.textFieldStyle(.plain).font(UIType.caption).foregroundStyle(Palette.ink)
       .padding(.horizontal, 10).frame(height: SettingsFormLayout.controlHeight)
-      .background(
-        Palette.canvas,
-        in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
-      )
       .focused($focused)
-      .overlay {
-        RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
-          .stroke(focused ? Palette.blue : Palette.softBorder, lineWidth: 1)
-      }
+      .controlFieldSurface(focused: focused)
   }
 }
 

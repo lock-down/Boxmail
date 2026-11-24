@@ -78,9 +78,9 @@ struct PlainTextEditor: NSViewRepresentable {
       ]
     }
     textView.textColor = NSColor(Palette.ink)
-    textView.insertionPointColor = NSColor(Palette.blue)
+    textView.insertionPointColor = NSColor(Palette.accent)
     textView.selectedTextAttributes = [
-      .backgroundColor: NSColor(Palette.blueSoft), .foregroundColor: NSColor(Palette.ink),
+      .backgroundColor: NSColor(Palette.accentSoft), .foregroundColor: NSColor(Palette.ink),
     ]
     if textView.textContainerInset != inset { textView.textContainerInset = inset }
     textView.placeholder = placeholder

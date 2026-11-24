@@ -3,7 +3,7 @@ import SwiftUI
 
 struct SearchFiltersView: View {
   @Bindable var store: MailStore
-  @Environment(\.dismiss) private var dismiss
+  let dismiss: () -> Void
   @ViewState<String> private var keywords = ""
   @ViewState<String> private var sender = ""
   @ViewState<String> private var recipient = ""
@@ -16,7 +16,6 @@ struct SearchFiltersView: View {
   @ViewState<[SearchCondition]> private var additional = []
   @ViewState<String?> private var error = nil
   @ViewState<Bool> private var working = false
-  @ViewState<String?> private var choosingDate = nil
 
   private let folderStatuses = Set(["sent", "drafts", "archive", "trash"])
   private var statusSelection: Binding<String> {
@@ -34,24 +33,8 @@ struct SearchFiltersView: View {
     })
   }
   var body: some View {
-    Group {
-      if let choosingDate {
-        VStack(alignment: .leading, spacing: 12) {
-          HStack(spacing: 12) {
-            ActionButton(title: "返回", icon: "chevron.left") { self.choosingDate = nil }
-              .keyboardShortcut(.cancelAction)
-            Text(choosingDate == "after" ? "选择起始日期" : "选择截止日期").font(UIType.heading)
-            Spacer()
-          }
-          Text(choosingDate == "after" ? "搜索范围包含所选当天" : "搜索范围不包含所选当天")
-            .font(UIType.caption).foregroundStyle(Palette.muted)
-          SearchCalendarPanel(title: choosingDate == "after" ? "起始日期" : "截止日期",
-            selection: choosingDate == "after" ? $after : $before) { self.choosingDate = nil }
-            .frame(maxWidth: .infinity)
-        }.padding(24).frame(width: 360).background(Palette.paper)
-      } else { filtersForm }
-    }.tint(Palette.blue)
-      .onSubmit { if !working && choosingDate == nil { apply() } }
+    filtersForm.tint(Palette.accent)
+      .onSubmit { if !working { apply() } }
       .onChange(of: after) { _, _ in error = nil }
       .onChange(of: before) { _, _ in error = nil }
       .task { await populate() }
@@ -66,7 +49,7 @@ struct SearchFiltersView: View {
           field("收件人", text: $recipient, placeholder: "含抄送与密送")
         }
       }
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       VStack(spacing: 14) {
         HStack(alignment: .top, spacing: 16) {
           WorkflowField(title: "账户") {
@@ -79,8 +62,8 @@ struct SearchFiltersView: View {
           }
         }
         HStack(alignment: .top, spacing: 16) {
-          WorkflowField(title: "起始日期（含当天）") { SearchDatePicker(title: "选择起始日期", value: $after) { choosingDate = "after" } }
-          WorkflowField(title: "截止日期（不含当天）") { SearchDatePicker(title: "选择截止日期", value: $before) { choosingDate = "before" } }
+          WorkflowField(title: "起始日期（含当天）") { CossDatePicker(title: "选择起始日期", value: $after) }
+          WorkflowField(title: "截止日期（不含当天）") { CossDatePicker(title: "选择截止日期", value: $before) }
         }
         HStack {
           Text("状态").font(UIType.caption).foregroundStyle(Palette.muted)
@@ -89,24 +72,24 @@ struct SearchFiltersView: View {
               ("sent", "已发送"), ("drafts", "草稿箱"), ("archive", "已归档"), ("trash", "已删除")])
             .frame(width: 142)
           Spacer()
-          Toggle("仅有附件", isOn: $attachments).toggleStyle(.checkbox).font(UIType.caption)
+          Toggle("仅有附件", isOn: $attachments).toggleStyle(CossToggleStyle()).font(UIType.caption)
         }.padding(.top, 2)
       }
       if !additional.isEmpty {
         Text("保留的条件：" + additional.map { "\($0.field):\($0.value)" }.joined(separator: " · "))
           .font(UIType.small).foregroundStyle(Palette.muted).lineLimit(2)
-          .help(additional.map { "\($0.field):\($0.value)" }.joined(separator: " "))
+          .cossTooltip(additional.map { "\($0.field):\($0.value)" }.joined(separator: " "))
       }
-      if let error { WorkflowNotice(text: error, icon: "exclamationmark.circle", color: Palette.amber) }
-      Divider().overlay(Palette.softBorder)
+      if let error { WorkflowNotice(text: error, icon: .errorWarningLine, color: Palette.amber) }
+      CossSeparator()
       HStack {
-        ActionButton(title: "清除搜索", icon: "arrow.uturn.backward") { store.search = ""; store.searchAllAccounts = false; dismiss() }
+        ActionButton(title: "清除搜索", icon: .arrowGoBackLine) { store.search = ""; store.searchAllAccounts = false; dismiss() }
         Spacer()
-        if working { ProgressView().controlSize(.small) }
-        ActionButton(title: working ? "正在搜索…" : "搜索邮件", icon: "magnifyingglass", color: Palette.blue) { apply() }
+        if working { CossSpinner() }
+        ActionButton(title: working ? "正在搜索…" : "搜索邮件", icon: .searchLine, emphasis: .primary) { apply() }
           .disabled(working)
       }
-    }.padding(24).frame(width: 520).background(Palette.paper).tint(Palette.blue)
+    }.padding(24).frame(width: 520).background(Palette.paper).tint(Palette.accent)
   }
   private func field(_ title: String, text: Binding<String>, placeholder: String) -> some View {
     WorkflowField(title: title) {

@@ -19,10 +19,10 @@ struct AIModelReasoningEditor: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack {
         Text("推理等级").font(UIType.caption).foregroundStyle(Palette.muted)
-        Image(systemName: "questionmark.circle").foregroundStyle(Palette.muted)
-          .help("声明该模型支持的等级及其发送值。Off 留空表示不发送推理参数。")
+        RemixIcon(.questionLine).foregroundStyle(Palette.muted)
+          .cossTooltip("声明该模型支持的等级及其发送值。Off 留空表示不发送推理参数。")
         Spacer()
-        Toggle("启用推理等级", isOn: enabled).labelsHidden().toggleStyle(.switch).controlSize(.mini)
+        Toggle("启用推理等级", isOn: enabled).toggleStyle(CossToggleStyle(isSwitch: true, showsLabel: false)).controlSize(.mini)
           .accessibilityLabel("启用模型推理等级")
       }
       if enabled.wrappedValue {
@@ -49,23 +49,24 @@ struct AIModelReasoningEditor: View {
             WorkflowTextInput(label: "\(level) 推理发送值", placeholder: level == "off" ? "不发送参数" : level,
               text: wireValue(level), font: UIType.caption, surface: Palette.paper).disabled(level == "off")
               .frame(width: SettingsFormLayout.fieldWidth)
-            IconButton(icon: "minus", help: "移除推理等级 \(level)") {
+            IconButton(icon: .subtractLine, help: "移除推理等级 \(level)") {
               var values = model.reasoningEfforts?.values ?? [:]
               values.removeValue(forKey: level); model.reasoningEfforts = .mapping(values)
             }
             Spacer(minLength: 0)
           }
         }
-        Menu {
-          ForEach(AIReasoningEfforts.levels.filter { !levels.contains($0) }, id: \.self) { level in
-            Button(level.capitalized) {
+        CossMenu(title: "添加推理等级") {
+          for level in AIReasoningEfforts.levels.filter({ !levels.contains($0) }) {
+            CossMenuItem.command(level.capitalized) {
               var values = model.reasoningEfforts?.values ?? [:]
               values[level] = .some(level == "off" ? nil : level)
               model.reasoningEfforts = .mapping(values)
             }
           }
-        } label: { Label("添加推理等级", systemImage: "plus").font(UIType.caption).foregroundStyle(Palette.accent) }
-          .menuStyle(.borderlessButton).fixedSize().disabled(levels.count == AIReasoningEfforts.levels.count)
+        } trigger: {
+          CossMenuLabel(title: "添加推理等级", icon: .addLine, size: .compact)
+        }.fixedSize().disabled(levels.count == AIReasoningEfforts.levels.count)
       }
     }.animation(UIMotion.disclosure(reduceMotion), value: enabled.wrappedValue)
   }

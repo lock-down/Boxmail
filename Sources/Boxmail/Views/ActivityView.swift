@@ -11,7 +11,7 @@ struct ActivityView: View {
       HStack {
         PageHeading(title: "活动记录", subtitle: "最近同步结果与任务记录")
         Spacer()
-        IconButton(icon: "xmark", help: "关闭") { dismiss() }
+        IconButton(icon: .closeLine, help: "关闭") { dismiss() }
       }
       OverlayScrollView {
         VStack(alignment: .leading, spacing: 16) {
@@ -35,7 +35,7 @@ struct ActivityView: View {
             }.font(UIType.caption)
           }
           if store.events.isEmpty && store.accounts.allSatisfy(\.isDemo) {
-            EmptyState(title: "还没有活动记录", subtitle: "同步、AI 任务和发送状态会显示在这里。", icon: "clock")
+            EmptyState(title: "还没有活动记录", subtitle: "同步、AI 任务和发送状态会显示在这里。", icon: .timeLine)
           }
         }.frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -50,8 +50,8 @@ struct ActivityView: View {
     let unfinished = folders.filter { $0.status == "failed" || $0.hasMore == true || $0.status == "paused" }
     let latest = store.events.first { ActivityPresentation.syncAccount($0, accounts: [account]) != nil }
     return VStack(alignment: .leading, spacing: 8) {
-      Label(account.email, systemImage: running ? "arrow.triangle.2.circlepath"
-        : result?.status == "failed" || !unfinished.isEmpty ? "exclamationmark.circle" : "clock")
+      Label(account.email, icon: running ? .loopRightLine
+        : result?.status == "failed" || !unfinished.isEmpty ? .errorWarningLine : .timeLine)
         .font(UIType.caption)
       if running {
         Text("正在同步").font(UIType.small).foregroundStyle(Palette.accent)
@@ -70,13 +70,13 @@ struct ActivityView: View {
       } else if !running {
         Text("暂无同步结果").font(UIType.small).foregroundStyle(Palette.muted)
       }
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
     }.accessibilityElement(children: .contain)
   }
 
   private func eventRow(_ event: AuditEvent) -> some View {
     HStack(alignment: .top, spacing: 8) {
-      Image(systemName: ActivityPresentation.icon(event)).frame(width: 28).accessibilityHidden(true)
+      RemixIcon(ActivityPresentation.icon(event)).frame(width: 28).accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 4) {
         Text(ActivityPresentation.title(event)).font(UIType.caption).textSelection(.enabled)
         Text(displayTime(event.time)).font(UIType.small).foregroundStyle(Palette.muted)

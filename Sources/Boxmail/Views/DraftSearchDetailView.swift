@@ -7,13 +7,13 @@ struct DraftSearchDetailView: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack {
-        Label("本机草稿", systemImage: "square.and.pencil").font(UIType.caption).foregroundStyle(Palette.muted)
+        Label("本机草稿", icon: .editBoxLine).font(UIType.caption).foregroundStyle(Palette.muted)
         Spacer()
-        ActionButton(title: "继续编辑草稿", icon: "square.and.pencil", color: Palette.accent) {
+        ActionButton(title: "继续编辑草稿", icon: .editBoxLine, color: Palette.accent) {
           if let id = message.draftId { store.editDraft(id) }
         }.disabled(store.drafts.first(where: { $0.id == message.draftId })?.status == "sending")
       }.padding(.horizontal, 20).frame(height: 52)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       OverlayScrollView {
         VStack(alignment: .leading, spacing: 22) {
           Text(message.subject).font(.system(size: 23, weight: .semibold)).textSelection(.enabled)

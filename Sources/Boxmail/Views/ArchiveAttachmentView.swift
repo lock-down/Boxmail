@@ -30,14 +30,14 @@ struct ArchiveAttachmentView: View {
         }
         Spacer(minLength: 0)
         if running {
-          ProgressView().controlSize(.mini)
-          ActionButton(title: "暂停", icon: "pause") {
+          CossSpinner(size: 12)
+          ActionButton(title: "暂停", icon: .pauseLine) {
             if let job { store.pauseAttachmentBatch(job) }
           }
         } else {
           ActionButton(
             title: retryable ? "继续未完成文件" : document?.summary == nil ? "理解压缩包" : "重新理解压缩包",
-            icon: "sparkles", color: Palette.accent
+            icon: .sparkling2Line, color: Palette.accent
           ) {
             guard let mail else { return }
             store.analyzeAttachments(
@@ -48,11 +48,11 @@ struct ArchiveAttachmentView: View {
               || mail.map { store.busy.contains("attachment-batch-\($0.id)") } == true)
         }
       }.padding(.horizontal, 20).padding(.vertical, 10).background(Palette.chrome)
-      Divider()
+      CossSeparator()
       if let error {
         HStack {
           Text(error).font(UIType.caption).foregroundStyle(Palette.amber)
-          ActionButton(title: "重试", icon: "arrow.clockwise") { Task { await reload() } }
+          ActionButton(title: "重试", icon: .refreshLine) { Task { await reload() } }
         }.padding(16)
       }
       if let jobError = job?.error, retryable {
@@ -80,7 +80,7 @@ struct ArchiveAttachmentView: View {
               EmptyState(
                 title: running ? "正在理解包内文件" : "还没有整体整理",
                 subtitle: "逐文件理解完成后，会整理资料用途、文件分类、关联差异和下一步行动，并附上来源。",
-                icon: "doc.text.magnifyingglass"
+                icon: .fileSearchLine
               ).frame(maxWidth: .infinity).padding(.top, 60)
             }
           }
@@ -90,7 +90,7 @@ struct ArchiveAttachmentView: View {
               ForEach(document.entries) { entry in
                 VStack(alignment: .leading, spacing: 4) {
                   HStack(spacing: 6) {
-                    Image(systemName: "doc.text").foregroundStyle(Palette.muted)
+                    RemixIcon(.fileTextLine).foregroundStyle(Palette.muted)
                     Text(entry.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
                       .truncationMode(.middle)
                   }
@@ -98,25 +98,26 @@ struct ArchiveAttachmentView: View {
                     .lineLimit(1).truncationMode(.middle)
                   HStack {
                     Text(entry.statusTitle).foregroundStyle(
-                      entry.status == "completed" ? Palette.blue : Palette.muted)
+                      entry.status == "completed" ? Palette.accent : Palette.muted)
                     Spacer()
                     Text(fileSize(entry.size)).foregroundStyle(Palette.muted).monospacedDigit()
                   }.font(UIType.small)
-                }.padding(.vertical, 6).tag(entry.id).help(entry.path)
+                }.padding(.horizontal, 12).padding(.vertical, 8)
+                  .cossListRow(selected: selection == entry.id).tag(entry.id).cossTooltip(entry.path)
               }
-            }.listStyle(.plain).scrollContentBackground(.hidden)
+            }.cossListStyle()
               .frame(minWidth: 260, idealWidth: 320, maxWidth: 420).accessibilityLabel("压缩包文件目录")
             if let entry = document.entries.first(where: { $0.id == selection }) {
               ArchiveEntryView(attachmentId: attachmentId, entry: entry)
                 .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity).id(entry.id)
             } else {
-              EmptyState(title: "选择包内文件", subtitle: "查看原文件、理解状态和单文件结果。", icon: "doc.zipper")
+              EmptyState(title: "选择包内文件", subtitle: "查看原文件、理解状态和单文件结果。", icon: .fileZipLine)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
           }
         }
       } else if loading {
-        ProgressView("正在读取压缩包目录…").frame(maxWidth: .infinity, maxHeight: .infinity)
+        CossSpinner(label: "正在读取压缩包目录…").frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         Spacer()
       }
@@ -184,13 +185,13 @@ private struct ArchiveSummaryView: View {
             select(id)
           } label: {
             HStack(spacing: 7) {
-              Image(systemName: "doc.text").frame(width: 14)
+              RemixIcon(.fileTextLine).frame(width: 14)
               Text(entry.path).lineLimit(1).truncationMode(.middle)
-            }.font(UIType.caption).foregroundStyle(Palette.blue)
+            }.font(UIType.caption).foregroundStyle(Palette.accent)
               .frame(maxWidth: .infinity, alignment: .leading).frame(height: 32)
               .padding(.horizontal, 8).contentShape(Rectangle())
           }.buttonStyle(ControlFeedback()).controlFocus()
-            .help("查看来源：\(entry.path)").accessibilityLabel("查看来源：\(entry.path)")
+            .cossTooltip("查看来源：\(entry.path)").accessibilityLabel("查看来源：\(entry.path)")
         }
       }
     }

@@ -109,6 +109,7 @@ private struct RecipientSuggestionList: View {
   let select: (Int) -> Void
 
   var body: some View {
+    let shape = RoundedRectangle(cornerRadius: UILayout.navigationRadius)
     ScrollViewReader { proxy in
       OverlayScrollView {
         VStack(spacing: 0) {
@@ -125,7 +126,8 @@ private struct RecipientSuggestionList: View {
                   .frame(maxWidth: contact.name.isEmpty ? .infinity : nil, alignment: .leading)
               }.foregroundStyle(Palette.ink).padding(.horizontal, 10).frame(height: 36)
                 .frame(maxWidth: .infinity).contentShape(Rectangle())
-                .background(index == selected ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: 4))
+                .background(index == selected ? Palette.sidebar : .clear,
+                  in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
             }.buttonStyle(.plain).focusable(false)
               .onHover { inside in if inside { select(index) } }
               .accessibilityLabel("选择联系人 \(contact.name) \(contact.email)")
@@ -140,8 +142,8 @@ private struct RecipientSuggestionList: View {
         .onChange(of: contacts.map(\.id)) { _, ids in
           if let first = ids.first { proxy.scrollTo(first, anchor: .top) }
         }
-    }.background(Palette.paper, in: RoundedRectangle(cornerRadius: 8))
-      .clipShape(RoundedRectangle(cornerRadius: 8))
+    }.background(Palette.paper, in: shape).clipShape(shape)
+      .overlay { shape.strokeBorder(Palette.border, lineWidth: 1).allowsHitTesting(false) }
       .accessibilityElement(children: .contain).accessibilityLabel("联系人建议")
   }
 }

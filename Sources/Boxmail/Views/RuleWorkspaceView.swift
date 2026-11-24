@@ -14,7 +14,7 @@ struct RuleWorkspaceView: View {
     VStack(alignment: .leading, spacing: 24) {
       WorkspaceHeader(title: "规则与用量", subtitle: "按条件整理邮件，查看处理结果与模型用量") {
         if tab == "规则" && !workspace.rules.isEmpty {
-          ActionButton(title: "新建规则", icon: "plus", color: Palette.accent, emphasis: .tinted) {
+          ActionButton(title: "新建规则", icon: .addLine, emphasis: .primary) {
             editing = MailRule(accountId: store.accountId)
           }
         }
@@ -27,7 +27,7 @@ struct RuleWorkspaceView: View {
         if workspace.rules.isEmpty {
           EmptyState(
             title: "还没有整理规则", subtitle: "为常见邮件设置条件和动作，保存后先预览匹配结果",
-            icon: "line.3.horizontal.decrease", actionTitle: "新建规则"
+            icon: .filter3Line, actionTitle: "新建规则"
           ) { editing = MailRule(accountId: store.accountId) }
         } else {
           WorkspaceList(
@@ -48,7 +48,7 @@ struct RuleWorkspaceView: View {
                       updated.enabled = value
                       Task { _ = await workspace.save(updated) }
                     })
-                ).toggleStyle(.switch).controlSize(.mini)
+                ).toggleStyle(CossToggleStyle(isSwitch: true)).controlSize(.mini)
               }
               if !rule.intent.isEmpty {
                 Text(rule.intent).font(UIType.caption).foregroundStyle(Palette.muted)
@@ -61,7 +61,7 @@ struct RuleWorkspaceView: View {
               HStack {
                 Label(
                   rule.automatic ? "收到新邮件时运行" : "手动运行",
-                  systemImage: rule.automatic ? "arrow.triangle.2.circlepath" : "cursorarrow"
+                  icon: rule.automatic ? .loopRightLine : .cursorLine
                 )
                 .font(UIType.small).foregroundStyle(Palette.muted)
                 Spacer()
@@ -72,7 +72,7 @@ struct RuleWorkspaceView: View {
                   }
                 }
                 ActionButton(title: "编辑") { editing = rule }
-                IconButton(icon: "trash", help: "移除此规则") { Task { await workspace.remove(rule) } }
+                IconButton(icon: .deleteBin6Line, help: "移除此规则") { Task { await workspace.remove(rule) } }
               }
             }.padding(20).accessibilityElement(children: .contain)
           }
@@ -80,7 +80,7 @@ struct RuleWorkspaceView: View {
       } else if tab == "处理记录" {
         if workspace.runs.isEmpty {
           EmptyState(
-            title: "暂无处理记录", subtitle: "预览或运行规则后，可以在这里核对每封邮件的处理结果", icon: "list.bullet.rectangle")
+            title: "暂无处理记录", subtitle: "预览或运行规则后，可以在这里核对每封邮件的处理结果", icon: .fileList3Line)
         } else {
           HSplitView {
             List(workspace.runs, selection: $workspace.selectedRunId) { run in
@@ -89,20 +89,21 @@ struct RuleWorkspaceView: View {
                 Text("\(WorkspaceStatus.title(run.status)) · \(run.items.count) 封").font(
                   UIType.small
                 ).foregroundStyle(Palette.muted)
-              }.padding(.vertical, 8).tag(run.id)
-            }.listStyle(.plain).frame(minWidth: 200, idealWidth: 250, maxWidth: 330)
+              }.padding(.horizontal, 12).padding(.vertical, 9)
+                .cossListRow(selected: workspace.selectedRunId == run.id).tag(run.id)
+            }.cossListStyle().frame(minWidth: 200, idealWidth: 250, maxWidth: 330)
             if let run = selectedRun {
               runDetails(run).frame(minWidth: 360, maxWidth: .infinity)
             } else {
               EmptyState(
-                title: "选择处理记录", subtitle: "预览、逐封结果和实际失败原因会保留在这里。", icon: "list.bullet.rectangle")
+                title: "选择处理记录", subtitle: "预览、逐封结果和实际失败原因会保留在这里。", icon: .fileList3Line)
             }
           }
         }
       } else {
         if workspace.usage.isEmpty {
           EmptyState(
-            title: "暂无 AI 用量", subtitle: "使用摘要、附件理解或 AI 写作后，会显示模型调用和用量记录", icon: "chart.bar.xaxis")
+            title: "暂无 AI 用量", subtitle: "使用摘要、附件理解或 AI 写作后，会显示模型调用和用量记录", icon: .barChart2Line)
         } else {
           WorkspaceList(
             items: workspace.usage, bordered: false, header: { EmptyView() },
@@ -209,7 +210,7 @@ struct RuleWorkspaceView: View {
             }
           }
         }.padding(16)
-      }.listStyle(.plain)
+      }
     }.padding(16)
   }
 }

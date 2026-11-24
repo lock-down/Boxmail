@@ -15,7 +15,8 @@
 | `Sources/Boxmail/Views/RecipientDetailsView.swift`、`RecipientAddressList.swift`、`Support/ScrollEventRouting.swift` | 邮件头与引用共用收件信息展示、原生滚动及指针命中 |
 | `Sources/Boxmail/Support/ControlStyle.swift`、`Views/ActionButton.swift`、`IconButton.swift`、`SelectionButton.swift` | 共用控件尺寸、对称标签边界、圆角、主次外观、指针反馈、焦点与选中语义 |
 | `Sources/Boxmail/Views/TableSortButton.swift`、`MailSourceButton.swift` | 紧凑排序标题、列内容对齐及长来源名称的省略 |
-| `Sources/Boxmail/Views/SelectionControlButton.swift`、`SettingsSelectionMenu.swift`、`WorkflowControls.swift` | 原生下拉的表面、字体居中、菜单跟踪与键盘操作 |
+| `Sources/Boxmail/Views/CossMenu.swift`、`Support/CossMenuAnchor.swift`、`Support/CossPopover.swift` | 应用内菜单、选择项、浮层定位和键盘操作 |
+| `Sources/Boxmail/Support/RemixIcon.swift`、`Resources/RemixIcon/` | 界面图标名称、渲染和随 App 打包的 SVG |
 | `Sources/Boxmail/Views/WorkspaceList.swift`、`ListPagination.swift` | 共用列表滚动边界、行反馈与分页栏 |
 | `Sources/Boxmail/Stores/OrganizationWorkspaceState.swift`、`Support/ScrollPositionState.swift` | 按账户保存分类工作区状态，记录与恢复滚动位置；助手滚动跟随也由 `ScrollPositionState` 判断 |
 | `Sources/Boxmail/Stores/FollowUpStore.swift`、`RuleWorkspaceStore.swift`、`SendQueueStore.swift`、`AssistantWorkspaceStore.swift`、`WritingPreferencesStore.swift` | 分别管理跟进、规则与用量、发送计划、问答及写作偏好 |
@@ -56,7 +57,7 @@ git diff --check
 
 `test.sh` 检查运行时后构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、附件及分类邮件分页、后台预览清理、富文本连续编辑、窗口原生缩放与默认还原，以及控件对齐、附件表格与面板适配。后续回归还覆盖统一查询、跟进、规则、发送队列、来源迁移、助手流式输出、发送快捷键和历史滚动。最近一轮为 489 项后端、238 项 Swift 测试通过，具体范围见 [交互修整记录](research/R1_R5_INTERACTION_REFINEMENT_2026-11-17.md)，历史发布基线保留在各版本条目中。新增回归不得替换同名旧测试。
+当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、附件及分类邮件分页、后台预览清理、富文本连续编辑、窗口原生缩放与默认还原，以及控件对齐、附件表格与面板适配。回归也覆盖统一查询、跟进、规则、发送队列、来源迁移、助手流式输出、发送快捷键和历史滚动。各版本的验证范围与结果见 [变更记录](../CHANGELOG.md)。新增回归不得替换同名旧测试。
 
 真实 HTTP/SQLite/Swift 回归包含六账户、12,001 封合成邮件及 4,135 个附件的加载、正文与 HTML 保留、设置保存和同目录重启。HTTP 夹具按会话隔离，正式测试继续覆盖凭证文件权限、手工修改、迁移、ZIP 排除密钥、WAL 强制退出、磁盘容量不足、事务回滚、网络期限与取消、JSON 主线程隔离及客户端旧响应竞态。大邮箱用例一次补齐 12073 封收件箱与 543 封已发送；AppKit/WebKit 用例检查定位、选择、分页、收件人滚动和转发预览。搜索派生索引在后台逐封处理，测试等待索引就绪，搜索请求本身不能触发全量 flush。发布时另验证正式包的图标、资源、源码、签名、首次启动及退出清理。
 
@@ -190,7 +191,7 @@ ZIP 缓存按路径、设备、inode、大小和 mtime／ctime 核对文件身�
 - 富文本正文上限仍为 500,000 字符，链接与文字的累计输入另有 4 MB 上限；服务器草稿 MIME 编码后最多 25 MB，超限留在本机。Boxmail 同步的转发 MIME 使用独立的编辑区与引用区标记，其他安装读取时仍保持快照分离；外部客户端移除标记后按其保存的正文导入。
 - `conversation-ai.js` 复用 A1 的同账户引用链，正文按最新优先分配输入预算，再按时间顺序提供模型；最多 50 封、每封 16,000 字符、总计 120,000 字符，并明确部分上下文。输出逐项校验来源 ID，保存会话指纹及来源内容指纹；回复采用时再次核对，关联最新往来。结果仅保存为 Job，单封摘要和已编辑草稿不被覆盖。
 
-相关回归为 `Backend/test/rich-text.test.js`、`draft-sync.test.js`、`conversation-ai.test.js`，以及 Swift 的 `RichTextTests`、`RichTextEditorTests`、`RichTextColorMenuTests` 与草稿加载保护。`WorkflowSelection` 按表单、行内和工具栏三种样式复用原生选择控件；工具栏使用 32 pt 高度、12 pt regular 文字及图标按钮反馈，字号入口宽 64 pt，位于文字颜色之后。`RichTextColorMenu` 通过窄 AppKit 桥接保留原生菜单行为，菜单色样使用非模板 `NSImage`，像素回归核对实际 sRGB 颜色，避免 SwiftUI 菜单符号被统一着色。原生隔离验收已核对格式编辑、保存重开、宽窄布局和依据邮件跳转；实际 IMAP 服务商、其他邮件客户端、真实 AI 服务及 VoiceOver 全流程仍需单独验证。
+相关回归为 `Backend/test/rich-text.test.js`、`draft-sync.test.js`、`conversation-ai.test.js`，以及 Swift 的 `RichTextTests`、`RichTextEditorTests`、`RichTextColorMenuTests` 与草稿加载保护。`RichTextFormatBar` 使用 `CossMenu` 选择字号和预设色，自定颜色复用 `CossColorEditor`，链接表单使用 `CossPopover`。菜单色样与图标分别绘制，像素回归核对实际 sRGB 颜色。原生隔离验收已核对格式编辑、保存重开、宽窄布局和依据邮件跳转；实际 IMAP 服务商、其他邮件客户端、真实 AI 服务及 VoiceOver 全流程仍需单独验证。
 
 各版本的编译、回归与原生验收范围统一记录在变更记录中。
 

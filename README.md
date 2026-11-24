@@ -20,7 +20,7 @@ Boxmail 是 macOS 邮件客户端。它用 IMAP 和 SMTP 收发邮件，在本�
 
 阅读区的四个 AI 入口分别用于整封理解、翻译、拟回复和查看会话。打开面板先显示已有结果，点击生成才调用模型。附件可在原文件与独立分析之间切换。
 
-窄窗口从左上角打开邮箱导航。写信时按需展开 AI、抄送和密送。设置支持取消和保存，邮箱账户单独保存。操作见 [使用指南](docs/USER_GUIDE.md)。
+窄窗口从左上角打开邮箱导航抽屉。写信时按需展开 AI、抄送和密送，底栏提供附件和发送操作。设置支持取消和保存，邮箱账户单独保存。操作见 [使用指南](docs/USER_GUIDE.md)。
 
 ## 开发运行
 
@@ -58,12 +58,10 @@ App 声明最低 macOS 14。本地 0.1.10 安装包在 Apple Silicon、macOS 27.
 | --- | --- |
 | [使用指南](docs/USER_GUIDE.md) | 安装、邮箱与 AI 配置、邮件操作、搜索、附件、数据迁移和常见问题；同时随安装包分发 |
 | [开发说明](docs/DEVELOPMENT.md) | 源码入口、测试、界面约定、本机凭证、签名、打包及版本维护 |
-| [UI 规范](docs/DESIGN.md) | 现行颜色、布局、组件与验收，以及单独标记的后续 UI／UE 方案 |
+| [UI 规范](docs/DESIGN.md) | coss 组件规范的原生实现、布局、键盘交互与验收 |
 | [后端接口](Backend/README.md) | 独立启动、环境变量、HTTP API、任务和数据契约 |
 | [开发路线](docs/ROADMAP.md) | 日常版实测改进、Filo 对标、后续功能顺序、依赖与完成条件 |
 | [Filo 对标调研](docs/research/FILO_BENCHMARK_2026-11-16.md) | Boxmail 日常版与 Filo 实机步骤、UI／UE 问题、官方资料及路线取舍，调研于 2026-11-16 |
-| [R1-R5 界面精修](docs/research/R1_R5_UI_REFINEMENT_2026-11-17.md) | 第一轮工作区、表单与图标调整，以及当轮验证 |
-| [交互与 AI 阅读修整](docs/research/R1_R5_INTERACTION_REFINEMENT_2026-11-17.md) | 后续入口清理、助手流式输出、共用日历、Markdown 与提示词更新 |
 | [代码审查](docs/CODE_REVIEW.md) | 已完成的合并、保留边界与维护入口 |
 | [整封邮件 AI 上下文](docs/MAIL_AI_CONTEXT.md) | 正文与附件联合理解、模型调用、覆盖范围及兼容边界 |
 | [更新说明](docs/RELEASE_NOTES.md) | 0.1.10 的功能、修复与安装 |

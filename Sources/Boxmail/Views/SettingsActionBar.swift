@@ -11,10 +11,10 @@ struct SettingsActionBar<Leading: View>: View {
 
   var body: some View {
     HStack(spacing: 12) {
-      if isWorking { ProgressView().controlSize(.small) }
+      if isWorking { CossSpinner() }
       leading()
       Spacer(minLength: 12)
-      ActionButton(title: "取消", emphasis: .secondary, size: .form, minimumWidth: 72, action: cancel)
+      ActionButton(title: "取消", size: .form, minimumWidth: 72, action: cancel)
         .keyboardShortcut(.cancelAction).disabled(isWorking || cancelDisabled)
       ActionButton(title: primaryTitle, emphasis: .primary, size: .form, minimumWidth: 72, action: primary)
         .keyboardShortcut(.defaultAction).disabled(isWorking || primaryDisabled)

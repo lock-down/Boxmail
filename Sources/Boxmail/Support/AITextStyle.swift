@@ -19,7 +19,7 @@ enum AITextStyle {
     for run in result.runs {
       if run.inlinePresentationIntent?.contains(.code) == true {
         result[run.range].font = .system(size: 12, design: .monospaced)
-        result[run.range].backgroundColor = Palette.blueSoft
+        result[run.range].backgroundColor = Palette.accentSoft
       }
       if let url = run.link, !MailHTMLDocument.externalLink(url) { result[run.range].link = nil }
     }

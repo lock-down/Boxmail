@@ -18,18 +18,18 @@ struct CategoryManagerView: View {
     VStack(spacing: 0) {
       WorkflowPanelHeader(title: "分类标签", subtitle: "所有账户共用，AI 根据名称和说明提出分类建议", closeLabel: "关闭分类管理") { dismiss() }
         .padding(24)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       HStack(alignment: .top, spacing: 0) {
         categoryList.frame(width: 264)
-        Divider().overlay(Palette.softBorder)
+        CossSeparator(axis: .vertical)
         editor.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
-    }.background(Palette.paper).tint(Palette.blue).workspaceSheet(.categories)
+    }.background(Palette.paper).tint(Palette.accent).workspaceSheet(.categories)
       .onAppear { color = CategoryTone.suggestedHex(in: store.categories) }
       .disabled(saving)
-      .alert("删除分类？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), presenting: deleting) { category in
-        Button("取消", role: .cancel) { deleting = nil }
-        Button("删除分类", role: .destructive) { remove(category) }
+      .cossAlert("删除分类？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), presenting: deleting) { category in
+        CossAlertAction("取消", role: .cancel) { deleting = nil }
+        CossAlertAction("删除分类", role: .destructive) { remove(category) }
       } message: { category in
         Text("“\(category.name)”中的邮件会保留并归为未分类，已有整理记录也会更新。")
       }
@@ -40,8 +40,8 @@ struct CategoryManagerView: View {
       HStack {
         Text("\(store.categories.count) 个分类").font(UIType.small).foregroundStyle(Palette.muted)
         Spacer()
-        ActionButton(title: "新增", icon: "plus", color: Palette.blue) { reset() }
-          .help("新增分类").accessibilityLabel("新增分类")
+        ActionButton(title: "新增", icon: .addLine, color: Palette.accent) { reset() }
+          .cossTooltip("新增分类").accessibilityLabel("新增分类")
       }.padding(.horizontal, 16).padding(.top, 12)
       ScrollViewReader { proxy in
         OverlayScrollView {
@@ -62,7 +62,7 @@ struct CategoryManagerView: View {
                   }
                 }.frame(maxWidth: .infinity, alignment: .leading)
               }.foregroundStyle(Palette.ink).padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                .background(editingID == category.id ? Palette.blueSoft : .clear, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+                .background(editingID == category.id ? Palette.accentSoft : .clear, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
             }.buttonStyle(ControlFeedback(selected: editingID == category.id)).controlFocus()
               .accessibilityLabel("\(category.id == "unclassified" ? "查看" : "编辑")分类 \(category.name)")
@@ -82,10 +82,10 @@ struct CategoryManagerView: View {
       HStack {
         Text(systemCategory ? "未分类" : editingID == nil ? "新增分类" : "编辑分类").font(UIType.section)
         Spacer()
-        if saving { ProgressView().controlSize(.small) }
+        if saving { CossSpinner() }
       }
       if systemCategory {
-        WorkflowNotice(text: "未分类用于接收尚未整理或原分类已删除的邮件，由系统保留，不能改名或删除。", icon: "tray")
+        WorkflowNotice(text: "未分类用于接收尚未整理或原分类已删除的邮件，由系统保留，不能改名或删除。", icon: .inboxLine)
         Spacer()
       } else {
         OverlayScrollView {
@@ -100,16 +100,16 @@ struct CategoryManagerView: View {
             Text("说明能帮助 AI 区分相近分类。名称修改后，现有邮件标签也会同步更新。")
               .font(UIType.small).foregroundStyle(Palette.muted).lineSpacing(4)
               .fixedSize(horizontal: false, vertical: true)
-            if let error { WorkflowNotice(text: error, icon: "exclamationmark.circle", color: Palette.amber) }
+            if let error { WorkflowNotice(text: error, icon: .errorWarningLine, color: Palette.amber) }
           }
         }
         HStack(spacing: 12) {
           if let category = selected {
-            ActionButton(title: "删除分类", icon: "trash", color: Palette.amber) { deleting = category }
+            ActionButton(title: "删除分类", icon: .deleteBin6Line, color: Palette.amber) { deleting = category }
           }
           Spacer(minLength: 0)
           if editingID != nil { ActionButton(title: "取消编辑") { reset() } }
-          ActionButton(title: saving ? "正在保存…" : editingID == nil ? "添加分类" : "保存修改", icon: "checkmark", color: Palette.blue) { save() }
+          ActionButton(title: saving ? "正在保存…" : editingID == nil ? "添加分类" : "保存修改", icon: .checkLine, color: Palette.accent) { save() }
             .disabled(saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 32 || description.count > 500)
             .disabled(CategoryTone.canonicalHex(color) == nil)
             .keyboardShortcut("s", modifiers: .command)

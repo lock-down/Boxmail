@@ -10,59 +10,60 @@ struct MailDetailView: View {
     VStack(spacing: 0) {
       HStack(spacing: 4) {
         if message.folder == "trash" || message.folder == "archive" {
-          ActionButton(title: message.folder == "trash" ? "恢复" : "取消归档", icon: "arrow.uturn.backward") {
+          ActionButton(title: message.folder == "trash" ? "恢复" : "取消归档", icon: .arrowGoBackLine) {
             store.restoreMessages([message])
-          }.help(message.folder == "trash" ? message.restoreTitle : message.unarchiveTitle)
+          }.cossTooltip(message.folder == "trash" ? message.restoreTitle : message.unarchiveTitle)
         } else {
-          ActionButton(title: "回复", icon: "arrowshape.turn.up.left", color: Palette.accent) {
+          ActionButton(title: "回复", icon: .replyLine, emphasis: .secondary) {
             store.newDraft(reply: message)
           }
         }
-        IconMenu(icon: "chevron.down", help: "更多回复选项") {
-          Button("全部回复") { store.newDraft(reply: message, all: true) }
+        IconMenu(icon: .arrowDownSLine, help: "更多回复选项") {
+          CossMenuItem.command("全部回复", icon: .replyAllLine) { store.newDraft(reply: message, all: true) }
         }
-        ActionButton(title: "转发", icon: "arrowshape.turn.up.right", color: Palette.accent) {
+        ActionButton(title: "转发", icon: .shareForwardLine) {
           store.newDraft(reply: message, forward: true)
         }
         Spacer(minLength: 4)
         if message.folder != "archive" && message.folder != "trash" {
-          IconButton(icon: "archivebox", help: "归档（Control-Command-A）", size: 28) {
+          IconButton(icon: .archiveLine, help: "归档（Control-Command-A）", size: 28) {
             store.update(message, ["folder": "archive"])
           }
         }
-        IconMenu(icon: "tag", help: "分类邮件") {
-          ForEach(store.categories) { category in
-            Button { store.update(message, ["category": category.name]) } label: {
-              if message.category == category.name { Label(category.name, systemImage: "checkmark") }
-              else { Text(category.name) }
+        IconMenu(icon: .priceTag3Line, help: "分类邮件") {
+          for category in store.categories {
+            CossMenuItem.command(category.name, mark: .choice(message.category == category.name)) {
+              store.update(message, ["category": category.name])
             }
           }
         }
         if message.folder != "trash" {
-          IconButton(icon: "trash", help: "移到已删除（Delete）", size: 28) {
+          IconButton(icon: .deleteBin6Line, help: "移到已删除（Delete）", size: 28) {
             store.update(message, ["folder": "trash"])
           }
         }
-        IconButton(icon: message.starred ? "star.fill" : "star", help: message.starred ? "取消星标" : "添加星标",
+        IconButton(icon: message.starred ? .starFill : .starLine, help: message.starred ? "取消星标" : "添加星标",
           color: message.starred ? Palette.amber : Palette.muted, size: 28, selected: message.starred) {
           store.update(message, ["starred": !message.starred])
         }
-        IconMenu(icon: "ellipsis", help: "更多邮件操作") {
-          Button("收录跟进") { store.collectFollowUp(message: message) }
-          Button("稍后处理…") { store.collectFollowUp(message: message, snooze: true) }
-          Button("向助手询问此邮件") { store.assistant.begin(scope: .init(kind: "message", messageId: message.id)) }
-          Button("向助手询问此会话") { store.assistant.begin(scope: .init(kind: "conversation", messageId: message.id)) }
-          Button("复制邮件正文") { NSPasteboard.general.copy(message.body) }
-          Button(message.unread ? "标记已读" : "标记未读") {
+        IconMenu(icon: .moreLine, help: "更多邮件操作") {
+          CossMenuItem.command("收录跟进", icon: .listCheck3) { store.collectFollowUp(message: message) }
+          CossMenuItem.command("稍后处理…", icon: .timeLine) { store.collectFollowUp(message: message, snooze: true) }
+          CossMenuItem.divider
+          CossMenuItem.command("向助手询问此邮件", icon: .chatAiLine) { store.assistant.begin(scope: .init(kind: "message", messageId: message.id)) }
+          CossMenuItem.command("向助手询问此会话", icon: .discussLine) { store.assistant.begin(scope: .init(kind: "conversation", messageId: message.id)) }
+          CossMenuItem.divider
+          CossMenuItem.command("复制邮件正文", icon: .fileCopyLine) { NSPasteboard.general.copy(message.body) }
+          CossMenuItem.command(message.unread ? "标记已读" : "标记未读", icon: .mailLine) {
             store.update(message, ["unread": !message.unread])
           }
         }
-      }.padding(.horizontal, 12).frame(height: 44).background(.white)
+      }.padding(.horizontal, 12).frame(height: 48).background(Palette.paper)
         .disabled(store.mailActionInProgress)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       MailAIBar(store: store, message: message)
         .disabled(store.mailActionInProgress)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       ScrollViewReader { reader in
         OverlayScrollView {
           ConversationTimelineView(store: store, selected: message) {
@@ -71,7 +72,7 @@ struct MailDetailView: View {
             }
           }
             .frame(maxWidth: UILayout.reading, alignment: .leading)
-            .padding(.horizontal, 24).padding(.vertical, 20).frame(
+            .padding(.horizontal, UILayout.pageInset).padding(.vertical, 24).frame(
               maxWidth: .infinity, alignment: .top)
         }.defaultScrollAnchor(.top).id(message.id).background(.white)
           .task(id: "\(message.id)-\(store.mailAITab?.rawValue ?? "")") {
@@ -86,21 +87,22 @@ struct MailDetailView: View {
   }
   private func selectedContent(showOriginal: @escaping () -> Void) -> some View {
     VStack(alignment: .leading, spacing: 14) {
-      Text(message.subject).font(.system(size: 20, weight: .semibold)).tracking(-0.35).lineSpacing(4)
-        .textSelection(.enabled)
+      Text(message.subject.isEmpty ? "（无主题）" : message.subject)
+        .font(.system(size: 22, weight: .semibold)).tracking(-0.4).lineSpacing(4)
+        .textSelection(.enabled).accessibilityAddTraits(.isHeader)
         .fixedSize(horizontal: false, vertical: true)
       if message.category != "未分类" {
         Tag(text: message.category, tone: store.categoryTone(message.category))
       }
       HStack(alignment: .top, spacing: 11) {
-        SenderAvatar(name: message.sender, size: 28)
+        SenderAvatar(name: message.sender, size: 32)
         VStack(alignment: .leading, spacing: 5) {
           HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(message.sender).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-              .layoutPriority(1).help(message.sender)
+              .layoutPriority(1).cossTooltip(message.sender)
             if !message.senderEmail.isEmpty && message.sender.caseInsensitiveCompare(message.senderEmail) != .orderedSame {
               Text(message.senderEmail).font(UIType.small).foregroundStyle(Palette.muted)
-                .textSelection(.enabled).lineLimit(1).truncationMode(.middle).help(message.senderEmail)
+                .textSelection(.enabled).lineLimit(1).truncationMode(.middle).cossTooltip(message.senderEmail)
             }
             Spacer(minLength: 8)
             Text(displayTime(message.date)).font(.system(size: 11)).monospacedDigit()
@@ -122,16 +124,16 @@ struct MailDetailView: View {
             CopyButton(help: "复制译文") { store.translatedMessage(message).body }
           }
           if let output = store.aiOutput(task: "translate", messageId: message.id), output.status == "running" {
-            ProgressView().controlSize(.mini)
+            CossSpinner(size: 12)
             Text(output.stage ?? "正在翻译…").font(UIType.small).foregroundStyle(Palette.muted)
           }
-          ActionButton(title: message.translation == nil ? "生成译文" : "重新翻译", icon: "arrow.clockwise") {
+          ActionButton(title: message.translation == nil ? "生成译文" : "重新翻译", icon: .refreshLine) {
             store.generate(task: "translate", message: message)
           }.disabled(store.busy.contains("agent"))
         }
       }.id("mail-body")
       if store.isShowingTranslation(message), let error = store.mailAIErrors[message.id] {
-        Label(error, systemImage: "exclamationmark.circle").font(UIType.small).foregroundStyle(Palette.amber)
+        Label(error, icon: .errorWarningLine).font(UIType.small).foregroundStyle(Palette.amber)
       }
       if store.isShowingTranslation(message), message.translation == nil,
         store.aiOutput(task: "translate", messageId: message.id) == nil {
@@ -156,13 +158,13 @@ struct AttachmentCard: View {
         AttachmentIcon(attachment: attachment, size: 23)
         VStack(alignment: .leading, spacing: 4) {
           Text(attachment.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
-            .truncationMode(.middle).help(attachment.name)
+            .truncationMode(.middle).cossTooltip(attachment.name)
           HStack {
             Text(fileSize(attachment.size)).font(UIType.small).foregroundStyle(Palette.muted)
             if let item = batchItem {
               Text(itemTitle(item)).foregroundStyle(
                 ["failed", "unsupported"].contains(item.status) ? Palette.amber : Palette.accent)
-                .font(.system(size: 11, weight: .medium)).help(item.error ?? itemTitle(item))
+                .font(.system(size: 11, weight: .medium)).cossTooltip(item.error ?? itemTitle(item))
             } else if attachment.isAnalyzed {
               Tag(text: "AI 已解析", ai: true)
             } else if attachment.canAnalyze {
@@ -170,7 +172,7 @@ struct AttachmentCard: View {
             }
           }
           if let item = batchItem, item.status == "failed", let error = item.error {
-            Text(error).font(UIType.small).foregroundStyle(Palette.amber).lineLimit(2).help(error)
+            Text(error).font(UIType.small).foregroundStyle(Palette.amber).lineLimit(2).cossTooltip(error)
           }
         }
         Spacer(minLength: 0)

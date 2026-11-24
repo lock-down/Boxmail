@@ -18,12 +18,12 @@ struct WritingPreferencesView: View {
           WorkflowSelection(
             title: "写作风格", selection: $writing.selectedId,
             options: [("", "默认")] + writing.styles.map { ($0.id, $0.name) })
-          IconButton(icon: "slider.horizontal.3", help: "管理写作风格") {
+          IconButton(icon: .equalizer3Line, help: "管理写作风格") {
             let selected = writing.styles.first { $0.id == writing.selectedId }
             writing.name = selected?.name ?? ""
             writing.instruction = selected?.instruction ?? ""
             managingStyle = true
-          }.popover(isPresented: $managingStyle) { styleEditor }
+          }.cossPopover(isPresented: $managingStyle) { styleEditor }
         }
       }
       DisclosureGroup("此账户签名") {

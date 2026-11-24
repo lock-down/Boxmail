@@ -20,7 +20,7 @@ struct OrganizationReviewList: View {
       LazyVStack(spacing: 0) {
         if let output {
           AIStreamingView(output: output).padding(16)
-          if !visible.isEmpty { Divider().overlay(Palette.softBorder) }
+          if !visible.isEmpty { CossSeparator() }
         }
         ForEach(visible) { item in
           WorkspaceListRow(action: {
@@ -37,7 +37,7 @@ struct OrganizationReviewList: View {
           } actions: {
             EmptyView()
           }
-          if item.id != visible.last?.id { Divider().overlay(Palette.softBorder) }
+          if item.id != visible.last?.id { CossSeparator() }
         }
       }
     } footer: {

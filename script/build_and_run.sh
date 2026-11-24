@@ -90,6 +90,7 @@ cp Sources/BoxmailCore/Resources/ReplyPresets.json "$APP_CONTENTS/Resources/Back
 cp Sources/BoxmailCore/Resources/AttachmentKinds.json "$APP_CONTENTS/Resources/Backend/Resources/AttachmentKinds.json"
 cp Sources/BoxmailCore/Resources/DiagnosticKnownFields.json "$APP_CONTENTS/Resources/Backend/Resources/DiagnosticKnownFields.json"
 rsync -a --delete "$BUILD_DIR/Boxmail_BoxmailCore.bundle/" "$APP_CONTENTS/Resources/Boxmail_BoxmailCore.bundle/"
+rsync -a --delete "$BUILD_DIR/Boxmail_Boxmail.bundle/" "$APP_CONTENTS/Resources/Boxmail_Boxmail.bundle/"
 chmod +x "$APP_CONTENTS/MacOS/$APP_NAME" "$APP_CONTENTS/Resources/Runtime/node" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
 BRAND_MARK="Sources/BoxmailCore/Resources/BoxmailMark.png"
 if [[ ! -f "$APP_CONTENTS/Resources/Boxmail.icns" || script/generate_icon.swift -nt "$APP_CONTENTS/Resources/Boxmail.icns" || "$BRAND_MARK" -nt "$APP_CONTENTS/Resources/Boxmail.icns" ]]; then

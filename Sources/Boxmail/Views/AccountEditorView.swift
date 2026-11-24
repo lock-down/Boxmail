@@ -26,9 +26,9 @@ struct AccountEditorView: View {
       HStack {
         Text(isNewAccount ? "添加邮箱" : "编辑邮箱").font(UIType.heading)
         Spacer()
-        IconButton(icon: "xmark", help: "取消账号编辑") { dismiss() }.disabled(loading)
+        IconButton(icon: .closeLine, help: "取消账号编辑") { dismiss() }.disabled(loading)
       }.padding(.horizontal, 24).frame(height: 54).background(Palette.chrome)
-      Divider()
+      CossSeparator()
       OverlayScrollView {
         VStack(alignment: .leading, spacing: 18) {
           Text("保存后立即生效，取消不会更改当前账号。")
@@ -96,10 +96,10 @@ struct AccountEditorView: View {
         primaryDisabled: account.email.isEmpty || password.isEmpty,
         cancel: { dismiss() }, primary: { saveAccount() }
       ) {
-        ActionButton(title: "测试连接", icon: "bolt") { testMail() }
+        ActionButton(title: "测试连接", icon: .flashlightLine) { testMail() }
           .disabled(loading || account.email.isEmpty || password.isEmpty)
       }
-    }.frame(width: 680, height: 530).background(Palette.paper).tint(Palette.blue)
+    }.frame(width: 680, height: 530).background(Palette.paper).tint(Palette.accent)
       .interactiveDismissDisabled(loading)
       .task {
         guard !isNewAccount else { return }

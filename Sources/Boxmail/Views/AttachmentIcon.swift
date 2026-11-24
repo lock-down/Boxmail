@@ -4,22 +4,22 @@ import SwiftUI
 struct AttachmentIcon: View {
   let attachment: MailAttachment
   var size: CGFloat = 25
-  private var symbol: String {
+  private var icon: RemixGlyph {
     switch attachment.kind {
-    case .image: return "photo"
-    case .pdf: return "doc.richtext"
-    case .spreadsheet: return "tablecells"
-    case .presentation: return "rectangle.on.rectangle"
-    case .word, .text: return "doc.text"
-    case .archive: return "doc.zipper"
-    case .other: return "doc"
+    case .image: .imageLine
+    case .pdf: .filePdfLine
+    case .spreadsheet: .fileExcelLine
+    case .presentation: .filePptLine
+    case .word, .text: .fileTextLine
+    case .archive: .fileZipLine
+    case .other: .fileLine
     }
   }
   private var color: Color {
     switch attachment.kind {
     case .pdf: return Color(hex: 0xC23C41)
     case .spreadsheet: return Palette.success
-    case .word: return Palette.blue
+    case .word: return Palette.accent
     case .presentation: return Color(hex: 0xA87416)
     case .image: return Color(hex: 0x7962AF)
     case .archive: return Palette.muted
@@ -27,7 +27,7 @@ struct AttachmentIcon: View {
     }
   }
   var body: some View {
-    Image(systemName: symbol).font(.system(size: size, weight: .regular))
+    RemixIcon(icon, size: size)
       .foregroundStyle(color).frame(width: size + 5, height: size + 9)
       .accessibilityHidden(true)
   }

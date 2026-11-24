@@ -6,16 +6,15 @@ struct MailWorkbenchView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       HStack(spacing: 16) {
-        Text("邮件工作台").font(UIType.heading).accessibilityAddTraits(.isHeader)
-        Divider().frame(height: 18)
-        SelectionButton(title: "跟进", icon: "checklist", selected: store.destination == .followUps, size: .compact) {
-          store.navigate(.followUps)
-        }
-        SelectionButton(title: "摘要", icon: "text.alignleft", selected: store.destination == .summary, size: .compact) {
-          store.navigate(.summary)
-        }
+        Text("邮件工作台").font(UIType.title).tracking(-0.4).accessibilityAddTraits(.isHeader)
+        HStack(spacing: 4) {
+          SelectionButton(title: "跟进", icon: .listCheck3, selected: store.destination == .followUps,
+            size: .compact, appearance: .segmented) { store.navigate(.followUps) }
+          SelectionButton(title: "摘要", icon: .alignLeft, selected: store.destination == .summary,
+            size: .compact, appearance: .segmented) { store.navigate(.summary) }
+        }.segmentedSurface()
       }.frame(maxWidth: .infinity, alignment: .leading)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       if store.destination == .summary {
         SummaryOverviewView(store: store)
       } else {

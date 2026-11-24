@@ -22,7 +22,7 @@ struct FollowUpsView: View {
         FilterBar(values: ["待我处理", "等待对方", "已到期", "已延后", "已完成"], selection: $workspace.filter, compact: true)
         Text("\(visible.count) 项").font(UIType.caption).foregroundStyle(Palette.muted).monospacedDigit()
         Spacer(minLength: 0)
-        ActionButton(title: "提醒设置", icon: "bell", size: .compact) {
+        ActionButton(title: "提醒设置", icon: .notification3Line, size: .compact) {
           store.settingsTab = "常用"
           store.showSettings = true
         }
@@ -33,7 +33,7 @@ struct FollowUpsView: View {
       if visible.isEmpty {
         EmptyState(
           title: "暂无\(workspace.filter == "待我处理" ? "待处理事项" : workspace.filter + "事项")",
-          subtitle: "在邮件、摘要待办或会话建议中选择“收录跟进”，行动和来源会一起保留", icon: "checklist")
+          subtitle: "在邮件、摘要待办或会话建议中选择“收录跟进”，行动和来源会一起保留", icon: .listCheck3)
       } else {
         WorkspaceList(
           items: visible, scrollPosition: workspace.scrollPosition, bordered: false,
@@ -41,7 +41,7 @@ struct FollowUpsView: View {
         ) { item in
           HStack(alignment: .top, spacing: 16) {
             IconButton(
-              icon: item.state == "completed" ? "checkmark.circle.fill" : "circle",
+              icon: item.state == "completed" ? .checkboxCircleFill : .checkboxBlankCircleLine,
               help: item.state == "completed" ? "重新打开" : "完成跟进",
               color: item.state == "completed" ? Palette.success : Palette.muted
             ) {
@@ -73,9 +73,9 @@ struct FollowUpsView: View {
                 Text("本次提醒已取消").font(UIType.small).foregroundStyle(Palette.muted)
               }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            IconButton(icon: "slider.horizontal.3", help: "编辑跟进") { editing = item }
+            IconButton(icon: .equalizer3Line, help: "编辑跟进") { editing = item }
           }.padding(16).accessibilityElement(children: .contain)
-            .background(item.id == workspace.selectedId ? Palette.blueSoft : Color.white)
+            .background(item.id == workspace.selectedId ? Palette.selected : Palette.paper)
             .contextMenu {
               Button("取消本次等待提醒") {
                 Task { await workspace.save(["cancelReminder": true], id: item.id) }

@@ -21,10 +21,13 @@ struct WorkspaceHeader<Actions: View>: View {
   }
 
   private var heading: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(title).font(.system(size: 22, weight: .semibold)).foregroundStyle(Palette.ink)
-      Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted)
-        .fixedSize(horizontal: false, vertical: true)
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title).font(UIType.title).foregroundStyle(Palette.ink).tracking(-0.4)
+        .accessibilityAddTraits(.isHeader)
+      if !subtitle.isEmpty {
+        Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted)
+          .fixedSize(horizontal: false, vertical: true)
+      }
     }
   }
 }

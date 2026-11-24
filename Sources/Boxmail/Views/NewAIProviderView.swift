@@ -37,7 +37,7 @@ struct NewAIProviderView: View {
         HStack {
           Text("自定义模型 API").font(UIType.title)
           Spacer()
-          IconButton(icon: "xmark", help: "取消添加服务商") { dismiss() }
+          IconButton(icon: .closeLine, help: "取消添加服务商") { dismiss() }
         }
         Text("接入兼容 OpenAI 或 Anthropic 协议的服务。API 密钥按服务商保存在本机 .env 文件。")
           .font(UIType.caption).foregroundStyle(Palette.muted).fixedSize(
@@ -72,11 +72,11 @@ struct NewAIProviderView: View {
                 Spacer(minLength: 0)
               }
             }
-            Divider().overlay(Palette.softBorder)
+            CossSeparator()
             HStack {
               Text("模型参数按服务商提供的能力填写。").font(UIType.small).foregroundStyle(Palette.muted)
               Spacer()
-              SettingsInlineAction(title: fetching ? "正在获取…" : "获取模型", icon: "arrow.clockwise") {
+              SettingsInlineAction(title: fetching ? "正在获取…" : "获取模型", icon: .refreshLine) {
                 fetchModels()
               }
               .disabled(fetching || provider.id.isEmpty || provider.baseURL.isEmpty)

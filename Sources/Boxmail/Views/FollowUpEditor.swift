@@ -30,10 +30,10 @@ struct FollowUpEditor: View {
             )
             .frame(width: 240)
           }
-          Divider().overlay(Palette.softBorder)
+          CossSeparator()
           VStack(spacing: 12) {
-            timing("跟进提醒", icon: "bell", enabled: $hasDue, date: $due, fieldTitle: "跟进时间")
-            timing("稍后处理", icon: "clock", enabled: $snoozed, date: $until, fieldTitle: "重新出现时间")
+            timing("跟进提醒", icon: .notification3Line, enabled: $hasDue, date: $due, fieldTitle: "跟进时间")
+            timing("稍后处理", icon: .timeLine, enabled: $snoozed, date: $until, fieldTitle: "重新出现时间")
           }
           WorkflowNotice(
             text: "\(TimeZone.current.identifier) · 到期提醒在 Boxmail 运行时处理；退出或睡眠后会在恢复运行时继续。取消提醒不会完成跟进。"
@@ -55,15 +55,15 @@ struct FollowUpEditor: View {
       workspace.suggestSnooze = false
     }
   }
-  private func timing(_ title: String, icon: String, enabled: Binding<Bool>, date: Binding<Date>, fieldTitle: String) -> some View {
+  private func timing(_ title: String, icon: RemixGlyph, enabled: Binding<Bool>, date: Binding<Date>, fieldTitle: String) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       Toggle(isOn: enabled) {
         HStack(spacing: 8) {
-          Image(systemName: icon).frame(width: 16).foregroundStyle(Palette.muted).accessibilityHidden(true)
+          RemixIcon(icon).frame(width: 16).foregroundStyle(Palette.muted).accessibilityHidden(true)
           Text(title)
           Spacer(minLength: 0)
         }
-      }.toggleStyle(.switch).controlSize(.small).tint(Palette.blue)
+      }.toggleStyle(CossToggleStyle(isSwitch: true)).controlSize(.small).tint(Palette.accent)
         .frame(height: 32)
       if enabled.wrappedValue { FollowUpDateTimeField(title: fieldTitle, date: date) }
     }

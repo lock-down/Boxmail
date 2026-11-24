@@ -11,22 +11,22 @@ struct BackupSettingsView: View {
   @ViewState<Bool> private var confirming = false
 
   var body: some View {
-    SectionCard(title: "完整备份与恢复", icon: "externaldrive.badge.timemachine") {
+    SectionCard(title: "完整备份与恢复", icon: .database2Line) {
       VStack(alignment: .leading, spacing: 18) {
-        SettingsTransferRow(title: "创建完整备份", detail: "保存全部账户的邮件、附件、草稿及 AI 结果", icon: "square.and.arrow.up") {
-          ActionButton(title: "保存备份…", icon: "square.and.arrow.up", color: Palette.blue) { chooseDestination() }
+        SettingsTransferRow(title: "创建完整备份", detail: "保存全部账户的邮件、附件、草稿及 AI 结果", icon: .exportLine) {
+          ActionButton(title: "保存备份…", icon: .exportLine, color: Palette.accent) { chooseDestination() }
         }
-        Divider().overlay(Palette.softBorder)
-        SettingsTransferRow(title: "从备份恢复", detail: "校验 ZIP，并自动保留恢复前的完整数据", icon: "arrow.counterclockwise") {
-          ActionButton(title: "选择备份…", icon: "folder") { chooseBackup() }
+        CossSeparator()
+        SettingsTransferRow(title: "从备份恢复", detail: "校验 ZIP，并自动保留恢复前的完整数据", icon: .historyLine) {
+          ActionButton(title: "选择备份…", icon: .folderLine) { chooseBackup() }
         }
       }.disabled(action.isWorking || !store.ready || !store.busy.isEmpty || store.composer != nil)
       SettingsActionFeedback(action: action)
       Text("授权码与 API Key 保存在本机 .env 文件，不随 ZIP 备份保存；迁移凭证请使用配置导出。ZIP 未加密，支持压缩后 512 MB、解压后 2 GB 以内。")
         .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
-    }.alert("恢复完整备份？", isPresented: $confirming, presenting: inspected) { summary in
-      Button("取消", role: .cancel) { inspected = nil }
-      Button("恢复备份", role: .destructive) { restore(summary) }
+    }.cossAlert("恢复完整备份？", isPresented: $confirming, presenting: inspected) { summary in
+      CossAlertAction("取消", role: .cancel) { inspected = nil }
+      CossAlertAction("恢复备份", role: .destructive) { restore(summary) }
     } message: { summary in
       Text("备份时间：\(backupTime(summary.createdAt))\n\(summary.counts["account"] ?? 0) 个账户、\(summary.counts["message"] ?? 0) 封邮件、\(summary.counts["draft"] ?? 0) 份草稿、\(summary.counts["attachment"] ?? 0) 个附件。\n\n将替换当前本机数据。恢复前会自动保存完整备份，服务器邮件与 .env 凭证保持原状。恢复的待同步操作会在下次同步时执行，请先核对。")
     }
@@ -90,7 +90,7 @@ struct SearchIndexSettingsView: View {
   @Bindable var store: MailStore
   @ViewState private var action = SettingsActionState()
   var body: some View {
-    SectionCard(title: "本机搜索索引", icon: "magnifyingglass") {
+    SectionCard(title: "本机搜索索引", icon: .searchLine) {
       HStack(alignment: .top, spacing: 20) {
         VStack(alignment: .leading, spacing: 6) {
           if let index = store.searchIndex {
@@ -105,7 +105,7 @@ struct SearchIndexSettingsView: View {
           Text("检索正文、附件名称与提取文本、AI 结果，仅覆盖本机已缓存内容。")
             .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading)
-        ActionButton(title: action.isWorking ? "正在重建…" : "重建索引", icon: "arrow.clockwise") { rebuild() }
+        ActionButton(title: action.isWorking ? "正在重建…" : "重建索引", icon: .refreshLine) { rebuild() }
           .disabled(action.isWorking || !store.ready || !store.busy.isEmpty)
       }
       SettingsActionFeedback(action: action)

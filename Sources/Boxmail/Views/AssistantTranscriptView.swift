@@ -26,7 +26,7 @@ struct AssistantTranscriptView: View {
             if let output { AIStreamingView(output: output) }
             else {
               HStack(spacing: 8) {
-                ProgressView().controlSize(.mini)
+                CossSpinner(size: 12)
                 Text("正在查阅邮件与附件…").font(UIType.small).foregroundStyle(Palette.muted)
               }
             }

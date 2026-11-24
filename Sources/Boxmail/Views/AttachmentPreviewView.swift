@@ -22,22 +22,22 @@ struct AttachmentPreviewView: View {
         HStack {
           AttachmentIcon(attachment: attachment, size: 20)
           Text(attachment.name).font(.system(size: 15, weight: .semibold))
-            .lineLimit(1).truncationMode(.middle).help(attachment.name)
+            .lineLimit(1).truncationMode(.middle).cossTooltip(attachment.name)
           Text(fileSize(attachment.size)).font(.system(size: 11)).foregroundStyle(Palette.muted)
             .fixedSize()
           Spacer()
           if store.attachmentPreviewIds.count > 1 {
-            IconButton(icon: "chevron.left", help: "上一个来源附件") { store.attachmentPreviewIndex -= 1 }.disabled(store.attachmentPreviewIndex == 0)
+            IconButton(icon: .arrowLeftSLine, help: "上一个来源附件") { store.attachmentPreviewIndex -= 1 }.disabled(store.attachmentPreviewIndex == 0)
             Text("\(store.attachmentPreviewIndex + 1)/\(store.attachmentPreviewIds.count)").font(UIType.small)
-            IconButton(icon: "chevron.right", help: "下一个来源附件") { store.attachmentPreviewIndex += 1 }.disabled(store.attachmentPreviewIndex + 1 == store.attachmentPreviewIds.count)
+            IconButton(icon: .arrowRightSLine, help: "下一个来源附件") { store.attachmentPreviewIndex += 1 }.disabled(store.attachmentPreviewIndex + 1 == store.attachmentPreviewIds.count)
           }
-          ActionButton(title: "打开原文件", icon: "arrow.up.right.square") {
+          ActionButton(title: "打开原文件", icon: .externalLinkLine, emphasis: .secondary) {
             store.download(attachment, preview: true)
           }
-          ActionButton(title: "下载", icon: "arrow.down.to.line") { store.download(attachment) }
-          IconButton(icon: "xmark", help: "关闭") { dismiss() }
+          ActionButton(title: "下载", icon: .downloadLine) { store.download(attachment) }
+          IconButton(icon: .closeLine, help: "关闭") { dismiss() }
         }.padding(20)
-        Divider()
+        CossSeparator()
         if attachment.isArchive {
           ArchiveAttachmentView(store: store, attachmentId: attachment.id)
         } else {
@@ -46,14 +46,14 @@ struct AttachmentPreviewView: View {
             Spacer()
             if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
               Text("来自：\(mail.subject)").font(.system(size: 11)).foregroundStyle(Palette.muted)
-                .lineLimit(1).truncationMode(.middle).help(mail.subject)
-              ActionButton(title: "打开原邮件", icon: "envelope") {
+                .lineLimit(1).truncationMode(.middle).cossTooltip(mail.subject)
+              ActionButton(title: "打开原邮件", icon: .mailLine) {
                 dismiss()
                 store.openMail(mail, tab: .attachment)
               }
             }
           }.padding(.horizontal, 20).padding(.vertical, 12).background(Palette.chrome)
-          Divider()
+          CossSeparator()
           if tab == "原文件预览" {
             originalPreview(attachment)
           } else {
@@ -64,7 +64,7 @@ struct AttachmentPreviewView: View {
                     HStack {
                       ActionButton(
                         title: attachment.isAnalyzed ? "重新理解这个附件" : "理解这个附件",
-                        icon: "sparkles", color: Palette.accent
+                        icon: .sparkling2Line, color: Palette.accent
                       ) {
                         store.generate(task: "attachment", message: mail, attachment: attachment)
                       }
@@ -86,7 +86,7 @@ struct AttachmentPreviewView: View {
                     AIStreamingView(output: output)
                   } else if let analysis = attachment.analysis {
                     HStack {
-                      Label("附件理解", systemImage: "sparkles").font(
+                      Label("附件理解", icon: .sparkling2Line).font(
                         .system(size: 17, weight: .semibold))
                       Spacer()
                       CopyButton(help: "复制理解结果") { analysis }
@@ -95,7 +95,7 @@ struct AttachmentPreviewView: View {
                   } else {
                     EmptyState(
                       title: "还没有独立理解结果", subtitle: "可深入理解这个附件，或在原邮件中结合正文与全部附件进行整封理解。",
-                      icon: "doc.text.magnifyingglass")
+                      icon: .fileSearchLine)
                   }
                 }
               }.frame(maxWidth: UILayout.document, alignment: .leading).padding(28).frame(
@@ -104,7 +104,7 @@ struct AttachmentPreviewView: View {
           }
         }
       }
-    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white).tint(Palette.blue)
+    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white).tint(Palette.accent)
       .animation(UIMotion.disclosure(reduceMotion), value: tab)
       .task(id: "\(currentId)-\(tab)") {
         previewLoading = true
@@ -119,14 +119,8 @@ struct AttachmentPreviewView: View {
         previewFile = nil
         documentPreviewURL = nil
       }
-      .alert(
-        "解析未完成",
-        isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })
-      ) {
-        Button("确定") { store.error = nil }
-      } message: {
-        Text(store.error ?? "")
-      }
+      .storeAlert("解析未完成", text: { store.error }, isPresented: { store.error != nil },
+        dismiss: { store.error = nil })
   }
   @ViewBuilder private func originalPreview(_ attachment: MailAttachment) -> some View {
     if let workbookHTML {
@@ -148,11 +142,11 @@ struct AttachmentPreviewView: View {
         Text("特殊格式可使用上方“打开原文件”查看").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }.padding(.horizontal, 20).padding(.vertical, 10).background(Palette.chrome)
     } else if previewLoading {
-      ProgressView("正在加载原文件…").frame(maxWidth: .infinity, maxHeight: .infinity)
+      CossSpinner(label: "正在加载原文件…").frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
       VStack(spacing: 14) {
-        EmptyState(title: "暂时无法预览原文件", subtitle: previewError, icon: "doc")
-        ActionButton(title: "重新加载", icon: "arrow.clockwise") { Task { await loadOriginal() } }
+        EmptyState(title: "暂时无法预览原文件", subtitle: previewError, icon: .fileLine)
+        ActionButton(title: "重新加载", icon: .refreshLine) { Task { await loadOriginal() } }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }

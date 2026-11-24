@@ -10,7 +10,7 @@ struct AnalysisCodeBlockView: View {
         Spacer()
         CopyButton(help: "复制代码") { text }
       }.padding(.horizontal, 12).padding(.vertical, 4)
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       OverlayScrollView(.horizontal) {
         Text(verbatim: text).font(.system(size: 12, design: .monospaced)).lineSpacing(5)
           .fixedSize(horizontal: true, vertical: true).padding(16)

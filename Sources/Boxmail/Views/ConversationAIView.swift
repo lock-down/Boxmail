@@ -22,7 +22,7 @@ struct ConversationAIView: View {
         .font(UIType.caption).foregroundStyle(Palette.muted)
       HStack(spacing: 12) {
         ActionButton(
-          title: latest("conversationSummary") == nil ? "总结会话" : "刷新会话总结", icon: "sparkles",
+          title: latest("conversationSummary") == nil ? "总结会话" : "刷新会话总结", icon: .sparkling2Line,
           color: Palette.accent
         ) {
           store.generate(task: "conversationSummary", message: message)
@@ -43,10 +43,10 @@ struct ConversationAIView: View {
         findings(
           "下一步", items: result.conversationNextSteps ?? [], sources: result.sourceMessages ?? [])
       }
-      Divider().overlay(Palette.softBorder)
+      CossSeparator()
       WorkflowTextInput(label: "会话回复要求", placeholder: "补充回复要求（可选）", text: $request, lines: 3)
       HStack(spacing: 12) {
-        ActionButton(title: "生成会话回复", icon: "arrowshape.turn.up.left", color: Palette.accent) {
+        ActionButton(title: "生成会话回复", icon: .replyLine, color: Palette.accent) {
           store.generate(
             task: "conversationReply", message: message, prompt: request, preview: true)
         }.disabled(store.busy.contains("agent"))
@@ -62,7 +62,7 @@ struct ConversationAIView: View {
         if result.partial == true {
           WorkflowNotice(text: "回复基于部分缓存内容，请核对历史与事实后使用。", color: Palette.amber)
         }
-        ActionButton(title: "使用为回复草稿", icon: "square.and.pencil", color: Palette.accent) {
+        ActionButton(title: "使用为回复草稿", icon: .editBoxLine, color: Palette.accent) {
           store.useReply(job)
         }
         .disabled(
@@ -74,7 +74,7 @@ struct ConversationAIView: View {
     }
   }
   private var staleNotice: some View {
-    WorkflowNotice(text: "会话已有新邮件，当前结果需要刷新后再使用。", icon: "arrow.clockwise", color: Palette.amber)
+    WorkflowNotice(text: "会话已有新邮件，当前结果需要刷新后再使用。", icon: .refreshLine, color: Palette.amber)
   }
   private func findings(
     _ title: String, items: [ConversationFinding], sources: [ConversationSource]

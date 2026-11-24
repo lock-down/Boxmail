@@ -13,13 +13,13 @@ struct ArchiveEntryView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: 8) {
-        Text(entry.path).font(UIType.section).lineLimit(2).truncationMode(.middle).help(entry.path)
+        Text(entry.path).font(UIType.section).lineLimit(2).truncationMode(.middle).cossTooltip(entry.path)
           .textSelection(.enabled)
         HStack {
           FilterBar(values: ["AI 理解", "原文件"], selection: $tab, compact: true)
           Spacer()
           if let file {
-            ActionButton(title: "打开文件", icon: "arrow.up.right.square") {
+            ActionButton(title: "打开文件", icon: .externalLinkLine) {
               NSWorkspace.shared.open(file.url)
             }
           }
@@ -28,7 +28,7 @@ struct ArchiveEntryView: View {
           Text(reason).font(UIType.caption).foregroundStyle(Palette.amber)
         }
       }.padding(16)
-      Divider()
+      CossSeparator()
       if tab == "AI 理解" {
         OverlayScrollView {
           if let analysis = entry.analysis {
@@ -36,7 +36,7 @@ struct ArchiveEntryView: View {
           } else {
             EmptyState(
               title: entry.status == "running" ? "正在理解这个文件" : "还没有单文件结果",
-              subtitle: entry.error ?? "点击上方“理解压缩包”，逐个理解包内文件。", icon: "doc.text.magnifyingglass"
+              subtitle: entry.error ?? "点击上方“理解压缩包”，逐个理解包内文件。", icon: .fileSearchLine
             )
             .frame(maxWidth: .infinity).padding(.top, 40)
           }
@@ -48,9 +48,9 @@ struct ArchiveEntryView: View {
           OriginalAttachmentView(url: file.url, isPDF: entry.contentType == "application/pdf", contentType: entry.contentType)
         }
       } else if loading {
-        ProgressView("正在读取包内文件…").frame(maxWidth: .infinity, maxHeight: .infinity)
+        CossSpinner(label: "正在读取包内文件…").frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        EmptyState(title: "暂时无法预览", subtitle: error ?? entry.error ?? "此文件暂不支持预览。", icon: "doc")
+        EmptyState(title: "暂时无法预览", subtitle: error ?? entry.error ?? "此文件暂不支持预览。", icon: .fileLine)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }.task(id: "\(entry.id)-\(tab)") {

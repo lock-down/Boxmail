@@ -12,7 +12,7 @@ struct AIModelCatalogEditor: View {
         Text("模型目录").font(.system(size: 12, weight: .medium))
         Text("\(models.count)").font(UIType.small).foregroundStyle(Palette.muted)
         Spacer()
-        SettingsInlineAction(title: "添加模型", icon: "plus") {
+        SettingsInlineAction(title: "添加模型", icon: .addLine) {
           let current = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
           models.append(AIModel(id: !current.isEmpty && !models.contains(where: { $0.id == current }) ? current : ""))
         }.disabled(models.count >= 500)
@@ -60,7 +60,7 @@ private struct AIModelEditorRow: View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .top, spacing: 8) {
         IconButton(
-          icon: !model.id.isEmpty && selectedModel == model.id ? "checkmark.circle.fill" : "circle",
+          icon: !model.id.isEmpty && selectedModel == model.id ? .checkboxCircleFill : .checkboxBlankCircleLine,
           help: "使用模型 \(model.id)",
           color: !model.id.isEmpty && selectedModel == model.id ? Palette.accent : Palette.muted,
           selected: !model.id.isEmpty && selectedModel == model.id
@@ -75,13 +75,13 @@ private struct AIModelEditorRow: View {
             surface: Palette.paper)
         }.frame(width: SettingsFormLayout.fieldWidth)
         Spacer(minLength: 0)
-        IconButton(icon: expanded ? "chevron.up" : "chevron.down", help: expanded ? "收起模型参数" : "展开模型参数") {
+        IconButton(icon: expanded ? .arrowUpSLine : .arrowDownSLine, help: expanded ? "收起模型参数" : "展开模型参数") {
           withAnimation(UIMotion.disclosure(reduceMotion)) { expanded.toggle() }
         }
-        IconButton(icon: "trash", help: "移除模型 \(model.id)", action: remove)
+        IconButton(icon: .deleteBin6Line, help: "移除模型 \(model.id)", action: remove)
       }
       if expanded {
-        Divider().overlay(Palette.softBorder)
+        CossSeparator()
         HStack(alignment: .top, spacing: 14) {
           capacity("上下文窗口", placeholder: "256K", draft: $model.contextWindowDraft, value: $model.contextWindow)
           capacity("最大输出 token 数", placeholder: "32K", draft: $model.maxTokensDraft, value: $model.maxTokens)
@@ -90,8 +90,8 @@ private struct AIModelEditorRow: View {
           .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
         HStack(spacing: 18) {
           Text("输入类型").foregroundStyle(Palette.muted)
-          Toggle("文本", isOn: input("text")).toggleStyle(.checkbox)
-          Toggle("图片", isOn: input("image")).toggleStyle(.checkbox)
+          Toggle("文本", isOn: input("text")).toggleStyle(CossToggleStyle())
+          Toggle("图片", isOn: input("image")).toggleStyle(CossToggleStyle())
           Spacer()
         }.font(UIType.caption)
         AIModelReasoningEditor(model: $model, apiProtocol: apiProtocol)

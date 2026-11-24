@@ -11,7 +11,7 @@ struct ConversationTimelineView<SelectedContent: View>: View {
       if let conversation = store.conversation, store.conversationAnchor == selected.id, conversation.total > 1 {
         VStack(alignment: .leading, spacing: 7) {
           HStack {
-            Label("往来邮件 · \(conversation.total) 封", systemImage: "bubble.left.and.bubble.right")
+            Label("往来邮件 · \(conversation.total) 封", icon: .discussLine)
               .font(UIType.section)
             Spacer()
             Text("当前邮件置顶 · 时间倒序").font(UIType.small).foregroundStyle(Palette.muted)
@@ -25,19 +25,19 @@ struct ConversationTimelineView<SelectedContent: View>: View {
         }
         VStack(alignment: .leading, spacing: 14) {
           HStack(spacing: 8) {
-            Text("当前邮件").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.blue)
+            Text("当前邮件").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.accent)
             Text(MailDestination.title(forFolder: selected.folder) ?? selected.folder)
               .font(UIType.small).foregroundStyle(Palette.muted)
           }
           selectedContent()
         }.id("thread-\(selected.id)")
-        Divider().overlay(Palette.softBorder)
+        CossSeparator()
         ForEach(conversation.messages.filter { $0.id != selected.id }) { header in
           ConversationMessageView(store: store, header: header).id(header.id)
-          Divider().overlay(Palette.softBorder)
+          CossSeparator()
         }
         if conversation.nextOffset != nil {
-          ActionButton(title: "继续加载（已显示 \(conversation.messages.count) / \(conversation.total) 封）", icon: "chevron.down", color: Palette.blue) {
+          ActionButton(title: "继续加载（已显示 \(conversation.messages.count) / \(conversation.total) 封）", icon: .arrowDownSLine, color: Palette.accent) {
             Task { await store.loadConversation(reset: false) }
           }
         }
@@ -45,7 +45,7 @@ struct ConversationTimelineView<SelectedContent: View>: View {
       if let error = store.conversationError {
         VStack(alignment: .leading, spacing: 8) {
           Text("会话加载未完成：\(error)").font(UIType.small).foregroundStyle(Palette.amber)
-          ActionButton(title: "重新加载会话", icon: "arrow.clockwise", color: Palette.blue) { Task { await store.loadConversation() } }
+          ActionButton(title: "重新加载会话", icon: .refreshLine, color: Palette.accent) { Task { await store.loadConversation() } }
         }
       }
     }
@@ -80,8 +80,8 @@ private struct ConversationMessageView: View {
               Text(header.preview).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(1)
             }
           }.frame(maxWidth: .infinity, alignment: .leading)
-          Image(systemName: expanded ? "chevron.down" : "chevron.right")
-            .font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.muted)
+          RemixIcon(expanded ? .arrowDownSLine : .arrowRightSLine, size: 10)
+            .foregroundStyle(Palette.muted)
             .frame(width: 14, height: 32)
         }.foregroundStyle(Palette.ink).padding(12)
       }.buttonStyle(ControlFeedback()).controlFocus()
@@ -92,19 +92,19 @@ private struct ConversationMessageView: View {
             Text(message.senderEmail).font(UIType.small).foregroundStyle(Palette.muted).textSelection(.enabled)
             RecipientDetailsView(to: message.to, cc: message.cc)
             WrappingFlowLayout(spacing: 8) {
-              ActionButton(title: "回复此封", icon: "arrowshape.turn.up.left", color: Palette.blue) { store.newDraft(reply: message) }
-              ActionButton(title: "打开此封邮件", icon: "arrow.up.right") { store.openMail(message) }
+              ActionButton(title: "回复此封", icon: .replyLine, color: Palette.accent) { store.newDraft(reply: message) }
+              ActionButton(title: "打开此封邮件", icon: .arrowRightUpLine) { store.openMail(message) }
               if message.folder == "trash" {
-                ActionButton(title: message.restoreTitle, icon: "arrow.uturn.backward") { store.restore(message) }
+                ActionButton(title: message.restoreTitle, icon: .arrowGoBackLine) { store.restore(message) }
               } else if message.folder == "archive" {
-                ActionButton(title: "取消归档", icon: "arrow.uturn.backward") { store.restore(message) }
+                ActionButton(title: "取消归档", icon: .arrowGoBackLine) { store.restore(message) }
               } else {
-                ActionButton(title: "归档", icon: "archivebox") { store.update(message, ["folder": "archive"]) }
+                ActionButton(title: "归档", icon: .archiveLine) { store.update(message, ["folder": "archive"]) }
               }
             }
             QuoteCollapsingBodyView(message: message, preferences: store.settings.preferences)
             if !message.attachmentIds.isEmpty { MailAttachmentSection(store: store, message: message) }
-          } else { ProgressView("正在加载这封邮件…").controlSize(.small) }
+          } else { CossSpinner(label: "正在加载这封邮件…") }
         }.padding(.leading, 54).padding(.trailing, 10)
       }
     }.task(id: "\(expanded)-\(store.restoreRevision)") {
@@ -126,7 +126,7 @@ struct QuoteCollapsingBodyView: View {
       MailBodyView(message: message, preferences: preferences, collapseQuotes: hasQuotes && !showingQuotes,
         updatesTextOnly: updatesTextOnly)
       if hasQuotes {
-        ActionButton(title: showingQuotes ? "收起引用内容" : "显示引用内容", icon: "text.quote") { showingQuotes.toggle() }
+        ActionButton(title: showingQuotes ? "收起引用内容" : "显示引用内容", icon: .doubleQuotesL) { showingQuotes.toggle() }
       }
     }
   }

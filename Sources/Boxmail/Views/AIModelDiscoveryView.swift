@@ -13,7 +13,7 @@ struct AIModelDiscoveryView: View {
         HStack {
           Text("可用模型").font(UIType.title)
           Spacer()
-          SettingsInlineAction(title: "全选", icon: "checkmark") {
+          SettingsInlineAction(title: "全选", icon: .checkLine) {
             selected = Set(candidates.map(\.id)).subtracting(existingIDs)
           }
         }
@@ -35,7 +35,7 @@ struct AIModelDiscoveryView: View {
                     Text(candidate.id).font(UIType.small).foregroundStyle(Palette.muted)
                   }
                 }
-              }.toggleStyle(.checkbox).disabled(existingIDs.contains(candidate.id))
+              }.toggleStyle(CossToggleStyle()).disabled(existingIDs.contains(candidate.id))
             }
           }.padding(4)
         }.frame(height: 280)

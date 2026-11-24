@@ -11,10 +11,10 @@ struct DraftsView: View {
         HStack {
           PageHeading(title: "草稿箱", subtitle: "自动保存在本机，随邮箱同步服务器；同时编辑时保留双方副本")
           Spacer()
-          ActionButton(title: store.busy.contains("sync") ? "正在同步…" : "同步草稿", icon: "arrow.triangle.2.circlepath") {
+          ActionButton(title: store.busy.contains("sync") ? "正在同步…" : "同步草稿", icon: .loopRightLine) {
             Task { await store.syncAll(folder: "drafts") }
           }.disabled(store.busy.contains("sync") || store.currentAccount?.isDemo != false)
-          ActionButton(title: "新建邮件", icon: "square.and.pencil", color: Palette.accent) {
+          ActionButton(title: "新建邮件", icon: .editBoxLine, emphasis: .primary) {
             store.newDraft()
           }
         }.padding(.bottom, 6)
@@ -24,7 +24,7 @@ struct DraftsView: View {
           let preview = draft.preview ?? ""
           VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 10) {
-              Image(systemName: "doc.text").foregroundStyle(Palette.muted).frame(
+              RemixIcon(.fileTextLine).foregroundStyle(Palette.muted).frame(
                 width: 22, height: 22)
               VStack(alignment: .leading, spacing: 6) {
                 Text(draft.subject.isEmpty ? "无主题草稿" : draft.subject).font(
@@ -41,23 +41,23 @@ struct DraftsView: View {
             .font(UIType.body).foregroundStyle(Palette.muted).lineLimit(2).lineSpacing(4)
             .frame(maxWidth: UILayout.document, alignment: .leading)
             if let issue = draft.syncError {
-              WorkflowNotice(text: issue, icon: "exclamationmark.circle", color: Palette.amber)
+              WorkflowNotice(text: issue, icon: .errorWarningLine, color: Palette.amber)
             }
             HStack {
               Text(syncTitle(draft)).font(UIType.small)
                 .foregroundStyle(draft.syncState == "conflict" ? Palette.amber : Palette.muted)
               if draft.status == "uncertain" {
-                Label("发送结果待确认", systemImage: "exclamationmark.circle").font(.system(size: 11))
+                Label("发送结果待确认", icon: .errorWarningLine).font(.system(size: 11))
                   .foregroundStyle(Palette.amber)
               }
               if !draft.attachmentIds.isEmpty {
-                Label("\(draft.attachmentIds.count) 个附件", systemImage: "paperclip").font(
+                Label("\(draft.attachmentIds.count) 个附件", icon: .attachment2).font(
                   .system(size: 11)
                 ).foregroundStyle(Palette.muted)
               }
               Spacer()
               if draft.syncState == "conflict" {
-                ActionButton(title: "同步为新草稿", icon: "arrow.triangle.2.circlepath") {
+                ActionButton(title: "同步为新草稿", icon: .loopRightLine) {
                   store.action("resume-draft-sync") {
                     let full: MailDraft = try await store.backend.request("/drafts/\(draft.id)")
                     let _: MailDraft = try await store.backend.request("/drafts", method: "POST", body: try jsonObject(full))
@@ -65,25 +65,25 @@ struct DraftsView: View {
                   }
                 }.disabled(store.busy.contains("sync") || store.busy.contains("resume-draft-sync"))
               }
-              IconButton(icon: "trash", help: "删除草稿") {
+              IconButton(icon: .deleteBin6Line, help: "删除草稿") {
                 deletingDraft = draft
               }.disabled(draft.status == "uncertain")
               ActionButton(
-                title: draft.status == "uncertain" ? "查看草稿" : "继续编辑", icon: "square.and.pencil"
+                title: draft.status == "uncertain" ? "查看草稿" : "继续编辑", icon: .editBoxLine
               ) { store.editDraft(draft.id) }
             }
           }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.radius))
+            .framedSurface()
         }
         if drafts.isEmpty {
-          EmptyState(title: "还没有草稿", subtitle: "点击写邮件开始，AI 也可以帮你拟稿。", icon: "square.and.pencil")
+          EmptyState(title: "还没有草稿", subtitle: "点击写邮件开始，AI 也可以帮你拟稿。", icon: .editBoxLine)
             .frame(height: 350)
         }
       }.workspacePage()
     }.background(Palette.canvas)
-      .alert("删除草稿？", isPresented: Binding(get: { deletingDraft != nil }, set: { if !$0 { deletingDraft = nil } }), presenting: deletingDraft) { draft in
-        Button("取消", role: .cancel) { deletingDraft = nil }
-        Button("删除草稿", role: .destructive) {
+      .cossAlert("删除草稿？", isPresented: Binding(get: { deletingDraft != nil }, set: { if !$0 { deletingDraft = nil } }), presenting: deletingDraft) { draft in
+        CossAlertAction("取消", role: .cancel) { deletingDraft = nil }
+        CossAlertAction("删除草稿", role: .destructive) {
           deletingDraft = nil
           store.action("delete-draft") { try await store.backend.perform("/drafts/\(draft.id)", method: "DELETE") }
         }

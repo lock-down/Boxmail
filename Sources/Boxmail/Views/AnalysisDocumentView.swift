@@ -17,7 +17,7 @@ struct AnalysisDocumentView: View {
     }.font(AITextStyle.body).foregroundStyle(Palette.ink)
       .frame(maxWidth: 760, alignment: .leading)
       .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-      .tint(Palette.blue)
+      .tint(Palette.accent)
       .environment(\.openURL, OpenURLAction { url in
         guard MailHTMLDocument.externalLink(url) else { return .discarded }
         NSWorkspace.shared.open(url); return .handled
@@ -41,9 +41,9 @@ struct AnalysisDocumentView: View {
     case .listItem:
       HStack(alignment: .top, spacing: 10) {
         if let checked = block.checked {
-          Image(systemName: checked ? "checkmark.square.fill" : "square")
-            .font(.system(size: 13)).foregroundStyle(checked ? Palette.blue : Palette.muted)
-            .frame(width: 18, height: 20).accessibilityLabel(checked ? "已完成" : "未完成")
+          RemixIcon(checked ? .checkboxFill : .checkboxBlankLine, size: 13)
+            .foregroundStyle(checked ? Palette.accent : Palette.muted).frame(width: 18, height: 20)
+            .accessibilityRepresentation { Text(checked ? "已完成" : "未完成") }
         } else {
           Text(block.marker).font(.system(size: 13)).foregroundStyle(Palette.muted)
             .monospacedDigit().frame(minWidth: 18, alignment: .trailing).padding(.top, 1)
@@ -58,7 +58,7 @@ struct AnalysisDocumentView: View {
       }.fixedSize(horizontal: false, vertical: true).padding(.vertical, 4)
     case .code: AnalysisCodeBlockView(text: block.text, language: block.language)
     case .table: if let table = block.table { AnalysisTableView(table: table) }
-    case .rule: Divider().overlay(Palette.softBorder).padding(.vertical, 6)
+    case .rule: CossSeparator().padding(.vertical, 6)
     }
   }
   private func paragraph(_ value: String) -> some View {

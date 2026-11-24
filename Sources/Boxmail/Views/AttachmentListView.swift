@@ -53,12 +53,10 @@ struct AttachmentListView: View {
             HStack(spacing: AttachmentListLayout.gap) {
               if let selectComparison {
                 Button { selectComparison(item.id) } label: {
-                  Image(systemName: comparisonSelection.contains(item.id) ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 16)).foregroundStyle(
-                      comparisonSelection.contains(item.id) ? Palette.blue : Palette.muted)
+                  CossCheckbox(isOn: comparisonSelection.contains(item.id))
                     .frame(width: AttachmentListLayout.icon, height: 32).contentShape(Rectangle())
                 }.buttonStyle(ControlFeedback()).controlFocus()
-                  .help(comparisonSelection.contains(item.id) ? "取消附件比较选择" : "选入附件比较")
+                  .cossTooltip(comparisonSelection.contains(item.id) ? "取消附件比较选择" : "选入附件比较")
                   .accessibilityLabel("\(comparisonSelection.contains(item.id) ? "取消选择" : "选择比较") \(item.name)")
                   .accessibilityAddTraits(comparisonSelection.contains(item.id) ? .isSelected : [])
               } else {
@@ -78,7 +76,7 @@ struct AttachmentListView: View {
                       .lineLimit(1).truncationMode(.middle)
                   }
                 }
-              }.frame(width: columns.name, alignment: .leading).foregroundStyle(Palette.ink).help(
+              }.frame(width: columns.name, alignment: .leading).foregroundStyle(Palette.ink).cossTooltip(
                 item.name)
               if columns.showsSource {
                 VStack(alignment: .leading, spacing: 3) {
@@ -86,7 +84,7 @@ struct AttachmentListView: View {
                     .lineLimit(1).truncationMode(.middle)
                   Text(item.source.sender).font(UIType.small).foregroundStyle(Palette.muted)
                     .lineLimit(1)
-                }.frame(width: columns.source, alignment: .leading).help(item.source.subject)
+                }.frame(width: columns.source, alignment: .leading).cossTooltip(item.source.subject)
               }
               Text(fileSize(item.size)).frame(width: columns.size, alignment: .leading)
               Text(String(item.date.prefix(10))).frame(width: columns.date, alignment: .leading)
@@ -96,25 +94,30 @@ struct AttachmentListView: View {
             }.font(UIType.small).foregroundStyle(Palette.muted).monospacedDigit()
           } actions: {
             HStack(spacing: UILayout.iconGap) {
-              IconButton(icon: "doc.text.magnifyingglass", help: "预览 \(item.name)") {
+              IconButton(icon: .fileSearchLine, help: "预览 \(item.name)") {
                 preview(item.attachment)
               }
-              IconButton(icon: "envelope", help: "打开原邮件") { openMail(item.source.id) }
-              IconButton(icon: "arrow.down.to.line", help: "下载 \(item.name)") {
+              IconButton(icon: .mailLine, help: "打开原邮件") { openMail(item.source.id) }
+              IconButton(icon: .downloadLine, help: "下载 \(item.name)") {
                 download(item.attachment)
               }
             }.frame(width: columns.actions, alignment: .leading).padding(.leading, 4).padding(
               .trailing, 16)
           }
           .foregroundStyle(Palette.ink)
-          .contextMenu {
-            if let onlySource { Button("只看此邮件附件") { onlySource(item.source.id) } }
-            if let selectComparison {
-              Button(comparisonSelection.contains(item.id) ? "取消附件比较选择" : "选入附件比较") { selectComparison(item.id) }
+          .cossContextMenu {
+            CossMenuItem.command("预览附件", icon: .fileSearchLine) { preview(item.attachment) }
+            CossMenuItem.command("打开原邮件", icon: .mailLine) { openMail(item.source.id) }
+            CossMenuItem.command("下载附件", icon: .downloadLine) { download(item.attachment) }
+            if onlySource != nil || selectComparison != nil { .divider }
+            if let onlySource {
+              CossMenuItem.command("只看此邮件附件", icon: .filter3Line) { onlySource(item.source.id) }
             }
-            Button("预览附件") { preview(item.attachment) }
-            Button("打开原邮件") { openMail(item.source.id) }
-            Button("下载附件") { download(item.attachment) }
+            if let selectComparison {
+              CossMenuItem.command("选入附件比较", mark: .checkbox(comparisonSelection.contains(item.id))) {
+                selectComparison(item.id)
+              }
+            }
           }
         }.accessibilityLabel("附件列表")
           .focusable().focusEffectDisabled().focused($focused)
@@ -131,7 +134,7 @@ struct AttachmentListView: View {
   }
   private func status(_ item: AttachmentPageItem) -> some View {
     Text(item.attachment.analysisStatusTitle).font(UIType.small)
-      .foregroundStyle(item.attachment.isAnalyzed ? Palette.blue : Palette.muted)
+      .foregroundStyle(item.attachment.isAnalyzed ? Palette.accent : Palette.muted)
   }
   private func moveSelection(_ delta: Int) -> KeyPress.Result {
     guard !items.isEmpty else { return .ignored }

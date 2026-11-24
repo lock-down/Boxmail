@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct WorkflowPanelHeader: View {
@@ -9,12 +8,12 @@ struct WorkflowPanelHeader: View {
   var body: some View {
     HStack(alignment: .top, spacing: 20) {
       VStack(alignment: .leading, spacing: 6) {
-        Text(title).font(UIType.heading).foregroundStyle(Palette.ink)
+        Text(title).font(UIType.heading).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
         Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted)
           .fixedSize(horizontal: false, vertical: true)
       }
       Spacer(minLength: 0)
-      IconButton(icon: "xmark", help: closeLabel, action: close)
+      IconButton(icon: .closeLine, help: closeLabel, action: close)
         .keyboardShortcut(.cancelAction)
     }
   }
@@ -27,7 +26,7 @@ struct WorkflowField<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack {
-        Text(title).font(UIType.caption).foregroundStyle(Palette.muted)
+        Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.ink)
         Spacer(minLength: 4)
         if !detail.isEmpty { Text(detail).font(UIType.small).foregroundStyle(Palette.muted).monospacedDigit() }
       }
@@ -42,7 +41,7 @@ struct WorkflowTextInput: View {
   @Binding var text: String
   var lines = 1
   var font: Font = UIType.body
-  var surface: Color = Palette.canvas
+  var surface: Color = Palette.paper
   @FocusState private var focused: Bool
   var body: some View {
     TextField("", text: $text, axis: lines > 1 ? .vertical : .horizontal)
@@ -52,9 +51,7 @@ struct WorkflowTextInput: View {
       .frame(minHeight: lines > 1 ? 108 : SettingsFormLayout.controlHeight,
         maxHeight: lines > 1 ? nil : SettingsFormLayout.controlHeight,
         alignment: lines > 1 ? .topLeading : .leading)
-      .background(
-        surface, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
-      )
+      .controlFieldSurface(focused: focused, fill: surface)
       .overlay(alignment: lines > 1 ? .topLeading : .leading) {
         if text.isEmpty {
           Text(placeholder).font(font).foregroundStyle(Palette.muted)
@@ -62,93 +59,35 @@ struct WorkflowTextInput: View {
             .allowsHitTesting(false).accessibilityHidden(true)
         }
       }
-      .overlay {
-        RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
-          .stroke(focused ? Palette.blue : Palette.softBorder, lineWidth: 1)
-      }.accessibilityLabel(label)
+      .accessibilityLabel(label)
   }
 }
 
-struct WorkflowSelection<Value: Hashable>: NSViewRepresentable {
+struct WorkflowSelection<Value: Hashable>: View {
   let title: String
   @Binding var selection: Value
   let options: [(Value, String)]
   var style = WorkflowSelectionStyle.field
   var displayTitle: String? = nil
 
-  func makeNSView(context: Context) -> WorkflowSelectionButton {
-    let button = WorkflowSelectionButton(frame: .zero, pullsDown: false)
-    button.isBordered = false
-    button.focusRingType = .none
-    button.style = style
-    button.target = button
-    button.action = #selector(WorkflowSelectionButton.selectValue)
-    return button
-  }
-  func sizeThatFits(_ proposal: ProposedViewSize, nsView: WorkflowSelectionButton, context: Context) -> CGSize? {
-    CGSize(width: proposal.width ?? 160, height: style.controlHeight)
-  }
-  func updateNSView(_ button: WorkflowSelectionButton, context: Context) {
-    let labels = options.map(\.1)
-    if button.itemTitles != labels {
-      button.removeAllItems()
-      button.addItems(withTitles: labels)
-      button.menu?.font = .systemFont(ofSize: 12)
-      for (index, item) in (button.itemArray).enumerated() { item.toolTip = labels[index] }
+  private var currentTitle: String { options.first { $0.0 == selection }?.1 ?? "请选择" }
+
+  var body: some View {
+    CossMenu(title: title, value: currentTitle, width: 160,
+      emphasis: style == .field ? .secondary : .plain, prefersSelection: true) {
+      for (value, label) in options {
+        CossMenuItem.command(label, mark: .choice(value == selection)) { selection = value }
+      }
+    } trigger: {
+      CossMenuLabel(title: displayTitle ?? currentTitle, size: style == .toolbar ? .compact : .form,
+        fillsWidth: style == .field, color: style == .toolbar ? Palette.muted : Palette.ink)
+        .frame(maxWidth: .infinity).frame(height: style == .toolbar ? UILayout.iconControl : SettingsFormLayout.controlHeight)
     }
-    if let index = options.firstIndex(where: { $0.0 == selection }) { button.selectItem(at: index) }
-    button.style = style
-    button.displayTitle = displayTitle
-    button.isEnabled = context.environment.isEnabled
-    button.setAccessibilityLabel(title)
-    button.setAccessibilityValue(button.titleOfSelectedItem ?? "请选择")
-    button.toolTip = button.titleOfSelectedItem
-    let binding = $selection
-    button.onSelect = { index in
-      guard options.indices.contains(index) else { return }
-      binding.wrappedValue = options[index].0
-    }
-    button.needsDisplay = true
+    .disabled(options.isEmpty).cossTooltip(currentTitle)
   }
 }
 
-enum WorkflowSelectionStyle {
-  case field, inline, toolbar
-
-  var controlHeight: CGFloat {
-    self == .toolbar ? UILayout.iconControl : SettingsFormLayout.controlHeight
-  }
-}
-
-@MainActor final class WorkflowSelectionButton: SelectionControlButton {
-  var style = WorkflowSelectionStyle.field
-  var displayTitle: String?
-  var onSelect: ((Int) -> Void)?
-
-  override var intrinsicContentSize: NSSize {
-    NSSize(width: NSView.noIntrinsicMetric, height: style.controlHeight)
-  }
-
-  @objc func selectValue() { onSelect?(indexOfSelectedItem) }
-  override func draw(_ dirtyRect: NSRect) {
-    if style == .toolbar {
-      drawIconSurface()
-    } else {
-      drawSelectionSurface(visible: style == .field)
-    }
-    let compact = style != .field
-    let text = displayTitle ?? titleOfSelectedItem ?? "请选择"
-    let font = NSFont.systemFont(ofSize: 12, weight: style == .inline ? .medium : .regular)
-    let textWidth = min(ceil((text as NSString).size(withAttributes: [.font: font]).width),
-      max(0, bounds.width - (style == .toolbar ? 31 : 40)))
-    let indicatorGap: CGFloat = style == .toolbar ? 6 : 8
-    let groupWidth = textWidth + indicatorGap + 9
-    let inset: CGFloat = compact ? floor((bounds.width - groupWidth) / 2) : 12
-    drawSelectionText(text, x: inset, width: compact ? textWidth : bounds.width - inset - 28,
-      font: font, color: isHighlighted ? Palette.blue : style == .toolbar ? Palette.muted : Palette.ink)
-    drawSelectionIndicator(x: compact ? inset + textWidth + indicatorGap : bounds.width - 21)
-  }
-}
+enum WorkflowSelectionStyle { case field, inline, toolbar }
 
 struct WorkflowStepper: View {
   let title: String
@@ -158,26 +97,20 @@ struct WorkflowStepper: View {
   var body: some View {
     HStack(spacing: SettingsFormLayout.columnGap) {
       SettingsFormLabel(title: title)
-      HStack(spacing: 8) {
-        IconButton(icon: "minus", help: "减少" + title) { value = max(range.lowerBound, value - 1) }
-          .disabled(value <= range.lowerBound)
-        Text(value.formatted(.number.grouping(.never))).font(UIType.caption).monospacedDigit().frame(minWidth: 24)
-        IconButton(icon: "plus", help: "增加" + title) { value = min(range.upperBound, value + 1) }
-          .disabled(value >= range.upperBound)
-        Text(unit).font(UIType.caption).foregroundStyle(Palette.muted)
-        Spacer(minLength: 0)
-      }
+      CossNumberField(title: title, value: $value, range: range).frame(width: 108)
+      Text(unit).font(UIType.caption).foregroundStyle(Palette.muted)
+      Spacer(minLength: 0)
     }
   }
 }
 
 struct WorkflowNotice: View {
   let text: String
-  var icon = "info.circle"
+  var icon: RemixGlyph = .informationLine
   var color: Color = Palette.muted
   var body: some View {
     HStack(alignment: .top, spacing: 8) {
-      Image(systemName: icon).frame(width: 14).padding(.top, 1)
+      RemixIcon(icon).frame(width: 14).padding(.top, 1).accessibilityHidden(true)
       Text(text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
     }.font(UIType.small).foregroundStyle(color).frame(maxWidth: .infinity, alignment: .leading)
   }

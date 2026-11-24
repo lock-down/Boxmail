@@ -15,7 +15,7 @@ struct MarkdownAttachmentPreview: View {
       } else if useSystemPreview {
         SystemAttachmentPreview(url: url, isPDF: false)
       } else {
-        ProgressView("正在读取 Markdown…").frame(maxWidth: .infinity, maxHeight: .infinity)
+        CossSpinner(label: "正在读取 Markdown…").frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }.task(id: url) {
       blocks = nil

@@ -10,20 +10,13 @@ struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      header()
+      header().background(Palette.canvas)
       OverlayScrollView(scrollPosition: scrollPosition) {
         content().frame(maxWidth: .infinity, alignment: .leading)
       }
       footer()
     }
-    .background(Palette.paper)
-    .clipShape(RoundedRectangle(cornerRadius: 10))
-    .overlay {
-      if bordered {
-        RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.softBorder, lineWidth: 1)
-          .allowsHitTesting(false)
-      }
-    }
+    .framedSurface(bordered: bordered)
     .accessibilityElement(children: .contain)
   }
 }
@@ -55,7 +48,7 @@ struct WorkspaceList<Item: Identifiable, Header: View, Row: View, Footer: View>:
       }
       ForEach(items) { item in
         row(item).id(item.id)
-        if item.id != items.last?.id { Divider().overlay(Palette.softBorder) }
+        if item.id != items.last?.id { CossSeparator() }
       }
     }
   }
@@ -68,6 +61,8 @@ struct WorkspaceListRow<Content: View, Actions: View>: View {
   let action: () -> Void
   @ViewBuilder var content: () -> Content
   @ViewBuilder var actions: () -> Actions
+  @ViewState private var hovered = false
+  @Environment(\.isEnabled) private var enabled
 
   var body: some View {
     HStack(spacing: 0) {
@@ -84,6 +79,40 @@ struct WorkspaceListRow<Content: View, Actions: View>: View {
       .accessibilityAddTraits(selected ? .isSelected : [])
       actions()
     }
-    .background(selected ? Palette.blueSoft : Palette.paper)
+    .background(selected ? Palette.selected : hovered && enabled ? Palette.canvas : Palette.paper)
+    .onHover { hovered = $0 }
+  }
+}
+
+extension View {
+  /// Native selection and accessibility stay with List. The row owns its visible surface.
+  func cossListStyle() -> some View {
+    listStyle(.plain)
+      .scrollContentBackground(.hidden)
+      .contentMargins(.horizontal, 0, for: .scrollContent)
+      .environment(\.defaultMinListRowHeight, 0)
+      .tint(Palette.selected)
+  }
+
+  func cossListRow(selected: Bool) -> some View {
+    modifier(CossListRowSurface(selected: selected))
+      .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+      .listRowSeparator(.hidden)
+      .listRowBackground(Palette.paper)
+  }
+}
+
+private struct CossListRowSurface: ViewModifier {
+  let selected: Bool
+  @ViewState private var hovered = false
+  @Environment(\.isEnabled) private var enabled
+
+  func body(content: Content) -> some View {
+    let shape = RoundedRectangle(cornerRadius: UILayout.navigationRadius)
+    content.frame(maxWidth: .infinity, alignment: .leading)
+      .background(selected ? Palette.selected : hovered && enabled ? Palette.canvas : Palette.paper, in: shape)
+      .overlay { shape.strokeBorder(selected ? Palette.border : Palette.softBorder).allowsHitTesting(false) }
+      .contentShape(shape)
+      .onHover { hovered = $0 }
   }
 }

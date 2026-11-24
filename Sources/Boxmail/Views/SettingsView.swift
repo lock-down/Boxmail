@@ -29,20 +29,20 @@ struct SettingsView: View {
     GeometryReader { geometry in
       VStack(spacing: 0) {
         HStack(spacing: 16) {
-          Text("设置").font(.system(size: 15, weight: .semibold))
+          Text("设置").font(UIType.heading).accessibilityAddTraits(.isHeader)
           if geometry.size.width < 900 {
             FilterBar(values: tabs, selection: $store.settingsTab)
               .disabled(transferringConfiguration || loading)
           }
           Spacer()
-          IconButton(icon: "xmark", help: "关闭设置") { dismiss() }
+          IconButton(icon: .closeLine, help: "关闭设置") { dismiss() }
             .disabled(transferringConfiguration || loading)
         }.padding(.horizontal, 22).frame(height: 54).background(Palette.chrome)
-        Divider()
+        CossSeparator()
         HStack(alignment: .top, spacing: 0) {
           if geometry.size.width >= 900 {
             settingsSidebar
-            Divider()
+            CossSeparator(axis: .vertical)
           }
           settingsContent
         }
@@ -56,7 +56,7 @@ struct SettingsView: View {
           }
         }
       }
-    }.background(.white).tint(Palette.blue)
+    }.background(.white).tint(Palette.accent)
       .disclosureGroupStyle(SettingsDisclosureStyle())
       .sheet(item: $accountToEdit) { account in
         AccountEditorView(
@@ -66,17 +66,17 @@ struct SettingsView: View {
         .borderlessScrollers()
       }
       .interactiveDismissDisabled(transferringConfiguration || loading)
-      .alert(
+      .cossAlert(
         "移除邮箱账户",
         isPresented: Binding(
-          get: { removingAccount != nil }, set: { if !$0 { removingAccount = nil } })
-      ) {
-        Button("取消", role: .cancel) { removingAccount = nil }
-        Button("移除", role: .destructive) {
-          if let account = removingAccount { removeAccount(account) }
-          removingAccount = nil
+          get: { removingAccount != nil }, set: { if !$0 { removingAccount = nil } }),
+        presenting: removingAccount
+      ) { account in
+        CossAlertAction("取消", role: .cancel) { removingAccount = nil }
+        CossAlertAction("移除", role: .destructive) {
+          removeAccount(account)
         }
-      } message: {
+      } message: { _ in
         Text("将移除账户的本机邮件、草稿和 .env 中的凭证，服务器邮件会保留。")
       }
       .storeAlert(
@@ -100,28 +100,28 @@ struct SettingsView: View {
           withAnimation(UIMotion.selection(reduceMotion)) { store.settingsTab = tab }
         } label: {
           HStack(spacing: 11) {
-            Image(systemName: icon(tab)).font(.system(size: 14, weight: .medium))
+            RemixIcon(icon(tab), size: 14)
               .frame(width: 20, height: 20).accessibilityHidden(true)
             Text(tab)
             Spacer()
           }.font(.system(size: 13, weight: store.settingsTab == tab ? .semibold : .regular))
-            .foregroundStyle(store.settingsTab == tab ? Palette.accent : Palette.ink).padding(
+            .foregroundStyle(store.settingsTab == tab ? Palette.ink : Palette.muted).padding(
               .horizontal, 10
             ).frame(maxWidth: .infinity).frame(height: 36)
             .contentShape(Rectangle()).background {
               if store.settingsTab == tab {
                 if reduceMotion {
                   RoundedRectangle(cornerRadius: UILayout.navigationRadius, style: .continuous)
-                    .fill(Palette.accentSoft)
+                    .fill(Palette.selected)
                 } else {
                   RoundedRectangle(cornerRadius: UILayout.navigationRadius, style: .continuous)
-                    .fill(Palette.accentSoft)
+                    .fill(Palette.selected)
                     .matchedGeometryEffect(id: "settings-selection", in: settingsSelection)
                 }
               }
             }
         }.buttonStyle(
-          ControlFeedback(selected: store.settingsTab == tab, corner: UILayout.navigationRadius)
+          ControlFeedback(corner: UILayout.navigationRadius)
         ).disabled(
           transferringConfiguration || loading
         )
@@ -140,13 +140,13 @@ struct SettingsView: View {
       VStack(alignment: .leading, spacing: 20) {
         HStack(alignment: .top, spacing: 20) {
           VStack(alignment: .leading, spacing: 8) {
-            Text(store.settingsTab).font(UIType.title).tracking(-0.3)
+            Text(store.settingsTab).font(UIType.title).tracking(-0.4).accessibilityAddTraits(.isHeader)
             Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(3)
               .fixedSize(horizontal: false, vertical: true)
           }
           Spacer()
           if store.settingsTab == "AI 助手" {
-            Toggle("启用 AI 助手", isOn: $config.enabled).toggleStyle(.switch).font(
+            Toggle("启用 AI 助手", isOn: $config.enabled).toggleStyle(CossToggleStyle(isSwitch: true)).font(
               .system(size: 12)
             ).controlSize(.small).fixedSize().padding(.top, 4)
           }
@@ -159,12 +159,12 @@ struct SettingsView: View {
         default: advancedSettings
         }
         if !status.isEmpty {
-          Label(status, systemImage: statusFailed ? "exclamationmark.circle" : "info.circle")
+          Label(status, icon: statusFailed ? .errorWarningLine : .informationLine)
             .font(.system(size: 12))
-            .foregroundStyle(statusFailed ? Palette.amber : Palette.muted)
+            .foregroundStyle(statusFailed ? Palette.destructive : Palette.muted)
           .textSelection(.enabled).lineSpacing(4).padding(12)
           .frame(maxWidth: .infinity, alignment: .leading).background(
-            Palette.blueSoft, in: RoundedRectangle(cornerRadius: 7))
+            Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
         }
       }.frame(maxWidth: 720, alignment: .leading).padding(24).frame(
         maxWidth: .infinity, alignment: .leading)
@@ -182,13 +182,13 @@ struct SettingsView: View {
     default: return "管理本机数据、诊断与同步状态"
     }
   }
-  private func icon(_ tab: String) -> String {
+  private func icon(_ tab: String) -> RemixGlyph {
     switch tab {
-    case "常用": return "gearshape"
-    case "账号": return "person"
-    case "高级": return "slider.horizontal.3"
-    case "开发者": return "hammer"
-    default: return "sparkles"
+    case "常用": .settings3Line
+    case "账号": .userLine
+    case "高级": .equalizer3Line
+    case "开发者": .hammerLine
+    default: .sparkling2Line
     }
   }
   private var aiSettings: some View {
@@ -205,7 +205,7 @@ struct SettingsView: View {
     }
   }
   private var promptSettings: some View {
-    SectionCard(title: "任务提示词", icon: "") {
+    SectionCard(title: "任务提示词") {
         WrappingFlowLayout(spacing: 6) {
           ForEach(
             [
@@ -249,25 +249,25 @@ struct SettingsView: View {
           HStack(spacing: 12) {
             SenderAvatar(name: account.sidebarName, size: 30).fixedSize()
             VStack(alignment: .leading, spacing: 4) {
-              Text(account.sidebarName).font(UIType.section).lineLimit(1).help(account.sidebarName)
+              Text(account.sidebarName).font(UIType.section).lineLimit(1).cossTooltip(account.sidebarName)
               Text(account.email).font(UIType.caption).foregroundStyle(Palette.muted)
-                .lineLimit(1).truncationMode(.middle).help(account.email)
+                .lineLimit(1).truncationMode(.middle).cossTooltip(account.email)
             }.frame(maxWidth: .infinity, alignment: .leading)
             if account.isDemo {
               Tag(text: "演示数据")
             } else {
               ActionButton(title: "编辑") { accountToEdit = account }
-              IconMenu(icon: "ellipsis", help: "账号更多操作") {
-                Button("移除账号…", role: .destructive) { removingAccount = account }
+              IconMenu(icon: .moreLine, help: "账号更多操作") {
+                CossMenuItem.command("移除账号…", icon: .deleteBin6Line, destructive: true) { removingAccount = account }
               }
             }
           }.padding(16)
           if account.id != store.accounts.last?.id {
-            Divider().overlay(Palette.softBorder).padding(.leading, 58)
+            CossSeparator().padding(.leading, 58)
           }
         }
       }.background(Palette.paper, in: RoundedRectangle(cornerRadius: 8))
-      ActionButton(title: "添加邮箱", icon: "plus", color: Palette.accent) { accountToEdit = MailAccount() }
+      ActionButton(title: "添加邮箱", icon: .addLine, emphasis: .secondary) { accountToEdit = MailAccount() }
     }
   }
   private var generalSettings: some View {
@@ -280,11 +280,11 @@ struct SettingsView: View {
     }
   }
   private var syncSettings: some View {
-    SectionCard(title: "邮箱同步", icon: "arrow.triangle.2.circlepath", contentSpacing: 12) {
+    SectionCard(title: "邮箱同步", icon: .loopRightLine, contentSpacing: 12) {
       HStack(spacing: 16) {
         WorkflowStepper(title: "自动同步间隔", value: $preferences.syncMinutes, range: 1...60, unit: "分钟")
         Spacer(minLength: 0)
-        ActionButton(title: "立即同步", icon: "arrow.clockwise", color: Palette.accent) {
+        ActionButton(title: "立即同步", icon: .refreshLine, color: Palette.accent) {
           Task { await store.syncAll() }
         }.disabled(store.busy.contains("sync"))
       }
@@ -296,7 +296,7 @@ struct SettingsView: View {
     }
   }
   private var composeSettings: some View {
-    SectionCard(title: "邮件签名", icon: "signature") {
+    SectionCard(title: "邮件签名", icon: .quillPenLine) {
       PlainTextEditor(text: $preferences.signature, fontSize: 13, inset: .init(width: 4, height: 4),
         accessibilityLabel: "邮件签名").frame(height: 144).padding(12).background(
         Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
@@ -306,7 +306,7 @@ struct SettingsView: View {
     }
   }
   private var readSettings: some View {
-    SectionCard(title: "阅读行为", icon: "envelope.open") {
+    SectionCard(title: "阅读行为", icon: .mailOpenLine) {
       Toggle("打开邮件时标记为已读", isOn: $preferences.markRead).font(.system(size: 13))
       WorkflowStepper(title: "正文字号", value: $preferences.fontSize, range: 12...24, unit: "pt")
       Toggle("屏蔽远程图片", isOn: $preferences.blockRemoteImages).font(.system(size: 13))
@@ -331,7 +331,7 @@ struct SettingsView: View {
       ConfigurationSettingsView(store: store, transferring: $transferringConfiguration)
       BackupSettingsView(store: store).disabled(transferringConfiguration)
       SearchIndexSettingsView(store: store).disabled(transferringConfiguration)
-      SectionCard(title: "运行诊断", icon: "stethoscope") {
+      SectionCard(title: "运行诊断", icon: .stethoscopeLine) {
         Text(
           "本机服务：\(store.ready ? "已连接" : "未连接")\n待同步更改：\(store.pendingMutations) 项\n应用版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"
         )

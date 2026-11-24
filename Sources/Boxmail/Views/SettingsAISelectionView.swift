@@ -22,7 +22,7 @@ struct SettingsAISelectionView: View {
         .init(title: "模型", value: displayName(model), items: modelItems),
       ] + (showsEffort ? [.init(title: "思考等级", value: effortName, items: effortItems)] : []))
     .frame(width: SettingsFormLayout.fieldWidth, height: SettingsFormLayout.controlHeight)
-      .help(showsEffort ? "选择模型与思考等级" : "选择模型")
+      .cossTooltip(showsEffort ? "选择模型与思考等级" : "选择模型")
       .sheet(isPresented: $editingModel) {
         SettingsCustomModelEditor(model: $model)
       }
@@ -30,23 +30,23 @@ struct SettingsAISelectionView: View {
 
   private func displayName(_ id: String) -> String { models.first { $0.id == id }?.displayName ?? (id.isEmpty ? "选择模型" : id) }
 
-  private var modelItems: [SettingsSelectionItem] {
+  private var modelItems: [CossMenuItem] {
     var result = availableModels.map { value in
-      SettingsSelectionItem.choice(displayName(value), selected: value == model) {
+      CossMenuItem.command(displayName(value), mark: .choice(value == model)) {
         model = value
       }
     }
     if models.isEmpty { result.append(.note("刷新列表后可选择更多模型")) }
-    result.append(.separator)
-    result.append(.choice("自定义模型…", selected: false) {
+    if !result.isEmpty { result.append(.divider) }
+    result.append(.command("自定义模型…", icon: .addLine) {
       editingModel = true
     })
     return result
   }
 
-  private var effortItems: [SettingsSelectionItem] {
+  private var effortItems: [CossMenuItem] {
     effortLevels.map { value in
-      .choice(value.capitalized, selected: value == effort) {
+      CossMenuItem.command(value.capitalized, mark: .choice(value == effort)) {
         effort = value
       }
     }

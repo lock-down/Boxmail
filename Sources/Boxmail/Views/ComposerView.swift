@@ -48,22 +48,8 @@ struct ComposerView: View {
     GeometryReader { geometry in
       VStack(spacing: 0) {
         HStack(spacing: 10) {
-          ActionButton(title: sending ? "正在发送…" : "发送", icon: "paperplane", color: Palette.accent) {
-            scheduledSend = false; confirmSend = true
-          }.disabled(
-            sending || syncingDraft || importingAttachments || draft.status == "uncertain"
-              || draft.to.isEmpty
-              || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
-          IconButton(icon: "clock", help: "定时发送") { showSchedule = true }
-            .disabled(sending || syncingDraft || importingAttachments || draft.status != "draft")
-            .popover(isPresented: $showSchedule) {
-              VStack(alignment: .leading, spacing: 16) {
-                Text("定时发送").font(UIType.section)
-                SendScheduleForm(date: $sendDate)
-                ActionButton(title: "确认时间", emphasis: .primary) { scheduledSend = true; showSchedule = false; confirmSend = true }
-                  .disabled(draft.to.isEmpty || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
-              }.padding(24).frame(width: 440).background(Palette.paper)
-            }
+          Text("写邮件").font(UIType.heading).accessibilityAddTraits(.isHeader)
+          Spacer(minLength: 8)
           HStack(spacing: 8) {
             Text("发件人").font(UIType.caption).foregroundStyle(Palette.muted)
             WorkflowSelection(
@@ -72,15 +58,12 @@ struct ComposerView: View {
             )
             .frame(minWidth: 160, idealWidth: 220, maxWidth: 240)
           }
-          Spacer(minLength: 8)
-          if geometry.size.width >= 940 {
-            draftSaveStatus
-          }
-          ActionButton(title: showingAssistant ? "收起 AI" : "AI 写信", icon: "pencil.line") {
+          ActionButton(title: showingAssistant ? "收起 AI" : "AI 写信", icon: .pencilAiLine,
+            emphasis: showingAssistant ? .tinted : .secondary) {
             withAnimation(UIMotion.disclosure(reduceMotion)) { showingAssistant.toggle() }
           }
           .accessibilityValue(showingAssistant ? "已展开" : "已收起")
-          .popover(
+          .cossPopover(
             isPresented: Binding(
               get: { showingAssistant && geometry.size.width < 940 },
               set: { if !$0 { showingAssistant = false } }), arrowEdge: .bottom
@@ -90,29 +73,32 @@ struct ComposerView: View {
             )
             .disabled(sending || closing || draft.status != "draft")
           }
-          IconButton(icon: "xmark", help: "保存草稿并关闭") { closeComposer() }
+          IconButton(icon: .closeLine, help: "保存草稿并关闭") { closeComposer() }
             .keyboardShortcut(.cancelAction).disabled(sending || importingAttachments)
-        }.padding(16).background(Palette.chrome).fixedSize(horizontal: false, vertical: true)
-        Divider()
+        }.padding(.horizontal, 20).frame(height: 56).background(Palette.chrome)
+        CossSeparator()
         HStack(spacing: 0) {
           VStack(spacing: 0) {
-            recipientField("收件人", text: $draft.to, others: [draft.cc, draft.bcc]).zIndex(
-              focusedAddress == "收件人" ? 20 : 0)
-            if showingCC || !draft.cc.isEmpty {
-              recipientField("抄送", text: $draft.cc, others: [draft.to, draft.bcc]).zIndex(
-                focusedAddress == "抄送" ? 20 : 0)
-            }
-            if showingBCC || !draft.bcc.isEmpty {
-              recipientField("密送", text: $draft.bcc, others: [draft.to, draft.cc]).zIndex(
-                focusedAddress == "密送" ? 20 : 0)
-            }
-            addressField("主题", text: $draft.subject)
+            VStack(spacing: 8) {
+              recipientField("收件人", text: $draft.to, others: [draft.cc, draft.bcc]).zIndex(
+                focusedAddress == "收件人" ? 20 : 0)
+              if showingCC || !draft.cc.isEmpty {
+                recipientField("抄送", text: $draft.cc, others: [draft.to, draft.bcc]).zIndex(
+                  focusedAddress == "抄送" ? 20 : 0)
+              }
+              if showingBCC || !draft.bcc.isEmpty {
+                recipientField("密送", text: $draft.bcc, others: [draft.to, draft.cc]).zIndex(
+                  focusedAddress == "密送" ? 20 : 0)
+              }
+              addressField("主题", text: $draft.subject)
+            }.padding(.horizontal, 20).padding(.vertical, 12).zIndex(1)
             if draft.status == "uncertain" {
-              Text("上次发送结果待确认。请先检查服务器已发送邮箱，确认未送达后再复制内容到新草稿。").font(.system(size: 12))
-                .foregroundStyle(
-                  Palette.amber
-                ).padding(14).background(Palette.blueSoft)
+              WorkflowNotice(
+                text: "上次发送结果待确认。请先检查服务器已发送邮箱，确认未送达后再复制内容到新草稿。",
+                icon: .errorWarningLine, color: Palette.amber
+              ).padding(12).background(Palette.canvas)
             }
+            CossSeparator()
             if let forwardedText = draft.forwardedText {
               OverlayScrollView {
                 VStack(spacing: 0) {
@@ -122,7 +108,7 @@ struct ComposerView: View {
                         140,
                         min(240, CGFloat(draft.body.components(separatedBy: "\n").count) * 22 + 44))
                     )
-                  Divider().overlay(Palette.softBorder)
+                  CossSeparator()
                   ForwardedMailPreview(
                     html: draft.forwardedHTML, text: forwardedText,
                     preferences: store.settings.preferences)
@@ -131,17 +117,10 @@ struct ComposerView: View {
             } else {
               bodyEditor(label: "邮件正文").frame(minHeight: 120).background(.white)
             }
-            Divider()
-            VStack(alignment: .leading, spacing: 10) {
-              HStack(spacing: 12) {
-                Text(importingAttachments ? "正在添加附件…" : "附件 · \(draft.attachmentIds.count) 个")
-                  .font(.system(size: 12, weight: .medium))
-                Spacer(minLength: 8)
-                if geometry.size.width < 940 { draftSaveStatus }
-                ActionButton(title: "添加附件", icon: "paperclip") { addAttachments() }
-              }
+            if !draft.attachmentIds.isEmpty {
+              CossSeparator()
               OverlayScrollView(.horizontal) {
-                HStack {
+                HStack(spacing: 8) {
                   ForEach(draft.attachmentIds, id: \.self) { id in
                     if let a = store.attachments.first(where: { $0.id == id }) {
                       HStack {
@@ -150,24 +129,26 @@ struct ComposerView: View {
                           Text(a.name).font(.system(size: 11)).lineLimit(1)
                           Text(fileSize(a.size)).font(UIType.small).foregroundStyle(Palette.muted)
                         }
-                        IconButton(icon: "xmark", help: "移除附件") {
+                        IconButton(icon: .closeLine, help: "移除附件") {
                           draft.attachmentIds.removeAll { $0 == id }
                         }
-                      }.padding(8).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7))
+                      }.padding(8).framedSurface()
                     }
                   }
-                }
+                }.padding(.horizontal, 20).padding(.vertical, 8)
               }
-            }.padding(16).background(.white).fixedSize(horizontal: false, vertical: true)
+              .background(Palette.canvas).fixedSize(horizontal: false, vertical: true)
               .disabled(importingAttachments)
+            }
           }.frame(maxWidth: .infinity)
           if showingAssistant && geometry.size.width >= 940 {
-            Divider()
+            CossSeparator(axis: .vertical)
             writingAssistant.frame(width: 300)
           }
         }.disabled(sending || draft.status == "uncertain")
+        composeFooter
       }.disabled(sending || closing)
-    }.frame(minWidth: 680, minHeight: 480).background(.white).tint(Palette.blue)
+    }.frame(minWidth: 680, minHeight: 480).background(.white).tint(Palette.accent)
       .interactiveDismissDisabled()
       .onChange(of: subjectFocused) { _, focused in
         if focused { focusedAddress = "主题" } else if focusedAddress == "主题" { focusedAddress = nil }
@@ -177,22 +158,52 @@ struct ComposerView: View {
       .storeAlert(
         "操作未完成", text: { store.error }, isPresented: { store.error != nil },
         dismiss: { store.error = nil })
-      .alert("确认发送邮件", isPresented: $confirmSend) {
-        Button("取消", role: .cancel) {}
-        Button("确认发送") { send() }
+      .cossAlert("确认发送邮件", isPresented: $confirmSend) {
+        CossAlertAction("取消", role: .cancel)
+        CossAlertAction("确认发送") { send() }
       } message: {
         Text(
           "收件人：\(draft.to)\n主题：\(draft.subject.isEmpty ? "无主题" : draft.subject)\n附件：\(draft.attachmentIds.count) 个\n" + (scheduledSend ? "计划于 \(sendDate.formatted(date: .complete, time: .shortened))（\(TimeZone.current.identifier)）发送" : "确认后等待 10 秒提交，可在发送管理中取消")
         )
       }
   }
+
+  private var composeFooter: some View {
+    HStack(spacing: 8) {
+      ActionButton(title: importingAttachments ? "正在添加附件…" : "添加附件", icon: .attachment2) {
+        addAttachments()
+      }.disabled(importingAttachments || draft.status == "uncertain")
+      draftSaveStatus
+      Spacer(minLength: 8)
+      ActionButton(title: "定时发送", icon: .timeLine, emphasis: .secondary) { showSchedule = true }
+        .disabled(syncingDraft || importingAttachments || draft.status != "draft")
+        .cossPopover(isPresented: $showSchedule) {
+          VStack(alignment: .leading, spacing: 16) {
+            Text("定时发送").font(UIType.heading).accessibilityAddTraits(.isHeader)
+            SendScheduleForm(date: $sendDate)
+            ActionButton(title: "确认时间", emphasis: .primary) {
+              scheduledSend = true
+              showSchedule = false
+              confirmSend = true
+            }.disabled(draft.to.isEmpty || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
+          }.padding(24).frame(width: 440).background(Palette.paper)
+        }
+      ActionButton(title: sending ? "正在发送…" : "发送", icon: .sendPlaneLine, emphasis: .primary) {
+        scheduledSend = false
+        confirmSend = true
+      }.disabled(
+        syncingDraft || importingAttachments || draft.status == "uncertain" || draft.to.isEmpty
+          || store.accounts.first { $0.id == draft.accountId }?.isDemo == true)
+    }.padding(.horizontal, 20).padding(.vertical, 10).background(Palette.chrome)
+      .overlay(alignment: .top) { Rectangle().fill(Palette.softBorder).frame(height: 1) }
+  }
   private var draftSaveMessage: String {
     saveError ?? (saving ? "正在保存…" : saved ? "草稿已保存" : "自动保存草稿")
   }
   private var draftSaveStatus: some View {
     Text(draftSaveMessage).font(UIType.small)
-      .foregroundStyle(saveError == nil ? Palette.muted : Palette.amber)
-      .lineLimit(1).help(draftSaveMessage)
+      .foregroundStyle(saveError == nil ? Palette.muted : Palette.destructive)
+      .lineLimit(1).cossTooltip(draftSaveMessage)
   }
   private var writingAssistant: some View {
     OverlayScrollView {
@@ -212,22 +223,22 @@ struct ComposerView: View {
         WritingPreferencesView(store: store, writing: writing, accountId: draft.accountId)
         HStack {
           ActionButton(
-            title: store.busy.contains("compose-ai") ? "正在拟稿…" : "生成草稿", icon: "pencil.line", color: Palette.accent, emphasis: .tinted
+            title: store.busy.contains("compose-ai") ? "正在拟稿…" : "生成草稿", icon: .pencilAiLine, color: Palette.accent, emphasis: .tinted
           ) { generate() }.disabled(
             prompt.isEmpty || store.busy.contains("agent"))
-          if store.busy.contains("agent") { ProgressView().controlSize(.small) }
+          if store.busy.contains("agent") { CossSpinner() }
         }
-        ActionButton(title: "改写选中文本", icon: "text.cursor") { generate(selectionOnly: true) }
+        ActionButton(title: "改写选中文本", icon: .inputCursorMove) { generate(selectionOnly: true) }
           .disabled(!richEditor.hasSelection || store.busy.contains("agent"))
         if store.busy.contains("compose-ai"), let output = store.aiOutput(task: "compose") {
           AIStreamingView(output: output)
         } else if let generated {
           VStack(alignment: .leading, spacing: 14) {
-            Divider()
+            CossSeparator()
             Text("AI 生成草稿").font(UIType.section)
             Text(generated.subject ?? "").font(.system(size: 13, weight: .medium))
             AnalysisDocumentView(text: generated.body ?? "")
-            ActionButton(title: rewriteSelection == nil ? "替换正文（保留签名）" : "替换原选区", icon: "text.insert", color: Palette.accent) {
+            ActionButton(title: rewriteSelection == nil ? "替换正文（保留签名）" : "替换原选区", icon: .findReplaceLine, color: Palette.accent) {
               guard let body = generated.body, draft.body == generatedSource, draft.richText == generatedDocument else { return }
               let replacement = rewriteSelection == nil ? MailSignature.replacingContent(with: body, in: generatedSource, signature: store.signature(for: draft.accountId)) : body
               if richEditor.adopt(replacement, expectedSource: generatedSource, selection: rewriteSelection) {
@@ -256,12 +267,12 @@ struct ComposerView: View {
     }
   }
   private var addressOptions: some View {
-    Menu {
-      Toggle("抄送", isOn: $showingCC).disabled(!draft.cc.isEmpty)
-      Toggle("密送", isOn: $showingBCC).disabled(!draft.bcc.isEmpty)
-    } label: {
-      Text("抄送 / 密送").font(UIType.small).foregroundStyle(Palette.muted)
-    }.menuStyle(.borderlessButton).fixedSize().help("显示抄送或密送字段")
+    CossMenu(title: "显示抄送或密送字段", width: 156) {
+      CossMenuItem.command("抄送", mark: .checkbox(showingCC), enabled: draft.cc.isEmpty) { showingCC.toggle() }
+      CossMenuItem.command("密送", mark: .checkbox(showingBCC), enabled: draft.bcc.isEmpty) { showingBCC.toggle() }
+    } trigger: {
+      CossMenuLabel(title: "抄送 / 密送", size: .compact, color: Palette.muted)
+    }.fixedSize()
   }
   private func bodyEditor(label: String, placeholder: String = "") -> some View {
     VStack(spacing: 0) {
@@ -269,12 +280,12 @@ struct ComposerView: View {
         RichTextFormatBar(controller: richEditor, showingLink: $showingLink)
         Spacer(minLength: 0)
         if store.accounts.first(where: { $0.id == draft.accountId })?.isDemo == false {
-          ActionButton(title: syncingDraft ? "正在同步…" : "同步草稿", icon: "arrow.triangle.2.circlepath") {
+          ActionButton(title: syncingDraft ? "正在同步…" : "同步草稿", icon: .loopRightLine) {
             syncDraft()
           }.disabled(syncingDraft || store.busy.contains("sync"))
         }
         if saveError != nil {
-          ActionButton(title: "另存为新草稿", icon: "doc.on.doc") { saveCopy() }
+          ActionButton(title: "另存为新草稿", icon: .fileCopyLine) { saveCopy() }
         }
       }.padding(.horizontal, 16).frame(height: 36).background(Palette.chrome)
       RichTextEditor(text: $draft.body, document: $draft.richText, controller: richEditor,
@@ -314,27 +325,23 @@ struct ComposerView: View {
   }
   private func recipientField(_ title: String, text: Binding<String>, others: [String]) -> some View
   {
-    HStack {
-      Text(title).font(UIType.caption).foregroundStyle(Palette.muted).frame(width: 52, height: 30, alignment: .trailing)
+    HStack(spacing: 10) {
+      Text(title).font(UIType.caption).foregroundStyle(Palette.ink).frame(width: 52, alignment: .leading)
       RecipientEntryView(title: title, accountID: draft.accountId, text: text, otherRecipients: others) { focused in
         if focused { focusedAddress = title } else if focusedAddress == title { focusedAddress = nil }
-      }.padding(.leading, 10)
+      }.padding(.horizontal, 10).frame(height: 34)
+        .controlFieldSurface(focused: focusedAddress == title)
       if title == "收件人" { addressOptions }
-    }.padding(.horizontal, 20).frame(height: 40).overlay(alignment: .bottom) {
-      Rectangle().fill(focusedAddress == title ? Palette.blue : Palette.softBorder)
-        .frame(height: focusedAddress == title ? 2 : 1)
     }
   }
   private func addressField(_ title: String, text: Binding<String>) -> some View {
-    HStack {
-      Text(title).font(.system(size: 12)).foregroundStyle(Palette.muted).frame(
-        width: 52, alignment: .trailing)
-      TextField(title == "主题" ? "填写邮件主题" : "邮箱地址，多个地址用逗号分隔", text: text).textFieldStyle(.plain)
-        .font(.system(size: title == "主题" ? 14 : 13, weight: title == "主题" ? .medium : .regular)).padding(.leading, 10)
+    HStack(spacing: 10) {
+      Text(title).font(UIType.caption).foregroundStyle(Palette.ink).frame(width: 52, alignment: .leading)
+      TextField("", text: text).textFieldStyle(.plain)
+        .font(.system(size: 14, weight: .medium)).padding(.horizontal, 10).frame(height: 34)
         .focused($subjectFocused).accessibilityLabel(title)
-    }.padding(.horizontal, 20).frame(height: title == "主题" ? 46 : 40).overlay(alignment: .bottom) {
-      Rectangle().fill(focusedAddress == title ? Palette.blue : Palette.softBorder).frame(
-        height: focusedAddress == title ? 2 : 1)
+        .controlFieldSurface(focused: subjectFocused)
+        .inputPlaceholder("填写邮件主题", visible: text.wrappedValue.isEmpty)
     }.animation(UIMotion.feedback(reduceMotion), value: focusedAddress == title)
   }
   private func scheduleSave() {
