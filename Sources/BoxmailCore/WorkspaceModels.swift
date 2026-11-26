@@ -8,6 +8,27 @@ public struct FollowUp: Codable, Identifiable, Hashable {
   public var isSnoozed: Bool { snoozedUntil != nil && effectiveDate.map { $0 > Date() } == true }
   public var isDue: Bool { state != "completed" && !reminderCancelled && effectiveDate.map { $0 <= Date() } == true }
 }
+public struct ChecklistPage: Decodable {
+  public let offset, limit, total: Int
+  public let targetFollowUpId: String?
+  public let rows: [ChecklistRow]
+}
+public struct ChecklistRow: Decodable, Identifiable {
+  public let accountId, messageId, subject, sender, date: String
+  public let hasSource, summaryHidden: Bool
+  public let summary: MailSummary?
+  public let items: [ChecklistItem]
+  public var id: String { "\(accountId)\u{1f}\(messageId)" }
+}
+public struct ChecklistItem: Decodable, Identifiable {
+  public let id: String
+  public let todoId: String?
+  public let todo: MailTodo?
+  public let followUp: FollowUp?
+  public var title: String { followUp?.title ?? todo?.title ?? "" }
+  public var dueText: String { followUp?.dueText ?? todo?.due ?? "" }
+  public var state: String { followUp?.state ?? (todo?.done == true ? "completed" : "mine") }
+}
 public struct SendPlan: Codable, Identifiable, Hashable {
   public var id, draftId, accountId, subject, to, scheduledAt, timeZone, revision, status, createdAt: String
   public var error, warning, completedAt: String?
@@ -18,6 +39,7 @@ public struct RuleActions: Codable, Hashable {
   public var category: String?
   public var starred, unread, archive, summary, attachments, followUp, reply: Bool?
   public init() {}
+  public var includesAI: Bool { [summary, attachments, followUp, reply].contains(true) }
   public var description: String {
     var values: [String] = []
     if let category { values.append("分类为\(category)") }
@@ -36,6 +58,7 @@ public struct MailRule: Codable, Identifiable, Hashable {
   public var query: MailQuery
   public var actions: RuleActions
   public var enabled, automatic: Bool
+  public var automaticPauseReason: String?
   public init(accountId: String?) {
     id = ""; name = ""; intent = ""; createdAt = ""; revision = ""
     query = .init(accountId: accountId); actions = .init(); enabled = true; automatic = false
@@ -63,6 +86,7 @@ public struct AIUsage: Codable, Identifiable, Equatable {
 }
 public struct WritingStyle: Codable, Identifiable, Hashable {
   public var id, name, instruction: String
+  public var tone, length: String?
 }
 public struct AssistantScope: Codable, Hashable {
   public var kind: String

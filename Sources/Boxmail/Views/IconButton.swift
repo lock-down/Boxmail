@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct IconButton: View {
-  let icon: RemixGlyph
+  let icon: AppicaGlyph
   let help: String
   var color: Color = Palette.muted
   var size: CGFloat = UILayout.iconControl
@@ -11,7 +11,7 @@ struct IconButton: View {
 
   var body: some View {
     Button(action: action) {
-      RemixIcon(icon)
+      AppicaIcon(icon)
         .foregroundStyle(color)
         .contentTransition(reduceMotion ? .identity : .opacity)
         .frame(width: size, height: size)
@@ -27,14 +27,14 @@ struct IconButton: View {
 }
 
 struct IconMenu: View {
-  let icon: RemixGlyph
+  let icon: AppicaGlyph
   let help: String
   var size: CGFloat = UILayout.iconControl
   @CossMenuItems var content: () -> [CossMenuItem]
 
   var body: some View {
     CossMenu(title: help, items: content) {
-      RemixIcon(icon)
+      AppicaIcon(icon)
         .foregroundStyle(Palette.muted).frame(width: size, height: size)
     }.cossTooltip(help)
   }

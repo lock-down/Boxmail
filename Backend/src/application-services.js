@@ -1,10 +1,13 @@
 import { SavedSearches } from './mail-query.js';
 import { LocalCredentials } from './local-credentials.js';
 import { FollowUps } from './follow-ups.js';
+import { checklistPage } from './checklist-page.js';
 import { SendQueue } from './send-queue.js';
+import { MailOrganization } from './mail-organization.js';
 import { MailRules } from './mail-rules.js';
 import { MailAssistant } from './mail-assistant.js';
 import { randomUUID } from 'node:crypto';
+import { errorDiagnostic } from './diagnostics.js';
 import { ServiceError } from './validation.js';
 
 const followUpNotificationId = item => `followUp-${item.id}-${item.snoozedUntil || item.dueAt}`;
@@ -12,11 +15,12 @@ const followUpNotificationId = item => `followUp-${item.id}-${item.snoozedUntil 
 // Composition root for long-lived local services. Domain objects remain in
 // separate repositories/records and never share the lifecycle of an AI Job.
 export class ApplicationServices {
-  constructor(repo, { locks, onProgress, blocked = () => false, send, complete, agent, credentials } = {}) {
+  constructor(repo, { locks, onProgress, blocked = () => false, send, complete, agent, credentials, organizationComplete, organizationBaseline } = {}) {
     this.repo = repo; this.blocked = blocked;
     this.credentials = credentials || new LocalCredentials(repo);
     this.savedSearches = new SavedSearches(repo);
     this.followUps = new FollowUps(repo);
+    this.organization = new MailOrganization(repo, this.credentials, { complete: organizationComplete, baseline: organizationBaseline });
     this.sendQueue = new SendQueue(repo, this.credentials, { send, blocked });
     this.rules = new MailRules(repo, this.credentials, { locks, onProgress, agent });
     this.assistant = new MailAssistant(repo, this.credentials, this.followUps, { complete, locks, onProgress });
@@ -24,7 +28,9 @@ export class ApplicationServices {
     for (const usage of repo.list('aiUsage').filter(item => item.status === 'running'))
       repo.put('aiUsage', { ...usage, status: 'interrupted' });
   }
-  afterSync(accountId, messageIds) {
+  afterSync(accountId, messageIds, inbox) {
+    try { this.organization.afterInboxSync(accountId, inbox); }
+    catch (error) { this.repo.diagnostics?.record('mail-organization.queue.failed', errorDiagnostic(error)); }
     this.followUps.reconcileReplies();
     const preferences = this.repo.get('settings', 'settings').preferences;
     if (preferences.newMailNotifications ?? preferences.notifications) for (const id of messageIds) {
@@ -43,6 +49,7 @@ export class ApplicationServices {
         followUpId: item.id, messageId: item.messageId, title: item.title, createdAt: new Date().toISOString(), delivered: false });
     }
     await this.sendQueue.tick();
+    if (!this.closing && !this.blocked()) await this.organization.tick();
     if (this.closing || this.eventWorker) return;
     const event = this.repo.list('newMailEvent').find(event => event.status === 'pending');
     if (!event) return;
@@ -52,11 +59,14 @@ export class ApplicationServices {
       this.repo.put('newMailEvent', { ...event, status: 'failed', error: error.message });
     }).finally(() => { this.eventWorker = null; });
   }
-  get busy() { return !!(this.sendQueue.active || this.rules.worker || this.assistant.active.size || this.eventWorker); }
+  get busy() { return this.legacyBusy || !!(this.organization.processing || this.organization.trials.size); }
+  get legacyBusy() { return !!(this.sendQueue.active || this.rules.worker || this.assistant.active.size || this.eventWorker); }
   async route(method, route, body, params) {
     const parts = route.split('/').filter(Boolean), [resource, id, action] = parts;
     if (resource === 'workspace-status' && method === 'GET') return { handled: true, result: {
       messageRevision: this.repo.messageRevision,
+      followUpRevision: this.repo.followUpRevision,
+      dueFollowUpCount: this.followUps.due().length,
       snoozes: this.repo.list('snooze').filter(item => Date.parse(item.until) > Date.now()).map(item => `${item.id}:${item.until}`).sort(),
       sendPlans: this.sendQueue.list().map(item => `${item.id}:${item.status}`).sort(),
     } };
@@ -75,6 +85,26 @@ export class ApplicationServices {
         return { handled: true, result: { ok: true } };
       }
     }
+    if (resource === 'mail-organization') {
+      const result = async () => {
+        if (method === 'GET' && id === 'candidates') return this.organization.candidates(
+          params.get('accountId'), params.get('q') || '', Number(params.get('offset') || 0));
+        if (method === 'GET' && id === 'policy') return this.organization.policy(params.get('accountId'));
+        if (method === 'POST' && id === 'policy') return this.organization.savePolicy(body);
+        if (method === 'POST' && id === 'run') return this.organization.organize(body);
+        if (method === 'POST' && id === 'trial') return this.organization.trial(body);
+        if (method === 'POST' && id === 'apply') return this.organization.applyTrial(body);
+        if (method === 'POST' && id === 'retry') return this.organization.retry(body.id);
+        if (method === 'GET' && id === 'activity') return {
+          jobs: this.repo.db.prepare(`SELECT data FROM records WHERE kind='job' AND json_extract(data,'$.task')='mailOrganization'
+            ORDER BY json_extract(data,'$.createdAt') DESC,id LIMIT 100`).all().map(row => JSON.parse(row.data)),
+          usage: this.repo.list('aiUsage').filter(item => ['mailOrganization', 'labelMatch'].includes(item.task))
+            .sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 100),
+        };
+        throw new ServiceError('整理入口不存在', 404);
+      };
+      return { handled: true, result: await result() };
+    }
     if (resource === 'saved-searches') {
       if (method === 'GET') return { handled: true, result: this.savedSearches.list() };
       if (method === 'POST') return { handled: true, result: this.savedSearches.save(body, id) };
@@ -84,6 +114,13 @@ export class ApplicationServices {
       if (method === 'GET') return { handled: true, result: this.followUps.list() };
       if (method === 'POST') return { handled: true, result: this.followUps.save(body, id) };
       if (method === 'DELETE') return { handled: true, result: this.followUps.remove(id) };
+    }
+    if (resource === 'checklist') {
+      if (method === 'GET' && !id) return { handled: true, result: checklistPage(this.repo, {
+        accountId: params.get('accountId'), filter: params.get('filter') ?? 'all',
+        offset: Number(params.get('offset') ?? 0), limit: Number(params.get('limit') ?? 50), followUpId: params.get('followUpId'),
+      }) };
+      if (method === 'POST' && id === 'suggestions') return { handled: true, result: this.followUps.saveSuggestion(body) };
     }
     if (resource === 'send-plans') {
       if (method === 'GET') return { handled: true, result: this.sendQueue.list() };
@@ -116,8 +153,15 @@ export class ApplicationServices {
     if (resource === 'writing-styles') {
       if (method === 'GET') return { handled: true, result: this.repo.list('writingStyle') };
       if (method === 'POST') {
-        if (!String(body.name || '').trim() || !String(body.instruction || '').trim()) throw new ServiceError('请填写风格名称和要求');
-        return { handled: true, result: this.repo.put('writingStyle', { id: id || randomUUID(), name: body.name.trim(), instruction: body.instruction.trim() }) };
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (!name || typeof body.instruction !== 'string') throw new ServiceError('请填写风格名称');
+        const style = id ? this.repo.get('writingStyle', id) : null;
+        const tone = body.tone ?? style?.tone, length = body.length ?? style?.length;
+        if ([tone, length].some(value => value !== undefined && typeof value !== 'string'))
+          throw new ServiceError('写作风格的语气或篇幅无效');
+        return { handled: true, result: this.repo.put('writingStyle', {
+          id: id || randomUUID(), name, instruction: body.instruction.trim(), tone, length,
+        }) };
       }
       if (method === 'DELETE') { this.repo.remove('writingStyle', id); return { handled: true, result: { ok: true } }; }
     }
@@ -125,7 +169,7 @@ export class ApplicationServices {
   }
   async close() {
     this.closing = true;
-    await Promise.allSettled([this.sendQueue.close(), this.rules.close(), this.assistant.close()]);
+    await Promise.allSettled([this.sendQueue.close(), this.rules.close(), this.assistant.close(), this.organization.close()]);
     await this.eventWorker;
   }
 }

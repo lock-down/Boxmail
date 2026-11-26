@@ -7,7 +7,7 @@ export const MESSAGE_HEADER_LIMITS = Object.freeze({
 });
 export function messageHeaderJSON(column = 'data') {
   const fields = Object.entries(MESSAGE_HEADER_LIMITS);
-  const removed = ['body', 'html', 'translation', 'translationHTML', ...fields.map(([key]) => key)]
+  const removed = ['body', 'html', 'translation', 'translationHTML', 'translations', 'previousAttachmentSummary', ...fields.map(([key]) => key)]
     .map(key => `'$.${key}'`).join(',');
   const bounded = fields.flatMap(([key, limit]) => [`'$.${key}'`,
     `substr(coalesce(json_extract(${column},'$.${key}'),''),1,${limit})`]).join(',');

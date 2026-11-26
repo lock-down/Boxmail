@@ -7,9 +7,9 @@ struct DraftSearchDetailView: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack {
-        Label("本机草稿", icon: .editBoxLine).font(UIType.caption).foregroundStyle(Palette.muted)
+        Label("本机草稿", icon: .edit).font(UIType.caption).foregroundStyle(Palette.muted)
         Spacer()
-        ActionButton(title: "继续编辑草稿", icon: .editBoxLine, color: Palette.accent) {
+        ActionButton(title: "继续编辑草稿", icon: .edit, color: Palette.accent) {
           if let id = message.draftId { store.editDraft(id) }
         }.disabled(store.drafts.first(where: { $0.id == message.draftId })?.status == "sending")
       }.padding(.horizontal, 20).frame(height: 52)

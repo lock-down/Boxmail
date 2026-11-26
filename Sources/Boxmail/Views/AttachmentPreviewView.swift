@@ -20,92 +20,57 @@ struct AttachmentPreviewView: View {
     VStack(spacing: 0) {
       if let attachment {
         HStack {
-          AttachmentIcon(attachment: attachment, size: 20)
+          AttachmentIcon(attachment: attachment, size: 24)
           Text(attachment.name).font(.system(size: 15, weight: .semibold))
             .lineLimit(1).truncationMode(.middle).cossTooltip(attachment.name)
           Text(fileSize(attachment.size)).font(.system(size: 11)).foregroundStyle(Palette.muted)
             .fixedSize()
           Spacer()
           if store.attachmentPreviewIds.count > 1 {
-            IconButton(icon: .arrowLeftSLine, help: "上一个来源附件") { store.attachmentPreviewIndex -= 1 }.disabled(store.attachmentPreviewIndex == 0)
+            IconButton(icon: .chevronLeft, help: "上一个来源附件") { store.attachmentPreviewIndex -= 1 }.disabled(store.attachmentPreviewIndex == 0)
             Text("\(store.attachmentPreviewIndex + 1)/\(store.attachmentPreviewIds.count)").font(UIType.small)
-            IconButton(icon: .arrowRightSLine, help: "下一个来源附件") { store.attachmentPreviewIndex += 1 }.disabled(store.attachmentPreviewIndex + 1 == store.attachmentPreviewIds.count)
+            IconButton(icon: .chevronRight, help: "下一个来源附件") { store.attachmentPreviewIndex += 1 }.disabled(store.attachmentPreviewIndex + 1 == store.attachmentPreviewIds.count)
           }
-          ActionButton(title: "打开原文件", icon: .externalLinkLine, emphasis: .secondary) {
+          ActionButton(title: "打开原文件", icon: .externalLink, emphasis: .secondary) {
             store.download(attachment, preview: true)
           }
-          ActionButton(title: "下载", icon: .downloadLine) { store.download(attachment) }
-          IconButton(icon: .closeLine, help: "关闭") { dismiss() }
+          ActionButton(title: "下载", icon: .download) { store.download(attachment) }
+          IconButton(icon: .x, help: "关闭") { dismiss() }
         }.padding(20)
         CossSeparator()
-        if attachment.isArchive {
-          ArchiveAttachmentView(store: store, attachmentId: attachment.id)
-        } else {
-          HStack(spacing: 12) {
-            FilterBar(values: ["原文件预览", "AI 理解"], selection: $tab)
-            Spacer()
-            if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
-              Text("来自：\(mail.subject)").font(.system(size: 11)).foregroundStyle(Palette.muted)
-                .lineLimit(1).truncationMode(.middle).cossTooltip(mail.subject)
-              ActionButton(title: "打开原邮件", icon: .mailLine) {
-                dismiss()
-                store.openMail(mail, tab: .attachment)
-              }
-            }
-          }.padding(.horizontal, 20).padding(.vertical, 12).background(Palette.chrome)
-          CossSeparator()
-          if tab == "原文件预览" {
-            originalPreview(attachment)
-          } else {
-            OverlayScrollView {
-              VStack(alignment: .leading, spacing: 20) {
-                if tab == "AI 理解" {
-                  if let mail = store.messages.first(where: { $0.id == attachment.messageId }) {
-                    HStack {
-                      ActionButton(
-                        title: attachment.isAnalyzed ? "重新理解这个附件" : "理解这个附件",
-                        icon: .sparkling2Line, color: Palette.accent
-                      ) {
-                        store.generate(task: "attachment", message: mail, attachment: attachment)
-                      }
-                      .disabled(
-                        !attachment.canAnalyze || store.busy.contains("agent")
-                          || store.attachmentBatch(for: mail)?.status == "running")
-                      if store.attachmentBatch(for: mail)?.status == "running" {
-                        Text("正在批量理解本封邮件附件…").font(.system(size: 11)).foregroundStyle(Palette.muted)
-                      }
-                      Spacer()
-                    }
-                    if let error = store.mailAIErrors[mail.id] {
-                      Text(error).font(.system(size: 12)).foregroundStyle(Palette.amber)
-                    }
-                  }
-                  if let output = store.aiOutput(
-                    task: "attachment", messageId: attachment.messageId, attachmentId: attachment.id
-                  ) {
-                    AIStreamingView(output: output)
-                  } else if let analysis = attachment.analysis {
-                    HStack {
-                      Label("附件理解", icon: .sparkling2Line).font(
-                        .system(size: 17, weight: .semibold))
-                      Spacer()
-                      CopyButton(help: "复制理解结果") { analysis }
-                    }
-                    AnalysisDocumentView(text: analysis).transition(UIMotion.reveal(reduceMotion))
-                  } else {
-                    EmptyState(
-                      title: "还没有独立理解结果", subtitle: "可深入理解这个附件，或在原邮件中结合正文与全部附件进行整封理解。",
-                      icon: .fileSearchLine)
-                  }
-                }
-              }.frame(maxWidth: UILayout.document, alignment: .leading).padding(28).frame(
-                maxWidth: .infinity, alignment: .top)
-            }
+        HStack(spacing: 12) {
+          if !attachment.isArchive && attachment.analysis?.isEmpty == false {
+            FilterBar(values: ["原文件预览", "历史分析"], selection: $tab)
           }
+          Spacer(minLength: 0)
+          ActionButton(title: "打开原邮件", icon: .mail) {
+            dismiss()
+            if attachment.messageId == store.selectedMessageId { store.mailAITab = .attachment }
+            else { store.openSourceMessage(attachment.messageId, tab: .attachment) }
+          }
+        }.padding(.horizontal, 20).padding(.vertical, 8).background(Palette.chrome)
+        CossSeparator()
+        if attachment.isArchive {
+          ArchiveAttachmentView(store: store, attachmentId: attachment.id).id(attachment.id)
+        } else if tab == "历史分析", let analysis = attachment.analysis, !analysis.isEmpty {
+          OverlayScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+              HStack {
+                Text("历史分析").font(UIType.heading)
+                Spacer()
+                CopyButton(help: "复制历史分析") { analysis }
+              }
+              AnalysisDocumentView(text: analysis)
+            }.frame(maxWidth: UILayout.document, alignment: .leading).padding(24)
+              .frame(maxWidth: .infinity, alignment: .top)
+          }
+        } else {
+          originalPreview(attachment)
         }
       }
     }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white).tint(Palette.accent)
       .animation(UIMotion.disclosure(reduceMotion), value: tab)
+      .onChange(of: currentId) { _, _ in tab = "原文件预览" }
       .task(id: "\(currentId)-\(tab)") {
         previewLoading = true
         previewFile?.remove(); previewFile = nil; documentPreviewURL = nil; workbookHTML = nil
@@ -119,7 +84,7 @@ struct AttachmentPreviewView: View {
         previewFile = nil
         documentPreviewURL = nil
       }
-      .storeAlert("解析未完成", text: { store.error }, isPresented: { store.error != nil },
+      .storeAlert("附件操作未完成", text: { store.error }, isPresented: { store.error != nil },
         dismiss: { store.error = nil })
   }
   @ViewBuilder private func originalPreview(_ attachment: MailAttachment) -> some View {
@@ -145,8 +110,8 @@ struct AttachmentPreviewView: View {
       CossSpinner(label: "正在加载原文件…").frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
       VStack(spacing: 14) {
-        EmptyState(title: "暂时无法预览原文件", subtitle: previewError, icon: .fileLine)
-        ActionButton(title: "重新加载", icon: .refreshLine) { Task { await loadOriginal() } }
+        EmptyState(title: "暂时无法预览原文件", subtitle: previewError, icon: .file)
+        ActionButton(title: "重新加载", icon: .refresh) { Task { await loadOriginal() } }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }

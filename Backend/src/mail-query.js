@@ -26,11 +26,13 @@ export function mailQuery(input = {}) {
     query: input.query ?? input.q ?? '',
     filter: input.filter || '全部',
     category: input.category || null,
+    ...(input.labelId ? { labelId: input.labelId } : {}),
   };
   if (query.accountId !== null && typeof query.accountId !== 'string'
     || !['inbox', 'sent', 'archive', 'trash', 'spam', 'starred', 'summary', 'drafts', 'replies', 'analysis'].includes(query.folder)
     || !['全部', '未读', '有附件', 'AI 已总结'].includes(query.filter)
-    || query.category !== null && typeof query.category !== 'string') throw new ServiceError('查询范围无效');
+    || query.category !== null && typeof query.category !== 'string'
+    || query.labelId !== undefined && typeof query.labelId !== 'string') throw new ServiceError('查询范围无效');
   parseSearch(query.query);
   return query;
 }

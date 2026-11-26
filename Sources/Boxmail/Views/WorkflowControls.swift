@@ -13,7 +13,7 @@ struct WorkflowPanelHeader: View {
           .fixedSize(horizontal: false, vertical: true)
       }
       Spacer(minLength: 0)
-      IconButton(icon: .closeLine, help: closeLabel, action: close)
+      IconButton(icon: .x, help: closeLabel, action: close)
         .keyboardShortcut(.cancelAction)
     }
   }
@@ -106,11 +106,11 @@ struct WorkflowStepper: View {
 
 struct WorkflowNotice: View {
   let text: String
-  var icon: RemixGlyph = .informationLine
+  var icon: AppicaGlyph = .infoCircle
   var color: Color = Palette.muted
   var body: some View {
     HStack(alignment: .top, spacing: 8) {
-      RemixIcon(icon).frame(width: 14).padding(.top, 1).accessibilityHidden(true)
+      AppicaIcon(icon).frame(width: 14).padding(.top, 1).accessibilityHidden(true)
       Text(text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
     }.font(UIType.small).foregroundStyle(color).frame(maxWidth: .infinity, alignment: .leading)
   }

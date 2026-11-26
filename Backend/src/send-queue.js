@@ -40,10 +40,17 @@ export class SendQueue {
       other.id !== id && other.draftId === draft.id && ['waiting', 'submitting', 'paused'].includes(other.status));
     if (activePlan) throw new ServiceError('该草稿已有其他发送计划，请从当前计划管理投递', 409);
     const cancelled = input.cancel === true;
-    if (!cancelled && draftRevision(draft) !== plan.revision)
-      throw new ServiceError('草稿内容已变化，请取消后检查草稿，再重新安排发送', 409);
-    const updated = { ...plan, status: cancelled ? 'cancelled' : 'waiting', error: null,
-      ...(cancelled ? {} : { scheduledAt: scheduleTime(input.scheduledAt), timeZone: String(input.timeZone || plan.timeZone) }) };
+    const paused = input.pause === true && !cancelled;
+    if (!cancelled && !paused) {
+      if (draftRevision(draft) !== plan.revision)
+        throw new ServiceError('草稿内容已变化，请取消后检查草稿，再重新安排发送', 409);
+      if (!draft.to?.trim()) throw new ServiceError('请填写收件人');
+      const account = this.repo.get('account', draft.accountId);
+      if (!account || account.isDemo) throw new ServiceError('请先添加真实邮箱');
+    }
+    const updated = { ...plan, status: cancelled ? 'cancelled' : paused ? 'paused' : 'waiting',
+      error: paused ? plan.error : null,
+      ...(cancelled || paused ? {} : { scheduledAt: scheduleTime(input.scheduledAt), timeZone: String(input.timeZone || plan.timeZone) }) };
     this.repo.transaction(() => {
       this.repo.put('sendPlan', updated);
       this.repo.put('draft', { ...draft, status: cancelled ? 'draft' : 'queued' });

@@ -9,7 +9,9 @@ struct RichTextEditor: NSViewRepresentable {
   let placeholder: String
   let accessibilityLabel: String
   let signature: String
+  var signatureStart: Binding<Int?> = .constant(nil)
   var onPaste: ((NSPasteboard) -> Bool)?
+  var onWriting: (() -> Void)?
   var onLink: () -> Void
   @Environment(\.isEnabled) private var enabled
 
@@ -47,6 +49,7 @@ struct RichTextEditor: NSViewRepresentable {
     view.setSelectedRange(NSRange(location: 0, length: 0))
     scroll.documentView = view
     configure(view)
+    updateSignature(in: view)
     return scroll
   }
   func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -65,14 +68,20 @@ struct RichTextEditor: NSViewRepresentable {
       context.coordinator.lastDocument = document
       if let storage = view.textStorage { context.coordinator.resetProjection(storage) }
     }
+    if !view.hasMarkedText() { updateSignature(in: view) }
     view.updateBottomAnchor()
     view.needsDisplay = true
+  }
+  private func updateSignature(in view: RichComposerTextView) {
+    view.anchoredSignatureStart = signatureStart.wrappedValue
+      ?? MailSignature.trailingRange(in: view.string, signature: signature)?.location
   }
   private func configure(_ view: RichComposerTextView) {
     controller.textView = view
     view.controller = controller
     view.onLink = onLink
     view.onPaste = onPaste
+    view.onWriting = onWriting
     view.placeholder = placeholder
     view.bottomAnchoredText = signature
     view.textContainerInset = NSSize(width: 24, height: 18)
@@ -111,6 +120,14 @@ struct RichTextEditor: NSViewRepresentable {
       if editedMask.contains(.editedCharacters) {
         characterEdits += 1
         edit = (editedRange, delta)
+        MainActor.assumeIsolated {
+          if delta != 0, let view = parent.controller.textView,
+            let start = view.anchoredSignatureStart, editedRange.location < start
+          {
+            let oldEnd = NSMaxRange(editedRange) - delta
+            view.anchoredSignatureStart = oldEnd <= start ? start + delta : nil
+          }
+        }
       }
     }
     init(_ parent: RichTextEditor) {
@@ -128,7 +145,7 @@ struct RichTextEditor: NSViewRepresentable {
       return true
     }
     func textDidChange(_ notification: Notification) {
-      guard let view = notification.object as? NSTextView, !view.hasMarkedText(),
+      guard let view = notification.object as? RichComposerTextView, !view.hasMarkedText(),
         let storage = view.textStorage
       else { return }
       let value = projection.update(
@@ -140,6 +157,10 @@ struct RichTextEditor: NSViewRepresentable {
       lastDocument = value
       parent.document = value
       parent.text = value.plainText
+      view.anchoredSignatureStart = view.signatureRange?.location
+      if parent.signatureStart.wrappedValue != view.anchoredSignatureStart {
+        parent.signatureStart.wrappedValue = view.anchoredSignatureStart
+      }
       parent.controller.updateSelection()
     }
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -149,8 +170,22 @@ struct RichTextEditor: NSViewRepresentable {
 }
 
 final class RichComposerTextView: PlaceholderTextView {
+  override var showsSignatureSeparator: Bool { true }
   weak var controller: RichTextController?
   var onLink: (() -> Void)?
+  var onWriting: (() -> Void)?
+
+  override func menu(for event: NSEvent) -> NSMenu? {
+    let menu = super.menu(for: event)
+    guard isEditable, selectedRange().length > 0, onWriting != nil, let menu else { return menu }
+    let item = NSMenuItem(title: "帮我写…", action: #selector(openWriting), keyEquivalent: "")
+    item.target = self
+    menu.insertItem(item, at: 0)
+    menu.insertItem(.separator(), at: 1)
+    return menu
+  }
+
+  @objc private func openWriting() { onWriting?() }
   private var normalizingMarkers = false
   override func didChangeText() {
     if !normalizingMarkers, !hasMarkedText(), let storage = textStorage {

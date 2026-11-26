@@ -11,6 +11,7 @@ struct PlainTextEditor: NSViewRepresentable {
   var inset = NSSize(width: 12, height: 12)
   var accessibilityLabel: String
   var bottomAnchoredText = ""
+  var showsVerticalScroller = true
   var onPaste: ((NSPasteboard) -> Bool)?
   var submitShortcut: TextSubmitShortcut?
   var onSubmit: (() -> Void)?
@@ -21,7 +22,7 @@ struct PlainTextEditor: NSViewRepresentable {
   func makeNSView(context: Context) -> NSScrollView {
     let scrollView = EditorScrollView()
     ScrollAppearance.apply(to: scrollView)
-    scrollView.hasVerticalScroller = true
+    scrollView.hasVerticalScroller = showsVerticalScroller
     scrollView.hasHorizontalScroller = false
 
     let textView = PlaceholderTextView(frame: scrollView.contentView.bounds)
@@ -127,16 +128,26 @@ final class EditorScrollView: NSScrollView {
 class PlaceholderTextView: NSTextView {
   var placeholder = ""
   var bottomAnchoredText = ""
+  var anchoredSignatureStart: Int?
+  var showsSignatureSeparator: Bool { false }
   var onPaste: ((NSPasteboard) -> Bool)?
   var submitShortcut: TextSubmitShortcut?
   var onSubmit: (() -> Void)?
   private var anchorInput: AnchorInput?
   private var updatingAnchor = false
+  private let signatureSeparatorSpacing: CGFloat = 24
+  private let signatureSeparatorHeight: CGFloat = 17
 
   private struct AnchorInput: Equatable {
-    let text, signature: String
+    let text: String
+    let signatureStart: Int?
     let viewport, inset: NSSize
     let fontSize, lineSpacing: CGFloat
+  }
+
+  var signatureRange: NSRange? {
+    MailSignature.trailingRange(in: string, startingAt: anchoredSignatureStart)
+      ?? MailSignature.trailingRange(in: string, signature: bottomAnchoredText)
   }
 
   /// The signature stays editable in the same text view. Only layout attributes change;
@@ -144,13 +155,16 @@ class PlaceholderTextView: NSTextView {
   func updateBottomAnchor() {
     guard !updatingAnchor, !hasMarkedText(), let scrollView = enclosingScrollView,
       let storage = textStorage, let manager = layoutManager, let container = textContainer else { return }
-    let input = AnchorInput(text: string, signature: bottomAnchoredText,
+    let input = AnchorInput(text: string, signatureStart: signatureRange?.location,
       viewport: scrollView.contentSize, inset: textContainerInset,
       fontSize: font?.pointSize ?? 12, lineSpacing: defaultParagraphStyle?.lineSpacing ?? 0)
     guard input != anchorInput else { return }
     anchorInput = input
     updatingAnchor = true
-    defer { updatingAnchor = false }
+    defer {
+      updatingAnchor = false
+      if showsSignatureSeparator { needsDisplay = true }
+    }
     let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
     // Undo can restore layout attributes independently of the cached anchor state.
     let key = NSAttributedString.Key("BoxmailAnchorParagraph")
@@ -167,9 +181,10 @@ class PlaceholderTextView: NSTextView {
       typing.paragraphSpacingBefore = 0
       typingAttributes[.paragraphStyle] = typing
     } else { typingAttributes[.paragraphStyle] = paragraph }
-    guard let signature = MailSignature.trailingRange(in: string, signature: bottomAnchoredText) else { return }
+    guard let signature = signatureRange, signature.location > 0 || showsSignatureSeparator else { return }
     manager.ensureLayout(for: container)
-    let gap = floor(max(0, input.viewport.height - input.inset.height * 2 - manager.usedRect(for: container).maxY))
+    let minimumGap = showsSignatureSeparator ? signatureSeparatorSpacing : 0
+    let gap = floor(max(minimumGap, input.viewport.height - input.inset.height * 2 - manager.usedRect(for: container).maxY))
     guard gap > 0 else { return }
     let range = (string as NSString).paragraphRange(for: NSRange(location: signature.location, length: 0))
     let original = (range.location < storage.length
@@ -182,36 +197,61 @@ class PlaceholderTextView: NSTextView {
   }
 
   override func characterIndexForInsertion(at point: NSPoint) -> Int {
-    let index = super.characterIndexForInsertion(at: point)
-    return bodyInsertionIndex(inAnchorGapAt: point, proposedIndex: index) ?? index
+    bodyInsertionIndex(inWhitespaceAt: point) ?? super.characterIndexForInsertion(at: point)
   }
 
   override func mouseDown(with event: NSEvent) {
-    guard !hasMarkedText() else { super.mouseDown(with: event); return }
-    super.mouseDown(with: event)
-    // Native mouse tracking bypasses the public insertion-point helper. Correct a plain
-    // caret click after tracking; nonempty selections, Shift selection and drags stay native.
-    guard !hasMarkedText(), isSelectable, event.clickCount == 1,
-      !event.modifierFlags.contains(.shift), selectedRange().length == 0 else { return }
     let point = convert(event.locationInWindow, from: nil)
-    let nativeIndex = super.characterIndexForInsertion(at: point)
-    if let index = bodyInsertionIndex(inAnchorGapAt: point, proposedIndex: nativeIndex) {
-      setSelectedRange(NSRange(location: index, length: 0))
+    let modifiers = event.modifierFlags.intersection([.shift, .control, .option, .command])
+    guard isSelectable, modifiers.isEmpty, var index = bodyInsertionIndex(inWhitespaceAt: point) else {
+      super.mouseDown(with: event)
+      return
     }
+    // Leave composition to AppKit. Ordinary whitespace clicks place the caret directly.
+    if hasMarkedText() {
+      super.mouseDown(with: event)
+      guard !hasMarkedText(), selectedRange().length == 0,
+        let committedIndex = bodyInsertionIndex(inWhitespaceAt: point) else { return }
+      index = committedIndex
+    } else {
+      window?.makeFirstResponder(self)
+    }
+    let caret = NSRange(location: index, length: 0)
+    breakUndoCoalescing()
+    setSelectedRange(caret)
+    scrollRangeToVisible(caret)
   }
 
-  private func bodyInsertionIndex(inAnchorGapAt point: NSPoint, proposedIndex index: Int) -> Int? {
-    guard let signature = MailSignature.trailingRange(in: string, signature: bottomAnchoredText),
-      signature.location > 0, index >= signature.location,
-      let manager = layoutManager, let container = textContainer else { return nil }
+  private func lineRect(forCharacterAt index: Int) -> NSRect? {
+    guard let manager = layoutManager, let container = textContainer else { return nil }
     manager.ensureLayout(for: container)
-    let glyph = manager.glyphIndexForCharacter(at: signature.location)
-    let signatureRect = manager.boundingRect(
-      forGlyphRange: NSRange(location: glyph, length: 1), in: container)
-    guard point.y < signatureRect.minY + textContainerOrigin.y else { return nil }
-    // Paragraph spacing is visual only. A click above the signature belongs to the final
-    // body line, rather than to a character in the signature's enlarged paragraph.
-    return (string as NSString).rangeOfComposedCharacterSequence(at: signature.location - 1).location
+    let glyph = manager.glyphIndexForCharacter(at: index)
+    let line = manager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+    return line.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+  }
+
+  private func signatureSeparator(at top: CGFloat) -> NSRect {
+    let inset = textContainerOrigin.x
+    return NSRect(x: inset, y: top - signatureSeparatorSpacing,
+      width: max(0, bounds.width - inset * 2), height: signatureSeparatorHeight)
+  }
+
+  private func bodyInsertionIndex(inWhitespaceAt point: NSPoint) -> Int? {
+    guard let start = signatureRange?.location, start > 0,
+      let manager = layoutManager, let container = textContainer else { return nil }
+    let source = string as NSString
+    let bodyEnd = source.rangeOfComposedCharacterSequence(at: start - 1)
+    guard let bodyLine = lineRect(forCharacterAt: bodyEnd.location) else { return nil }
+    let emptyLine = source.paragraphRange(for: bodyEnd) == bodyEnd
+    guard point.y >= (emptyLine ? bodyLine.minY : bodyLine.maxY) else { return nil }
+
+    let origin = textContainerOrigin
+    let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+    let glyph = manager.glyphIndex(for: local, in: container)
+    // TextKit returns the nearest glyph even for points far outside the signature text.
+    if manager.characterIndexForGlyph(at: glyph) >= start,
+      manager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil).contains(local) { return nil }
+    return bodyEnd.location
   }
 
   override func paste(_ sender: Any?) {
@@ -236,6 +276,20 @@ class PlaceholderTextView: NSTextView {
 
   override func draw(_ dirtyRect: NSRect) {
     super.draw(dirtyRect)
+    if showsSignatureSeparator, let start = signatureRange?.location,
+      let top = lineRect(forCharacterAt: start)?.minY {
+      let rect = signatureSeparator(at: top)
+      if dirtyRect.intersects(rect) {
+        let label = NSAttributedString(string: "签名", attributes: [
+          .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+          .foregroundColor: NSColor(Palette.muted),
+        ])
+        label.draw(at: NSPoint(x: rect.minX, y: rect.minY))
+        let lineX = rect.minX + ceil(label.size().width) + 8
+        NSColor(Palette.softBorder).setFill()
+        NSRect(x: lineX, y: floor(rect.midY), width: max(0, rect.maxX - lineX), height: 1).fill()
+      }
+    }
     guard string.isEmpty, !hasMarkedText(), !placeholder.isEmpty else { return }
     let attributes: [NSAttributedString.Key: Any] = [
       .font: font ?? .systemFont(ofSize: 12),

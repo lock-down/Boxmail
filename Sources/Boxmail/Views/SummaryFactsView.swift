@@ -22,7 +22,7 @@ struct SummaryFactsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
           if group.id != groups.last?.id { CossSeparator().padding(.leading, 10) }
         }
-      }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
+      }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
     }
   }
 

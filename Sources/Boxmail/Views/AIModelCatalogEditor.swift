@@ -12,7 +12,7 @@ struct AIModelCatalogEditor: View {
         Text("模型目录").font(.system(size: 12, weight: .medium))
         Text("\(models.count)").font(UIType.small).foregroundStyle(Palette.muted)
         Spacer()
-        SettingsInlineAction(title: "添加模型", icon: .addLine) {
+        SettingsInlineAction(title: "添加模型", icon: .plus) {
           let current = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
           models.append(AIModel(id: !current.isEmpty && !models.contains(where: { $0.id == current }) ? current : ""))
         }.disabled(models.count >= 500)
@@ -21,7 +21,7 @@ struct AIModelCatalogEditor: View {
         Text("添加模型后可设置容量、输入类型和推理等级；也可从服务商获取可用模型。")
           .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
           .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
       }
       LazyVStack(alignment: .leading, spacing: 10) {
         ForEach(models.indices, id: \.self) { index in
@@ -60,7 +60,7 @@ private struct AIModelEditorRow: View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .top, spacing: 8) {
         IconButton(
-          icon: !model.id.isEmpty && selectedModel == model.id ? .checkboxCircleFill : .checkboxBlankCircleLine,
+          icon: !model.id.isEmpty && selectedModel == model.id ? .circleCheckFilled : .circle,
           help: "使用模型 \(model.id)",
           color: !model.id.isEmpty && selectedModel == model.id ? Palette.accent : Palette.muted,
           selected: !model.id.isEmpty && selectedModel == model.id
@@ -75,10 +75,10 @@ private struct AIModelEditorRow: View {
             surface: Palette.paper)
         }.frame(width: SettingsFormLayout.fieldWidth)
         Spacer(minLength: 0)
-        IconButton(icon: expanded ? .arrowUpSLine : .arrowDownSLine, help: expanded ? "收起模型参数" : "展开模型参数") {
+        IconButton(icon: expanded ? .chevronUp : .chevronDown, help: expanded ? "收起模型参数" : "展开模型参数") {
           withAnimation(UIMotion.disclosure(reduceMotion)) { expanded.toggle() }
         }
-        IconButton(icon: .deleteBin6Line, help: "移除模型 \(model.id)", action: remove)
+        IconButton(icon: .trash, help: "移除模型 \(model.id)", action: remove)
       }
       if expanded {
         CossSeparator()
@@ -113,7 +113,7 @@ private struct AIModelEditorRow: View {
       if let issue = model.validationIssue {
         Text(issue).font(UIType.small).foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
       }
-    }.padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+    }.padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
   }
   private func input(_ type: String) -> Binding<Bool> {
     Binding(get: { model.inputTypes.contains(type) }, set: { enabled in

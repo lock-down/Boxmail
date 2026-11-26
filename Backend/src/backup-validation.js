@@ -4,6 +4,7 @@ import { accountInput, aiConfig, ServiceError } from './validation.js';
 import { richContent, richFromHTML } from './rich-text.js';
 import { mailQuery } from './mail-query.js';
 import { isCategoryColor } from './categories.js';
+import { translationLanguage } from './mail-translation.js';
 
 const strings = (value, names) => names.every(name => typeof value[name] === 'string');
 const bools = (value, names) => names.every(name => typeof value[name] === 'boolean');
@@ -14,7 +15,12 @@ function mailShape(value) {
   if (!strings(value, ['id', 'accountId', 'folder', 'sender', 'senderEmail', 'to', 'cc', 'subject', 'body', 'preview', 'date', 'category'])
     || !bools(value, ['unread', 'starred']) || !stringArray(value.attachmentIds)) return false;
   const summary = value.summary;
+  if (value.labels != null && (!object(value.labels)
+    || !Object.values(value.labels).every(source => ['legacy','manual','rule','model'].includes(source)))) return false;
+  if (value.excludedLabels != null && !stringArray(value.excludedLabels)) return false;
   if (value.summaryHidden != null && typeof value.summaryHidden !== 'boolean') return false;
+  if (value.translations != null && (!object(value.translations) || Object.values(value.translations).some(item =>
+    !object(item) || typeof item.text !== 'string' || item.html != null && typeof item.html !== 'string'))) return false;
   if (['html', 'translation', 'translationHTML'].some(name => value[name] != null && typeof value[name] !== 'string')) return false;
   return !summary || object(summary) && stringArray(summary.points) && Array.isArray(summary.todos)
     && summary.todos.every(todo => strings(todo, ['id', 'title', 'due']) && bools(todo, ['done']))
@@ -85,10 +91,15 @@ export function validateBackupRecords(records) {
     }
     if (kind === 'followUp' && (!strings(value, ['accountId','messageId','conversationId','sourceKey','title','state','dueText','subject','createdAt','updatedAt'])
       || !['mine','waiting','completed'].includes(value.state) || typeof value.reminderCancelled !== 'boolean'
+      || value.todoId != null && typeof value.todoId !== 'string'
+      || ['collected', 'dismissed'].some(key => value[key] != null && typeof value[key] !== 'boolean')
       || ['dueAt','snoozedUntil','waitingSince'].some(key => value[key] != null && !Number.isFinite(Date.parse(value[key]))))) fail();
     if (kind === 'sendPlan' && (!strings(value, ['draftId','accountId','subject','to','scheduledAt','timeZone','revision','status','createdAt'])
       || !Number.isFinite(Date.parse(value.scheduledAt))
       || !['waiting','submitting','sent','failed','uncertain','cancelled','paused'].includes(value.status))) fail();
+    if (kind === 'categoryCatalog' && (!Array.isArray(value.items) || value.items.some(item =>
+      !object(item) || !strings(item, ['id','name','description']) || item.match != null && typeof item.match !== 'string'
+      || item.matchRevision != null && typeof item.matchRevision !== 'string'))) fail();
     if (kind === 'mailRule') {
       if (!strings(value, ['name','intent','revision','createdAt']) || !bools(value, ['enabled','automatic']) || !object(value.actions)) fail();
       try { mailQuery(value.query); } catch { fail(); }
@@ -100,11 +111,16 @@ export function validateBackupRecords(records) {
     if (kind === 'assistantSession' && (!object(value.scope) || !['folder','message','conversation','search','attachments'].includes(value.scope.kind)
       || !Array.isArray(value.turns) || value.turns.some(turn => !strings(turn,['id','prompt','text','createdAt'])
         || !Array.isArray(turn.sources) || !Array.isArray(turn.citations) || !Array.isArray(turn.actions)))) fail();
-    if (kind === 'writingStyle' && !strings(value,['name','instruction'])) fail();
+    if (kind === 'writingStyle' && (!strings(value, ['name', 'instruction'])
+      || [value.tone, value.length].some(item => item != null && typeof item !== 'string'))) fail();
     if (kind === 'snooze' && (!Number.isFinite(Date.parse(value.until)) || !stringArray(value.messageIds))) fail();
     if (kind === 'categoryCatalog' && (!Array.isArray(value.items)
       || value.items.some(item => !object(item) || !strings(item, ['id', 'name', 'description'])
         || item.color != null && !isCategoryColor(item.color)))) fail();
+    if (kind === 'translationPreference') {
+      if (!bools(value, ['auto'])) fail();
+      try { translationLanguage(value.language); } catch { fail(); }
+    }
     if (kind === 'settings') {
       const ai = value.ai, p = value.preferences;
       if (!object(ai) || !strings(ai, ['baseURL', 'model', 'effort']) || !integers(ai, ['timeout'])
@@ -114,6 +130,8 @@ export function validateBackupRecords(records) {
       try { aiConfig(ai, { requireModel: false }); } catch { fail(); }
       if (ai.timeout < 10 || ai.timeout > 600 || p.syncMinutes < 1 || p.syncMinutes > 60
         || p.fontSize < 12 || p.fontSize > 24 || p.signature.length > 4000 || !p.language.trim()) fail();
+      if (p.accountSignatures != null && (!object(p.accountSignatures)
+        || Object.values(p.accountSignatures).some(signature => typeof signature !== 'string' || signature.length > 4000))) fail();
     }
   }
   const archives = new Map(values.filter(row => row.kind === 'archive').map(row => [row.value.id,row.value]));

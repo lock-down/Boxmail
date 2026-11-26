@@ -3,7 +3,8 @@ import SwiftUI
 
 struct FollowUpEditor: View {
   @Bindable var workspace: FollowUpStore
-  let item: FollowUp
+  let row: ChecklistRow
+  let item: ChecklistItem
   let startSnoozed: Bool
   @Environment(\.dismiss) private var dismiss
   @ViewState private var title = ""
@@ -15,8 +16,8 @@ struct FollowUpEditor: View {
   var body: some View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 8) {
-        Text("编辑跟进").font(UIType.heading)
-        Text(item.subject).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(2)
+        Text("编辑事项").font(UIType.heading).accessibilityAddTraits(.isHeader)
+        Text(row.subject).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(2)
       }.frame(maxWidth: .infinity, alignment: .leading).padding(24).background(Palette.paper)
       OverlayScrollView {
         VStack(alignment: .leading, spacing: 20) {
@@ -32,8 +33,8 @@ struct FollowUpEditor: View {
           }
           CossSeparator()
           VStack(spacing: 12) {
-            timing("跟进提醒", icon: .notification3Line, enabled: $hasDue, date: $due, fieldTitle: "跟进时间")
-            timing("稍后处理", icon: .timeLine, enabled: $snoozed, date: $until, fieldTitle: "重新出现时间")
+            timing("跟进提醒", icon: .bell, enabled: $hasDue, date: $due, fieldTitle: "跟进时间")
+            timing("稍后处理", icon: .clock, enabled: $snoozed, date: $until, fieldTitle: "重新出现时间")
           }
           WorkflowNotice(
             text: "\(TimeZone.current.identifier) · 到期提醒在 Boxmail 运行时处理；退出或睡眠后会在恢复运行时继续。取消提醒不会完成跟进。"
@@ -48,18 +49,17 @@ struct FollowUpEditor: View {
     }.background(Palette.paper).onAppear {
       title = item.title
       state = item.state
-      hasDue = item.dueAt != nil
-      due = item.dueAt.flatMap(MailTimestamp.date) ?? FollowUpHour.next(after: .now)
-      snoozed = item.isSnoozed || startSnoozed
-      until = item.snoozedUntil.flatMap(MailTimestamp.date) ?? FollowUpHour.next(after: .now)
-      workspace.suggestSnooze = false
+      hasDue = item.followUp?.dueAt != nil
+      due = item.followUp?.dueAt.flatMap(MailTimestamp.date) ?? FollowUpHour.next(after: .now)
+      snoozed = item.followUp?.isSnoozed == true || startSnoozed
+      until = item.followUp?.snoozedUntil.flatMap(MailTimestamp.date) ?? FollowUpHour.next(after: .now)
     }
   }
-  private func timing(_ title: String, icon: RemixGlyph, enabled: Binding<Bool>, date: Binding<Date>, fieldTitle: String) -> some View {
+  private func timing(_ title: String, icon: AppicaGlyph, enabled: Binding<Bool>, date: Binding<Date>, fieldTitle: String) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       Toggle(isOn: enabled) {
         HStack(spacing: 8) {
-          RemixIcon(icon).frame(width: 16).foregroundStyle(Palette.muted).accessibilityHidden(true)
+          AppicaIcon(icon).frame(width: 16).foregroundStyle(Palette.muted).accessibilityHidden(true)
           Text(title)
           Spacer(minLength: 0)
         }
@@ -70,12 +70,12 @@ struct FollowUpEditor: View {
   }
   private func save() {
     Task {
-      if await workspace.save(
+      if await workspace.update(item, in: row,
         [
           "title": title, "state": state,
           "dueAt": hasDue ? ISO8601DateFormatter().string(from: due) as Any : NSNull(),
           "snoozedUntil": snoozed ? ISO8601DateFormatter().string(from: until) as Any : NSNull(),
-        ], id: item.id) != nil
+        ]) != nil
       {
         dismiss()
       }

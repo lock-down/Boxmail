@@ -2,7 +2,7 @@ import Foundation
 
 public struct AIStreamOutput: Codable, Identifiable {
   public var id, task, status, text: String
-  public var accountId, messageId, attachmentId, parentJobId, stage, html: String?
+  public var accountId, messageId, attachmentId, parentJobId, stage, html, targetLanguage: String?
 }
 
 public struct AIStreamEvent: Decodable {

@@ -8,9 +8,7 @@ import SwiftUI
   let followUps: FollowUpStore
   let sendQueue: SendQueueStore
   let rules: RuleWorkspaceStore
-  let assistant: AssistantWorkspaceStore
   let notifications: NotificationCoordinator
-  var attachmentWorkspaces: [String: AttachmentPageStore] = [:]
   var attachmentPreviewIds: [String] = []
   var attachmentPreviewIndex = 0
   @ObservationIgnored let backend: BackendService
@@ -24,7 +22,6 @@ import SwiftUI
     followUps = FollowUpStore(backend: service)
     sendQueue = SendQueueStore(backend: service)
     rules = RuleWorkspaceStore(backend: service)
-    assistant = AssistantWorkspaceStore(backend: service)
     notifications = NotificationCoordinator(backend: service)
     self.readMailPassword = readMailPassword ?? CredentialService.mailPassword(for:)
   }
@@ -44,7 +41,10 @@ import SwiftUI
   var searchAllAccounts = false
   var unifiedInbox = false
   var listCategory = ""
-  var showSummaryPreview = false
+  var listLabelID: String?
+  var labelReturnSource: MailSourceContext?
+  var showLabelManager = false
+  var dismissedOrganizationPrompts: Set<String> = []
   var savedSearches: [SavedSearch] = []
   var activeSavedSearchId: String?
   var conversation: MailConversation?
@@ -54,12 +54,24 @@ import SwiftUI
   var restoreRevision = 0 {
     didSet {
       organizationWorkspaces = [:]
-      attachmentWorkspaces = [:]
+      dismissedOrganizationPrompts = []
+      translationReading = nil
+      translationPreferences = [:]
+      translationResults = [:]
+      translationRequests = []
+      translationErrors = [:]
+      labelReturnSource = nil
+      followUps.resetPosition()
+      followUps.dismissedItem = nil
+      followUps.revision += 1
+      summaryListChange = nil
       mailSource = nil
     }
   }
   var accountId = ""
-  var selectedMessageId: String?
+  var selectedMessageId: String? {
+    didSet { if selectedMessageId != oldValue { translationReading = nil } }
+  }
   var selectedMessageIds: Set<String> = []
   var mailListFocusRequest = 0
   var restoredMailQueryKey: String?
@@ -83,24 +95,21 @@ import SwiftUI
   var starting = false
   var startupError: String?
   var showSettings = false
-  var settingsTab = "AI 助手"
+  var settingsTab = "AI"
   var composer: MailDraft?
+  var composerSendPlan: SendPlan?
   var previewAttachment: MailAttachment?
   var mailAITab: MailAITab?
-  var mailAIErrors: [String: String] = [:]
-  var activeAIMessageId: String?
-  var activeAIAttachmentId: String?
+  var attachmentLoadErrors: Set<String> = []
   var aiOutputs: [String: AIStreamOutput] = [:]
   var aiStreamTask: Task<Void, Never>?
-  var translatedMessageIds: Set<String> = []
-  var summaryReplyRequest: SummaryReplyRequest?
+  var translationReading: MailTranslationReading?
+  var translationPreferences: [String: MailTranslationPreference] = [:]
+  var translationResults: [MailTranslationKey: MailTranslationResult] = [:]
+  var translationRequests: Set<MailTranslationKey> = []
+  var translationErrors: [MailTranslationKey: String] = [:]
   var summaryListChange: SummaryListChange?
   var summaryListError: String?
-  var unreadSummaryProgress: String?
-  var attachmentResultsMessageId: String?
-  var organizeError: String?
-  var attachmentBatchErrors: [String: String] = [:]
-  var attachmentBatchPolling: Task<Void, Never>?
   var pageMessages: [MailMessage] = []
   var groupMailBySender = false
   var senderGroups: [MailSenderGroup] = []
@@ -141,7 +150,6 @@ import SwiftUI
   var lastNetworkSatisfied: Bool?
   var externalPreviewFiles: [AttachmentPreviewFile] = []
   private var polling: Task<Void, Never>?
-  private var organizePolling: Task<Void, Never>?
   var currentAccount: MailAccount? { accounts.first { $0.id == accountId } }
   var selectedMessage: MailMessage? {
     guard let id = selectedMessageId else { return nil }
@@ -158,10 +166,7 @@ import SwiftUI
   var unreadInboxMessages: [MailMessage] {
     accountMessages.filter { $0.folder == "inbox" && $0.unread }
   }
-  var accountAttachments: [MailAttachment] {
-    let ids = Set(accountMessages.flatMap(\.attachmentIds))
-    return attachments.filter { ids.contains($0.id) }
-  }
+
   var filteredMessages: [MailMessage] {
     guard pageKey == mailQueryKey else { return [] }
     if usesSenderGroups { return visibleSenderMessages }
@@ -193,8 +198,7 @@ import SwiftUI
           "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1000)),
           "count": String(messages.count),
         ])
-      watchAIOutput()
-      selectedMessageId = filteredMessages.first?.id
+        selectedMessageId = filteredMessages.first?.id
       if messages.contains(where: { message in
         message.uid != nil && message.bodyVersion != 1
           && accounts.contains { $0.id == message.accountId && !$0.isDemo }
@@ -276,8 +280,6 @@ import SwiftUI
       await loadConversation()
     }
     measure("selected-content")
-    watchOrganizer()
-    watchAttachmentBatches()
   }
   func action(_ name: String, _ operation: @escaping @MainActor () async throws -> Void) {
     guard !busy.contains(name) else { return }
@@ -294,6 +296,7 @@ import SwiftUI
     }
   }
   func navigate(_ value: MailDestination) {
+    let value = value == .summary ? MailDestination.followUps : value
     if mailSource?.destination == value { returnToMailSource(); return }
     mailSource = nil
     mailRevealRequest = nil
@@ -303,6 +306,8 @@ import SwiftUI
     destination = value
     filter = "全部"
     listCategory = ""
+    listLabelID = nil
+    labelReturnSource = nil
     activeSavedSearchId = nil
     search = ""
     selectedMessageId = filteredMessages.first?.id
@@ -319,8 +324,7 @@ import SwiftUI
     }
   }
   func editDraft(_ id: String) {
-    guard composer == nil else { return }
-    if drafts.first(where: { $0.id == id })?.status == "queued" { navigate(.outbox); return }
+    guard composer == nil, !busy.contains("draft-load") else { return }
     guard let draft = drafts.first(where: { $0.id == id }), draft.status != "sending" else {
       error = "草稿已发送、移除或正在发送，请刷新后重试。"
       return
@@ -328,8 +332,8 @@ import SwiftUI
     let generation = UUID()
     let revision = restoreRevision
     draftOpenGeneration = generation
-    if draft.bodyLoaded != false {
-      busy.remove("draft-load")
+    if draft.status != "queued", sendQueue.currentPlans[id] == nil, draft.bodyLoaded != false {
+      composerSendPlan = nil
       composer = draft
       return
     }
@@ -337,11 +341,25 @@ import SwiftUI
     Task {
       defer { if draftOpenGeneration == generation { busy.remove("draft-load") } }
       do {
-        let full: MailDraft = try await self.backend.request("/drafts/\(id)")
+        if draft.status == "queued", sendQueue.currentPlans[id]?.accountId != draft.accountId {
+          await sendQueue.load()
+        }
+        var full: MailDraft = try await self.backend.request("/drafts/\(id)")
         try Task.checkCancellation()
         guard generation == draftOpenGeneration, revision == restoreRevision, composer == nil,
           let latest = drafts.first(where: { $0.id == id }), latest.accountId == full.accountId,
           latest.status != "sending", full.status != "sending" else { return }
+        let plan = sendQueue.currentPlans[id].flatMap { $0.accountId == full.accountId ? $0 : nil }
+        if let plan, plan.canChange, ["draft", "queued"].contains(full.status) {
+          try await sendQueue.change(plan, pause: true)
+          guard generation == draftOpenGeneration, revision == restoreRevision, composer == nil else { return }
+          full.status = "queued"
+          composerSendPlan = plan
+        } else {
+          if plan?.status == "uncertain" { full.status = "uncertain" }
+          guard full.status != "queued" else { throw backend.failure("发送计划已变化，请刷新草稿箱后重试。") }
+          composerSendPlan = nil
+        }
         composer = full
       } catch {
         if generation == draftOpenGeneration, revision == restoreRevision, composer == nil {
@@ -356,11 +374,12 @@ import SwiftUI
       mailRevealRequest = .init(messageId: message.id, queryKey: mailQueryKey)
       return
     }
-    if [.organize, .summary, .attachments].contains(destination) && search.isEmpty {
+    if [.organize, .followUps, .attachments].contains(destination) && search.isEmpty {
       mailSource = captureSourceContext()
     }
     unifiedInbox = false
     listCategory = ""
+    listLabelID = nil
     accountId = message.accountId
     destination = MailDestination(rawValue: message.folder) ?? .inbox
     search = ""
@@ -370,11 +389,6 @@ import SwiftUI
     select(message)
     mailAITab = tab
     mailRevealRequest = MailRevealRequest(messageId: message.id, queryKey: mailQueryKey)
-  }
-  func showMailAI(_ tab: MailAITab, message: MailMessage) {
-    if tab == .translate { toggleTranslation(message); return }
-    mailAITab = tab
-    if activeAIMessageId != message.id { mailAIErrors[message.id] = nil }
   }
   func update(_ message: MailMessage, _ changes: [String: Any], undoable: Bool = true) {
     if undoable {
@@ -397,12 +411,12 @@ import SwiftUI
     }
   }
   func newDraft(reply: MailMessage? = nil, forward: Bool = false, all: Bool = false) {
-    guard composer == nil, !showSettings, previewAttachment == nil,
+    guard composer == nil, !showSettings, previewAttachment == nil, !busy.contains("draft-load"),
       reply == nil || !busy.contains("compose-reply")
     else { return }
     let generation = UUID(), revision = restoreRevision
     draftOpenGeneration = generation
-    busy.remove("draft-load")
+    composerSendPlan = nil
     if let reply {
       action("compose-reply") {
         let draft: MailDraft = try await self.backend.request(
@@ -425,13 +439,13 @@ import SwiftUI
         body: signature(for: accountId).isEmpty ? "" : "\n\n" + signature(for: accountId))
     }
   }
-  func runAI(
-    task: String, message: MailMessage? = nil, attachment: MailAttachment? = nil,
+  func runWriting(
+    task: String, accountId: String, message: MailMessage? = nil,
     prompt: String = "", body: String = "", tone: String = "正式", length: String = "适中",
     outputLanguage: String = "跟随来信", writingStyle: String = "",
-    replyPreset: ReplyPreset? = nil, preview: Bool = false, background: Bool = false
+    writingScope: String, writingSubject: String? = nil
   ) async throws -> AgentJob {
-    let runsInBackground = background || ["summary", "reply"].contains(task)
+    let runsInBackground = task == "reply"
     guard !busy.contains("agent") else { throw self.backend.failure("AI 正在执行任务，请稍候") }
     busy.insert("agent")
     watchAIOutput()
@@ -439,19 +453,16 @@ import SwiftUI
     let key = try CredentialService.read(settings.ai.credentialAccount)
     var input: [String: Any] = [
       "task": task, "apiKey": key, "providerId": settings.ai.providerId,
-      "accountId": message?.accountId ?? accountId, "prompt": prompt,
+      "accountId": accountId, "prompt": prompt, "preview": true, "writingScope": writingScope,
       "body": body,
       "tone": tone, "length": length, "outputLanguage": outputLanguage, "writingStyle": writingStyle,
     ]
     if let message { input["messageId"] = message.id }
-    if let attachment { input["attachmentId"] = attachment.id }
-    if let replyPreset { input["replyPreset"] = replyPreset.rawValue }
-    if preview { input["preview"] = true }
+    if let writingSubject { input["subject"] = writingSubject }
     if runsInBackground { input["background"] = true }
-    let preparationAllowance = attachment?.isPresentation == true ? 150 : 30
     var job: AgentJob = try await self.backend.request(
       "/agent", method: "POST", body: input,
-      timeout: runsInBackground ? 15 : TimeInterval(settings.ai.timeout + preparationAllowance))
+      timeout: runsInBackground ? 15 : TimeInterval(settings.ai.timeout + 30))
     if runsInBackground {
       replaceJob(job)
       var pollingFailures = 0
@@ -471,33 +482,7 @@ import SwiftUI
         throw self.backend.failure(job.error ?? "AI 任务未完成，可重试这封邮件。")
       }
     }
-    if background { try? await refresh(reloadContent: false) }
-    else { try await refresh() }
     return job
-  }
-  func generate(
-    task: String, message: MailMessage, attachment: MailAttachment? = nil, prompt: String = "",
-    replyPreset: ReplyPreset? = nil, preview: Bool = false, tone: String = "正式", length: String = "适中"
-  ) {
-    guard !busy.contains("agent"), activeAIMessageId == nil else { return }
-    if let tab = MailAITab(rawValue: task) { mailAITab = tab }
-    mailAIErrors[message.id] = nil
-    activeAIMessageId = message.id
-    activeAIAttachmentId = attachment?.id
-    Task {
-      defer {
-        activeAIMessageId = nil
-        activeAIAttachmentId = nil
-      }
-      do {
-        let job = try await runAI(
-          task: task, message: message, attachment: attachment, prompt: prompt,
-          tone: tone, length: length, replyPreset: replyPreset, preview: preview)
-        if !preview, let id = job.result?.draftId { editDraft(id) }
-      } catch {
-        mailAIErrors[message.id] = error.localizedDescription
-      }
-    }
   }
   func useReply(_ job: AgentJob) {
     guard composer == nil, !showSettings, previewAttachment == nil else { return }
@@ -510,86 +495,10 @@ import SwiftUI
       self.composer = draft
     }
   }
-  var latestOrganization: AgentJob? {
-    jobs.first { $0.task == "classify" && $0.accountId == accountId }
-  }
-  func organize(scope: String = "unclassified", limit: Int = 50, retry job: AgentJob? = nil) {
-    guard !busy.contains("organize-control") else { return }
-    busy.insert("organize-control")
-    organizeError = nil
-    Task {
-      defer { busy.remove("organize-control") }
-      do {
-        let key = try CredentialService.read(settings.ai.credentialAccount)
-        let updated: AgentJob = try await self.backend.request(
-          job.map { "/jobs/\($0.id)/retry" } ?? "/organize", method: "POST",
-          body: ["accountId": accountId, "apiKey": key, "providerId": settings.ai.providerId, "scope": scope, "limit": limit])
-        replaceJob(updated)
-        watchOrganizer()
-      } catch { organizeError = error.localizedDescription }
-    }
-  }
-  func pauseOrganization(_ job: AgentJob) {
-    action("organize-control") {
-      let updated: AgentJob = try await self.backend.request(
-        "/jobs/\(job.id)/pause", method: "POST")
-      self.replaceJob(updated)
-    }
-  }
   func replaceJob(_ job: AgentJob) {
     jobs.removeAll { $0.id == job.id }
     jobs.append(job)
     jobs.sort { $0.createdAt > $1.createdAt }
-  }
-  func pollRunningJobs(
-    task: String, interval: Duration, timeout: TimeInterval = 30,
-    stopOnFailure: Bool = false,
-    onUpdate: (AgentJob) async -> Void = { _ in },
-    onFailure: (AgentJob) -> Void,
-    onIdle: () async -> Void = {}
-  ) async {
-    while !Task.isCancelled {
-      let running = jobs.filter { $0.task == task && $0.status == "running" }
-      if running.isEmpty { break }
-      var failed = false
-      for job in running {
-        do {
-          let updated: AgentJob = try await backend.request("/jobs/\(job.id)", timeout: timeout)
-          try Task.checkCancellation()
-          replaceJob(updated)
-          await onUpdate(updated)
-        } catch is CancellationError {
-          return
-        } catch {
-          failed = true
-          if !Task.isCancelled { onFailure(job) }
-          if stopOnFailure { break }
-        }
-      }
-      if !failed, !jobs.contains(where: { $0.task == task && $0.status == "running" }) {
-        await onIdle()
-      }
-      try? await Task.sleep(for: interval)
-    }
-  }
-  private func watchOrganizer() {
-    guard organizePolling == nil,
-      jobs.contains(where: { $0.task == "classify" && $0.status == "running" })
-    else { return }
-    organizePolling = Task {
-      defer { organizePolling = nil }
-      await pollRunningJobs(
-        task: "classify", interval: .seconds(2), stopOnFailure: true,
-        onUpdate: { _ in organizeError = nil },
-        onFailure: { _ in organizeError = "暂时无法获取进度，正在重新连接。" },
-        onIdle: { try? await refresh() })
-    }
-  }
-  func toggleTodo(message: MailMessage, todo: MailTodo) {
-    action("todo") {
-      try await self.backend.perform(
-        "/todos", body: ["messageId": message.id, "todoId": todo.id, "done": !todo.done])
-    }
   }
   func download(_ attachment: MailAttachment, preview: Bool = false) {
     action("download") {
@@ -616,8 +525,6 @@ import SwiftUI
     syncContentRefresh?.cancel()
     aiStreamTask?.cancel()
     polling?.cancel()
-    organizePolling?.cancel()
-    attachmentBatchPolling?.cancel()
     networkMonitor?.cancel()
     externalPreviewFiles.forEach { $0.remove() }
     if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }

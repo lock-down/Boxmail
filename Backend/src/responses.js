@@ -5,14 +5,19 @@ import { errorDiagnostic } from './diagnostics.js';
 
 import { OUTPUT_FORMATS, completionInstructions } from './ai-instructions.js';
 
-export async function completion(configInput, apiKey, task, content, images = [], options = {}) {
-  const started = performance.now();
+export function modelConnection(configInput, apiKey) {
   const config = aiConfig(configInput, { requireModel: false });
   if (!config.model)
     throw new ServiceError('请先在设置 > AI 助手中填写模型名称并保存');
   if (!config.enabled) throw new ServiceError('请先启用 AI 助手');
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.baseURL).hostname);
   if (!apiKey && !local) throw new ServiceError('请在设置中填写 API Key');
+  return config;
+}
+
+export async function completion(configInput, apiKey, task, content, images = [], options = {}) {
+  const started = performance.now();
+  const config = modelConnection(configInput, apiKey);
   if (!OUTPUT_FORMATS[task]) throw new ServiceError('未知 AI 任务');
 
   const { protocolCompletion, providerClient, validateModelInput } = await import('./ai-protocols.js');

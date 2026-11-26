@@ -8,14 +8,14 @@ struct DeveloperSettingsView: View {
 
   var body: some View {
     VStack(spacing: 16) {
-      SectionCard(title: "运行日志", icon: .fileSearchLine) {
+      SectionCard(title: "运行日志", icon: .fileSearch) {
         Text("自动记录账户同步阶段、进度、超时与连接错误，以及本机 API 和模型请求错误。日志在后台轮转保存，应用与本机服务各保留最多约 3 MB。")
           .font(UIType.body).fixedSize(horizontal: false, vertical: true)
         Text("复现问题后导出 ZIP，提供给开发者排查。即使同步正在运行或本机服务未连接，也可以导出已保存的日志。")
           .font(UIType.caption).foregroundStyle(Palette.muted).fixedSize(
             horizontal: false, vertical: true)
         ActionButton(
-          title: action.isWorking ? "正在导出…" : "导出诊断日志…", icon: .exportLine, color: Palette.accent
+          title: action.isWorking ? "正在导出…" : "导出诊断日志…", icon: .upload, color: Palette.accent
         ) {
           export()
         }.disabled(action.isWorking)
@@ -24,13 +24,13 @@ struct DeveloperSettingsView: View {
           .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(
             horizontal: false, vertical: true)
       }
-      SectionCard(title: "当前状态", icon: .stethoscopeLine) {
+      SectionCard(title: "当前状态", icon: .stethoscope) {
         Text(
           "本机服务：\(store.ready && store.backend.isRunning ? "已连接" : "未连接")\n同步：\(store.busy.contains("sync") ? store.syncProgressText : "空闲")\n应用版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"
         )
         .font(UIType.caption).lineSpacing(8).textSelection(.enabled)
         if let issue = store.syncStatusIssue {
-          WorkflowNotice(text: issue, icon: .errorWarningLine, color: Palette.amber)
+          WorkflowNotice(text: issue, icon: .infoCircle, color: Palette.amber)
         }
       }
     }

@@ -90,7 +90,7 @@ struct FollowUpDateTimeField: View {
             showingCalendar = false
           }
         }
-      }.padding(24).frame(width: 360).background(Palette.paper)
+      }.padding(UILayout.sectionInset).frame(width: 360).background(Palette.paper)
     }
   }
 }

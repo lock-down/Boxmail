@@ -7,6 +7,7 @@ struct MailSourceContext {
   var query: MailQuery? = nil
   var savedSearchID: String? = nil
   var mailList: MailListNavigationState? = nil
+  var unified: Bool? = nil
   var returnTitle: String { destination == .organize ? "返回分类结果" : "返回\(destination.title)" }
 }
 
@@ -47,10 +48,12 @@ extension MailStore {
     mailSource = nil
     accountId = source.accountId
     navigate(source.destination)
+    if let unified = source.unified { unifiedInbox = unified }
     if let query = source.query {
       unifiedInbox = query.accountId == nil
       searchAllAccounts = query.accountId == nil
       search = query.query; filter = query.filter; listCategory = query.category ?? ""
+      listLabelID = query.labelId
       activeSavedSearchId = source.savedSearchID
     }
     if let state = source.mailList, state.key == mailQueryKey {
@@ -79,7 +82,8 @@ extension MailStore {
       groupMessages: senderGroupMessages, groupOffsets: senderGroupNextOffsets,
       senderGroupsLoaded: senderGroupsLoaded) : nil
     return .init(accountId: accountId, destination: destination, query: query,
-      savedSearchID: activeSavedSearchId, mailList: snapshot)
+      savedSearchID: activeSavedSearchId, mailList: snapshot,
+      unified: destination == .followUps ? unifiedInbox : nil)
   }
 
   var readyMailReveal: MailRevealRequest? {

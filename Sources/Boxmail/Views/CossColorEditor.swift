@@ -25,7 +25,7 @@ struct CossColorEditor: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 8) {
-        let shape = RoundedRectangle(cornerRadius: UILayout.controlRadius)
+        let shape = RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
         shape.fill(CategoryTone(hex: validHex ?? fallbackHex).swatch)
           .overlay { shape.strokeBorder(Palette.border, lineWidth: 1) }
           .frame(width: UIControlSize.form.height, height: UIControlSize.form.height)
@@ -33,7 +33,7 @@ struct CossColorEditor: View {
         WorkflowTextInput(label: "十六进制色值", placeholder: "#RRGGBB", text: $hex,
           font: .system(size: 12, design: .monospaced))
           .onSubmit(submit)
-        IconButton(icon: .dropperLine, help: "从屏幕取色", size: UIControlSize.form.height) {
+        IconButton(icon: .colorPicker, help: "从屏幕取色", size: UIControlSize.form.height) {
           NSColorSampler().show { color in
             if let color, let hex = CategoryTone.hex(for: Color(nsColor: color)) { self.hex = hex }
           }

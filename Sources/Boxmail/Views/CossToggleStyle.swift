@@ -4,12 +4,12 @@ struct CossCheckbox: View {
   let isOn: Bool
 
   var body: some View {
-    let shape = RoundedRectangle(cornerRadius: 4)
+    let shape = RoundedRectangle(cornerRadius: UILayout.minimumRadius, style: .continuous)
     shape.fill(isOn ? Palette.primary : Palette.paper)
       .overlay { shape.strokeBorder(isOn ? Palette.primary : Palette.border, lineWidth: 1) }
       .overlay {
         if isOn {
-          RemixIcon(.checkLine, size: 9)
+          AppicaIcon(.check, size: 12)
             .foregroundStyle(Palette.primaryForeground)
         }
       }.frame(width: 16, height: 16)
@@ -37,9 +37,9 @@ struct CossToggleStyle: ToggleStyle {
           if isSwitch {
             Capsule().fill(configuration.isOn ? Palette.primary : Palette.border)
               .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                Circle().fill(Palette.paper).frame(width: 14, height: 14).padding(2)
+                Circle().fill(Palette.paper).frame(width: 16, height: 16).padding(4)
               }
-              .frame(width: 32, height: 18)
+              .frame(width: 36, height: 24)
               .animation(UIMotion.feedback(reduceMotion), value: configuration.isOn)
           } else {
             CossCheckbox(isOn: configuration.isOn)

@@ -8,7 +8,7 @@ struct SearchField: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     HStack(spacing: 8) {
-      RemixIcon(.searchLine, size: 13)
+      AppicaIcon(.search, size: UILayout.compactIconSize)
         .foregroundStyle(focused ? Palette.accent : Palette.muted).accessibilityHidden(true)
       TextField("", text: $text).textFieldStyle(.plain).font(UIType.caption)
         .focused($focused).accessibilityLabel(placeholder)
@@ -19,7 +19,7 @@ struct SearchField: View {
           }
         }
       if !text.isEmpty {
-        IconButton(icon: .closeCircleFill, help: "清除搜索", size: 24) { text = "" }
+        IconButton(icon: .circleXFilled, help: "清除搜索", size: 24) { text = "" }
           .transition(.opacity)
       }
     }.padding(.leading, 10).padding(.trailing, text.isEmpty ? 10 : 4).frame(height: 34)

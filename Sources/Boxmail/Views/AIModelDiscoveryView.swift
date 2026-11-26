@@ -13,7 +13,7 @@ struct AIModelDiscoveryView: View {
         HStack {
           Text("可用模型").font(UIType.title)
           Spacer()
-          SettingsInlineAction(title: "全选", icon: .checkLine) {
+          SettingsInlineAction(title: "全选", icon: .check) {
             selected = Set(candidates.map(\.id)).subtracting(existingIDs)
           }
         }

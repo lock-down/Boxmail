@@ -38,7 +38,7 @@ struct SettingsAISelectionView: View {
     }
     if models.isEmpty { result.append(.note("刷新列表后可选择更多模型")) }
     if !result.isEmpty { result.append(.divider) }
-    result.append(.command("自定义模型…", icon: .addLine) {
+    result.append(.command("自定义模型…", icon: .plus) {
       editingModel = true
     })
     return result

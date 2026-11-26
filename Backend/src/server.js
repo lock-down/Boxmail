@@ -15,6 +15,8 @@ import {
   aiCredentialAccounts,
 } from './validation.js';
 import { credentialUpdates } from './credential-updates.js';
+import { MailTranslation } from './mail-translation.js';
+import { validateWritingPreview } from './writing-preview.js';
 import { testAccount, syncAccount, updateMessage, restoreMessage, unarchiveMessage, emptyTrash, sendDraft } from './mail.js';
 import { archiveRestoreFolder, trashRestoreFolder } from './mail-folders.js';
 import { runAgent, approveClassification, useReplyPreview, completion } from './agent.js';
@@ -28,10 +30,12 @@ import { createReplyDraft } from './reply.js';
 import { workbookPreview } from './workbook-preview.js';
 import { AttachmentBatch } from './attachment-batch.js';
 import { cachedModelCatalog, refreshModelCatalog } from './model-catalog.js';
+import { updateMailLabels } from './mail-labels.js';
 import { categoryCatalog, editCategory } from './categories.js';
 import { draftPreview, draftSearchMessage } from './draft-search.js';
 import { contactSuggestions } from './contacts.js';
 import { conversation } from './threads.js';
+import { mailHistory } from './mail-history.js';
 import { savedRichBody } from './rich-text.js';
 import { draftRevision, presentDraft } from './draft-state.js';
 import { queueDraftDeletion } from './draft-sync.js';
@@ -56,6 +60,8 @@ export async function startServer({
   mailEmptyTrash = emptyTrash,
   agentRun = runAgent,
   organizerComplete,
+  organizationComplete,
+  organizationBaseline,
   mailSend,
   assistantComplete,
   credentials,
@@ -112,10 +118,11 @@ export async function startServer({
   }
   const aiProgress = new AIProgress({ diagnostics });
   const onProgress = output => aiProgress.publish(output);
+  const translation = new MailTranslation(repo, agentRun, onProgress);
   const organizer = new Organizer(repo, { ...(organizerComplete ? { complete: organizerComplete } : {}), onProgress });
   const attachmentBatch = new AttachmentBatch(repo, { run: agentRun, onProgress });
-  function requireIdle() {
-    if (services.busy || activeWrites > 1 || locks.size || repo.list('account').some(account => organizer.busy(account.id) || attachmentBatch.busy(account.id)))
+  function requireIdle({ allowOrganization = false } = {}) {
+    if (translation.work.size || (allowOrganization ? services.legacyBusy : services.busy) || activeWrites > 1 || locks.size || repo.list('account').some(account => organizer.busy(account.id) || attachmentBatch.busy(account.id)))
       throw new ServiceError('请等待同步、发送或 AI 任务完成后再维护本机数据', 409);
   }
   const defaults = {
@@ -157,7 +164,7 @@ export async function startServer({
   }
   categoryCatalog(repo);
   const services = new ApplicationServices(repo, { locks, onProgress,
-    send: mailSend, complete: assistantComplete, agent: agentRun, credentials,
+    send: mailSend, complete: assistantComplete, agent: agentRun, credentials, organizationComplete, organizationBaseline,
     blocked: () => maintenance || locks.size > 0 || activeWrites > 0 });
   function presentMessage(message) {
     if (message.folder === 'trash') return { ...message,
@@ -186,7 +193,8 @@ export async function startServer({
   }
   const syncCoordinator = new AccountSyncCoordinator(repo, { locks, tasks: syncTasks, queue: syncQueue,
     diagnostics, mailSync, stallTimeoutMs: syncStallTimeoutMs,
-    credentials: () => services.credentials, afterSync: (id, ids) => services.afterSync(id, ids) });
+    credentials: () => services.credentials, afterSync: (id, ids, inbox) => services.afterSync(id, ids, inbox),
+    observeInbox: (account, point) => services.organization.observeInbox(account, point) });
   const realtime = new RealtimeMail(repo, services.credentials, {
     synchronize: id => syncCoordinator.start({ accountId: id, folder: 'inbox' }).promise,
     blocked: id => maintenance || locks.has(id),
@@ -258,12 +266,20 @@ export async function startServer({
         requireIdle();
         result = importConfiguration(repo, body);
       }
+      else if (route === '/translation/preferences' && ['GET', 'POST'].includes(req.method))
+        result = translation.preference(req.method === 'GET' ? url.searchParams.get('accountId') : body.accountId, req.method === 'POST' ? body : null);
+      else if (req.method === 'POST' && route === '/translation')
+        result = translation.start(body, () => requestedAI(body));
+      else if (req.method === 'GET' && /^\/jobs\/[^/]+\/validate-writing$/.test(route))
+        result = validateWritingPreview(repo, repo.get('job', route.split('/')[2]));
       else if (req.method === 'GET' && route === '/categories') result = { categories: categoryCatalog(repo) };
       else if (['POST', 'PATCH', 'DELETE'].includes(req.method) && /^\/categories(?:\/[^/]+)?$/.test(route)) {
-        requireIdle();
+        requireIdle({ allowOrganization: true });
         result = editCategory(repo, route.split('/')[2] || null, body, req.method === 'DELETE');
       } else if (req.method === 'GET' && route === '/contacts') {
         result = contactSuggestions(repo, url.searchParams.get('accountId'), url.searchParams.get('q') || '', url.searchParams.get('limit'));
+      } else if (req.method === 'GET' && /^\/messages\/[^/]+\/history$/.test(route)) {
+        result = mailHistory(repo, route.split('/')[2]);
       } else if (req.method === 'GET' && /^\/messages\/[^/]+\/thread$/.test(route)) {
         result = conversation(repo, route.split('/')[2], { offset: Number(url.searchParams.get('offset') || 0), limit: Number(url.searchParams.get('limit') || 100) });
         result.messages = result.messages.map(presentMessage);
@@ -297,14 +313,14 @@ export async function startServer({
           || (revealId && revealId.length > 256)) throw new ServiceError('发件人聚合参数无效');
         result = repo.messagePage({ accountId: url.searchParams.get('accountId'),
           folder: url.searchParams.get('folder'), filter: url.searchParams.get('filter'),
-          query: url.searchParams.get('q') || '', category: url.searchParams.get('category'), offset, limit, groupBy, senderGroup, revealId });
+          query: url.searchParams.get('q') || '', category: url.searchParams.get('category'), labelId: url.searchParams.get('labelId'), offset, limit, groupBy, senderGroup, revealId });
         const base = repo.messageWhere({ accountId: url.searchParams.get('accountId'), folder: url.searchParams.get('folder'),
           query: url.searchParams.get('q') || '', filter: url.searchParams.get('filter') });
         const counts = repo.db.prepare(`SELECT coalesce(json_extract(m.data,'$.category'),'未分类') AS category,
           count(*) AS total FROM records m WHERE ${base.where} GROUP BY category`).all(...base.params);
         result.categoryCounts = Object.fromEntries(counts.map(row => [row.category, row.total]));
         const scoped = repo.messageWhere({ accountId: url.searchParams.get('accountId'), folder: url.searchParams.get('folder'),
-          query: url.searchParams.get('q') || '', filter: url.searchParams.get('filter'), category: url.searchParams.get('category') });
+          query: url.searchParams.get('q') || '', filter: url.searchParams.get('filter'), category: url.searchParams.get('category'), labelId: url.searchParams.get('labelId') });
         result.unreadCount = repo.db.prepare(`SELECT count(*) AS total FROM records m WHERE ${scoped.where}
           AND json_extract(m.data,'$.unread')=1`).get(...scoped.params).total;
         result.messages = result.messages.map(presentMessage);
@@ -315,6 +331,8 @@ export async function startServer({
         if (!result) throw new ServiceError('邮件不存在或已移动，请刷新列表', 404);
         result = { ...presentMessage(result),
           ...(result.draftId ? {} : { preview: repo.messageHeader(result).preview }), bodyLoaded: true };
+      } else if (req.method === 'POST' && route === '/messages/labels') {
+        result = updateMailLabels(repo, body);
       } else if (req.method === 'POST' && route === '/messages/batch') {
         result = (body.perAccount === true ? updateAccountMessageBatch : updateMessageBatch)(repo, body, locks);
       } else if (req.method === 'POST' && /^\/messages\/[^/]+\/restore$/.test(route)) {
@@ -356,6 +374,8 @@ export async function startServer({
         const old = repo.get('account', a.id);
         const references = credentialUpdates(body.credentialReferences, [`mail-${a.id}`]);
         result = repo.transaction(() => {
+          if (old && ['imapHost', 'imapPort', 'imapTLS', 'username'].some(key => old[key] !== a[key]))
+            { repo.remove('mailOrganizationPolicy', a.id); repo.remove('translationPreference', a.id); }
           const account = repo.put('account', { ...old, ...a, lastSync: old?.lastSync || null });
           const settings = repo.get('settings', 'settings');
           if (Object.keys(references).length) {
@@ -367,6 +387,7 @@ export async function startServer({
       } else if (req.method === 'DELETE' && route.startsWith('/accounts/')) {
         const id = route.split('/')[2];
         if (locks.has(id) || locks.has('agent') || organizer.busy(id) || attachmentBatch.busy(id)
+          || [...translation.work.values()].some(worker => worker.job.accountId === id)
           || repo.activeDrafts(id).some(draft => draft.status === 'sending'))
           throw new ServiceError('账户正在执行任务，请完成后再移除', 409);
         const candidates = new Set(
@@ -380,6 +401,13 @@ export async function startServer({
           for (const plan of repo.list('sendPlan', { accountId: id }).filter(plan => ['waiting','failed','paused'].includes(plan.status)))
             repo.put('sendPlan', { ...plan, status: 'cancelled', error: '来源账户已移除，投递计划已取消' });
           repo.remove('account', id);
+          repo.remove('mailOrganizationPolicy', id);
+          repo.remove('translationPreference', id);
+          const settings = repo.get('settings', 'settings');
+          if (Object.hasOwn(settings.preferences.accountSignatures ?? {}, id)) {
+            delete settings.preferences.accountSignatures[id];
+            repo.put('settings', settings);
+          }
           for (const kind of [
             'message',
             'draft',
@@ -421,11 +449,7 @@ export async function startServer({
         result = presentMessage(updateMessage(repo, id, body));
       } else if (req.method === 'POST' && route === '/todos') {
         const m = repo.get('message', body.messageId);
-        if (!m?.summary) throw new ServiceError('邮件没有待办');
-        m.summary.todos = m.summary.todos.map((t) =>
-          t.id === body.todoId ? { ...t, done: body.done === true } : t,
-        );
-        result = repo.put('message', m);
+        result = services.followUps.setTodoDone(m, m?.summary?.todos.find(todo => todo.id === body.todoId), body.done === true);
       } else if (req.method === 'POST' && route === '/settings') {
         const old = repo.get('settings', 'settings');
         // Older clients edit the active connection through flat fields.
@@ -444,6 +468,15 @@ export async function startServer({
           fontSize: Math.min(24, Math.max(12, Number(p.fontSize) || 14)),
           signature: textSlice(String(p.signature || ''), 0, 4000),
         };
+        if (body.preferences?.accountSignatures !== undefined) {
+          const signatures = body.preferences.accountSignatures;
+          if (!signatures || typeof signatures !== 'object' || Array.isArray(signatures)
+            || Object.values(signatures).some(value => typeof value !== 'string'))
+            throw new ServiceError('账户签名格式无效');
+          preferences.accountSignatures = Object.fromEntries(repo.list('account')
+            .filter(account => Object.hasOwn(signatures, account.id))
+            .map(account => [account.id, textSlice(signatures[account.id], 0, 4000)]));
+        }
         const references = credentialUpdates(body.credentialReferences, aiCredentialAccounts(ai));
         result = repo.put('settings', { ...old, id: 'settings', ai, preferences,
           credentialReferences: { ...old.credentialReferences, ...references } });
@@ -546,11 +579,14 @@ export async function startServer({
         const id = body.id || randomUUID();
         if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new ServiceError('草稿标识无效');
         const old = repo.get('draft', id);
-        if (old && old.accountId !== body.accountId) throw new ServiceError('草稿不属于当前账户，请另存为新草稿', 409);
+        const moved = old && old.accountId !== body.accountId;
+        const plan = body.sendPlanId ? repo.get('sendPlan', body.sendPlanId) : null;
+        if (body.sendPlanId && (!plan || plan.draftId !== id || plan.status !== 'paused' || old?.status !== 'queued'))
+          throw new ServiceError('发送计划已变化，请重新打开草稿后编辑', 409);
         const editableOld = old && upgradeForwardDraft(old,
           () => old.sourceMessageId ? repo.get('message', old.sourceMessageId) : null);
         if (body.bodyLoaded === false) throw new ServiceError('草稿正文尚未加载，请重新打开草稿后保存', 409);
-        if (old && ['sent', 'sending', 'uncertain', 'queued'].includes(old.status))
+        if (old && (['sent', 'sending', 'uncertain'].includes(old.status) || (old.status === 'queued' && !plan)))
           throw new ServiceError('该草稿不能修改，请另存为新草稿', 409);
         const draft = {
           id,
@@ -565,22 +601,37 @@ export async function startServer({
           ),
           inReplyTo: String(body.inReplyTo || ''),
           references: Array.isArray(body.references) ? body.references.filter(v => typeof v === 'string' && /^<[^<>\s]+>$/.test(v)).slice(-100) : [],
-          status: 'draft',
+          status: plan ? 'queued' : 'draft',
           updatedAt: new Date().toISOString(),
           sourceMessageId: body.sourceMessageId || null,
           ...savedForwardFields(body, old),
           ...(old?.accountId === body.accountId && old.remoteDraft ? { remoteDraft: old.remoteDraft } : {}),
           ...(old?.accountId === body.accountId && old.remotePending ? { remotePending: old.remotePending } : {}),
           syncState: account.isDemo ? 'local' : 'pending',
-          ...(old?.conflictOf ? { conflictOf: old.conflictOf } : {}),
+          ...(old?.conflictOf && !moved ? { conflictOf: old.conflictOf } : {}),
         };
+        const signatureStart = body.signatureStart ?? (old?.body === draft.body ? old.signatureStart : null);
+        if (Number.isSafeInteger(signatureStart) && signatureStart >= 0 && signatureStart < draft.body.length
+          && (signatureStart === 0 || draft.body[signatureStart - 1] === '\n'))
+          draft.signatureStart = signatureStart;
         const saved = upgradeForwardDraft(draft, () => draft.sourceMessageId ? repo.get('message', draft.sourceMessageId) : null);
-        if (old && body.revision != null && body.revision !== draftRevision(editableOld)
+        if (old && (moved || plan || body.revision != null) && body.revision !== draftRevision(editableOld)
           && draftRevision(saved) !== draftRevision(editableOld))
           throw new ServiceError('草稿已在其他位置更新，当前编辑内容仍保留。请另存为新草稿或重新打开服务器版本。', 409);
         if (!account.isDemo && saved.remoteDraft && draftRevision(saved) === saved.remoteDraft.baseHash) saved.syncState = 'synced';
         if (saved.body.length > 500000) throw new ServiceError('草稿正文超过 500,000 个字符，请缩短正文后保存；转发原文请保留在引用区域。');
-        result = { ...presentDraft(repo.put('draft', saved)), preview: draftPreview(saved, account) };
+        const stored = repo.transaction(() => {
+          if (moved) queueDraftDeletion(repo, old);
+          if (plan) {
+            const resume = body.resumeSendPlan === true && !account.isDemo
+              && saved.to.trim() && Date.parse(plan.scheduledAt) > Date.now();
+            repo.put('sendPlan', { ...plan, accountId: saved.accountId, to: saved.to, subject: saved.subject,
+              revision: draftRevision(saved), status: resume ? 'waiting' : 'paused',
+              error: resume ? null : plan.error });
+          }
+          return repo.put('draft', saved);
+        });
+        result = { ...presentDraft(stored), preview: draftPreview(saved, account) };
       } else if (req.method === 'DELETE' && route.startsWith('/drafts/')) {
         const id = route.split('/')[2];
         const draft = repo.get('draft', id);
@@ -689,7 +740,7 @@ export async function startServer({
       for (const task of syncTasks.values()) if (['queued', 'running'].includes(task.status)) task.controller.abort();
       for (const task of agentTasks.values()) task.controller.abort();
       await realtime.close();
-      await services.close();
+      await Promise.all([services.close(), translation.close()]);
       await Promise.allSettled([...syncTasks.values(), ...agentTasks.values()].map(task => task.promise));
       await organizer.close();
       await attachmentBatch.close();

@@ -36,6 +36,9 @@ import SwiftUI
         Button("转发") {
           if let m = store.selectedMailForCommands { store.newDraft(reply: m, forward: true) }
         }.keyboardShortcut("f", modifiers: [.command, .shift]).disabled(store.selectedMailForCommands == nil)
+        Button(store.selectedMailForCommands.map { store.isShowingTranslation($0) } == true ? "显示原文" : "翻译当前邮件") {
+          if let message = store.selectedMailForCommands { store.toggleTranslation(message) }
+        }.keyboardShortcut("t", modifiers: [.command, .shift]).disabled(store.selectedMailForCommands == nil)
         Divider()
         Button("归档所选邮件") {
           guard let triage else { return }
@@ -55,30 +58,11 @@ import SwiftUI
         }.keyboardShortcut("u", modifiers: [.command, .shift])
           .disabled(triage == nil || triage?.mailActionInProgress == true || triage?.selectedMails.isEmpty != false)
       }
-      CommandMenu("AI") {
-        Button("总结当前邮件") { openAI(.summary) }
-          .keyboardShortcut("s", modifiers: [.command, .shift])
-          .disabled(store.selectedMailForCommands == nil)
-        Button("翻译当前邮件") { openAI(.translate) }
-          .keyboardShortcut("t", modifiers: [.command, .shift])
-          .disabled(store.selectedMailForCommands == nil)
-        Button("理解当前邮件附件") { openAI(.attachment) }
-          .disabled(store.selectedMailForCommands?.attachmentIds.isEmpty != false)
-        Button("AI 回复当前邮件") { openAI(.reply) }.disabled(store.selectedMailForCommands == nil)
-        Button("分析当前会话") { openAI(.conversation) }.disabled(store.selectedMailForCommands == nil)
-        Divider()
-        Button("智能整理收件箱") { store.navigate(.organize) }
-      }
     }
     Settings {
       SettingsView(store: store).preferredColorScheme(.light).borderlessScrollers()
         .workspaceSheet(.settings)
     }
-  }
-  private func openAI(_ tab: BoxmailCore.MailAITab) {
-    guard let message = store.selectedMailForCommands else { return }
-    store.openMail(message)
-    store.showMailAI(tab, message: message)
   }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {

@@ -1,159 +1,53 @@
-import AppKit
 import BoxmailCore
 import SwiftUI
 
 struct MailAttachmentSection: View {
   @Bindable var store: MailStore
   let message: MailMessage
-  @ViewState<Bool> private var showResults = false
-  @ViewState<Bool> private var confirmBatch = false
-  @ViewState<Bool> private var forceBatch = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  private var files: [MailAttachment] {
-    message.attachmentIds.compactMap { id in
+
+  var body: some View {
+    let files = message.attachmentIds.compactMap { id in
       store.attachments.first { $0.id == id && $0.messageId == message.id }
     }
-  }
-  private var job: AgentJob? { store.attachmentBatch(for: message) }
-  private var items: [AttachmentBatchItem] { job?.attachmentItems ?? [] }
-  private var running: Bool { job?.status == "running" }
-  private var controlling: Bool { store.busy.contains("attachment-batch-\(message.id)") }
-  private var analyzed: [MailAttachment] { files.filter { $0.analysis?.isEmpty == false } }
-  private var unfinished: Int { files.filter { !$0.isAnalyzed && $0.canAnalyze }.count }
-  private var retryable: Bool { job.map { ["failed", "partial", "paused"].contains($0.status) } == true }
-  private var batchSelection: [String] {
-    Array(files.filter { $0.canAnalyze && (forceBatch || !$0.isAnalyzed) }.prefix(100).map(\.id))
-  }
-  private var buttonTitle: String {
-    if running { return "正在分别理解…" }
-    if job?.status == "paused" { return "继续未完成的附件" }
-    if retryable { return "重试失败附件" }
-    if message.attachmentIds.count > 100 {
-      return unfinished > 0 ? "理解下一批附件（最多 100 个）" : "重新理解一批附件（最多 100 个）"
-    }
-    if !files.isEmpty && unfinished == 0 && files.contains(where: \.isAnalyzed) { return "重新理解全部附件" }
-    return "分别理解附件"
-  }
-  var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        Label("\(message.attachmentIds.count) 个附件", icon: .attachment2)
-          .font(.system(size: 12, weight: .semibold))
-        Spacer()
-        IconMenu(icon: .moreLine, help: "附件更多操作") {
-          CossMenuItem.command("只看此邮件附件", icon: .attachment2) { store.showAttachments(from: message) }
-          CossMenuItem.command(buttonTitle, icon: .fileSearchLine,
-            enabled: !running && !controlling && !store.busy.contains("agent")) {
-            startAnalysis(force: unfinished == 0, retry: retryable ? job : nil)
+      Label("\(message.attachmentIds.count) 个附件", icon: .paperclip)
+        .font(.system(size: 12, weight: .semibold))
+      let failedIds = message.attachmentIds.filter { store.attachmentLoadErrors.contains($0) }
+      if !failedIds.isEmpty {
+        HStack {
+          Text("部分附件资料加载未完成。").font(UIType.caption).foregroundStyle(Palette.amber)
+          ActionButton(title: "重试", size: .compact) {
+            Task { for id in failedIds { await store.loadAttachment(id) } }
           }
         }
-      }
-      if let job {
-        progress(job)
-      }
-      Text("顶部“整封理解”会结合正文与附件。需要单文件分析时，打开附件或使用右侧菜单。")
-        .font(UIType.small).foregroundStyle(Palette.muted)
-      if let error = store.attachmentBatchErrors[message.id] {
-        Label(error, icon: .errorWarningLine).font(.system(size: 11))
-          .foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
       }
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 9)], spacing: 9) {
         ForEach(files) { file in
-          AttachmentCard(attachment: file, batchItem: items.first { $0.id == file.id }) {
-            store.previewFile(file)
-          }
-        }
-      }
-      ForEach(Array(store.aiOutputs.values.filter { $0.task == "attachment" && $0.messageId == message.id })) { output in
-        VStack(alignment: .leading, spacing: 10) {
-          if let file = files.first(where: { $0.id == output.attachmentId }) {
-            Text(file.name).font(UIType.section)
-          }
-          AIStreamingView(output: output)
-        }
-      }
-      if !analyzed.isEmpty {
-        AIResultDisclosure(title: "查看独立附件结果（\(analyzed.count)）", isExpanded: $showResults,
-          copyHelp: "复制全部附件理解结果", copy: {
-            NSPasteboard.general.copy(analyzed.map { "\($0.name)\n\($0.analysis ?? "")" }.joined(separator: "\n\n"))
-          }
-        ) {
-          VStack(alignment: .leading, spacing: 8) {
-            ForEach(analyzed) { file in AttachmentAnalysisRow(file: file) }
-          }
+          AttachmentCard(attachment: file) { store.previewFile(file) }
+            .contextMenu {
+              Button("下载") { store.download(file) }
+            }
         }
       }
     }.padding(.top, 8)
-      .cossAlert("分批理解附件", isPresented: $confirmBatch) {
-        CossAlertAction("取消", role: .cancel)
-        CossAlertAction("理解本批 \(batchSelection.count) 个附件", enabled: !batchSelection.isEmpty) {
-          store.analyzeAttachments(in: message, force: forceBatch, attachmentIds: batchSelection)
-        }
-      } message: {
-        Text("本次最多发起 \(batchSelection.count) 次模型请求，费用由当前 AI 服务商计收。其余附件可在本批结束后继续。")
-      }
-      .animation(UIMotion.disclosure(reduceMotion), value: showResults)
-      .onChange(of: store.attachmentResultsMessageId, initial: true) { _, id in
-        if id == message.id { showResults = true }
-      }
-  }
-  private func startAnalysis(force: Bool, retry: AgentJob? = nil) {
-    if message.attachmentIds.count > 100 && (retry?.attachmentItems?.count ?? 101) > 100 {
-      forceBatch = force
-      confirmBatch = true
-    } else {
-      store.analyzeAttachments(in: message, force: force, retry: retry)
-    }
-  }
-  private func progress(_ job: AgentJob) -> some View {
-    VStack(alignment: .leading, spacing: 9) {
-      HStack(spacing: 8) {
-        if running { CossSpinner(size: 12) }
-        Text(statusTitle(job)).font(.system(size: 11, weight: .medium))
-          .contentTransition(reduceMotion ? .identity : .numericText())
-        Spacer()
-        if running {
-          ActionButton(title: "暂停", color: Palette.accent, size: .compact) { store.pauseAttachmentBatch(job) }.disabled(controlling)
-        } else if retryable || unfinished > 0 {
-          ActionButton(title: message.attachmentIds.count > 100 ? "重新理解一批附件" : "重新理解全部",
-            color: Palette.accent, size: .compact) { startAnalysis(force: true) }
-            .disabled(controlling || store.busy.contains("agent"))
-        }
-      }.foregroundStyle(Palette.accent)
-      if running {
-        ProgressView(value: Double(items.filter(\.isFinished).count), total: Double(max(1, items.count)))
-            .progressViewStyle(CossProgressStyle())
-        if let item = items.first(where: { $0.status == "running" }) {
-          Text("正在理解：\(item.name)").lineLimit(1).truncationMode(.middle)
-        }
-        Text("逐个保存独立结果，可继续阅读其他邮件。")
-      }
-      if let error = job.error {
-        Text(error).foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
-      }
-      let unsupported = items.filter { $0.status == "unsupported" }.count
-      if unsupported > 0 { Text("\(unsupported) 个附件暂不支持 AI 理解，可预览或下载原文件。") }
-    }.font(UIType.small).foregroundStyle(Palette.muted)
-      .padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
-      .animation(UIMotion.selection(reduceMotion), value: items.filter(\.isFinished).count)
-  }
-  private func statusTitle(_ job: AgentJob) -> String {
-    let completed = items.filter(\.isAnalyzed).count
-    let failed = items.filter { $0.status == "failed" }.count
-    let prefix = running ? "独立分析中" : job.status == "paused" ? "独立分析已暂停"
-      : failed > 0 ? "独立分析部分未完成" : "独立分析完成"
-    return "\(prefix) · 已理解 \(completed)/\(items.count)" + (failed > 0 ? " · 失败 \(failed)" : "")
   }
 }
 
-private struct AttachmentAnalysisRow: View {
-  let file: MailAttachment
-  @ViewState<Bool> private var isExpanded = false
+struct AttachmentCard: View {
+  let attachment: MailAttachment
+  let action: () -> Void
+
   var body: some View {
-    AIResultDisclosure(title: file.name, isExpanded: $isExpanded, copy: {
-      NSPasteboard.general.copy(file.analysis ?? "")
-    }) {
-      if let text = file.analysis { AnalysisDocumentView(text: text) }
-    }
+    Button(action: action) {
+      HStack(spacing: 9) {
+        AttachmentIcon(attachment: attachment, size: 24)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(attachment.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+            .truncationMode(.middle).cossTooltip(attachment.name)
+          Text(fileSize(attachment.size)).font(UIType.small).foregroundStyle(Palette.muted)
+        }
+        Spacer(minLength: 0)
+      }.padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+    }.buttonStyle(ControlFeedback()).controlFocus()
   }
 }

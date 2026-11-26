@@ -5,7 +5,7 @@ import { accountReference } from './diagnostics.js';
 
 // One user request owns the session; each underlying pass retains its download
 // budget and checkpoint. Rotate unfinished folders instead of asking for another click.
-export async function syncSession(repo, account, password, { syncBatch, folder, signal, requestID }) {
+export async function syncSession(repo, account, password, { syncBatch, folder, signal, requestID, onInboxInventory }) {
   const pending = [folder], failures = new Set();
   const deferredSources = new Set();
   const sourceFailureStreaks = new Map();
@@ -24,7 +24,7 @@ export async function syncSession(repo, account, password, { syncBatch, folder, 
       let batch;
       try {
         batch = await syncBatch(repo, repo.get('account', account.id) || account, password,
-          { folder: scope, signal, deferredSources, sourceFailureStreaks, inventories, contentWorker });
+          { folder: scope, signal, deferredSources, sourceFailureStreaks, inventories, contentWorker, onInboxInventory });
         for (const key of ['count', 'repaired', 'skipped']) result[key] += batch?.[key] || 0;
       } catch (error) {
         if (signal?.aborted) throw error;

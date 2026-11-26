@@ -4,12 +4,15 @@ import SwiftUI
 struct MailListFilters: View {
   @Bindable var store: MailStore
 
-  private let statuses = ["全部", "未读", "有附件", "AI 已总结"]
+  private let statuses = ["全部", "未读", "有附件"]
 
   var body: some View {
     ViewThatFits(in: .horizontal) {
       HStack(spacing: 6) {
         FilterBar(values: statuses, selection: $store.filter, compact: true)
+        if !statuses.contains(store.filter) {
+          Text(store.filter).font(UIType.small).foregroundStyle(Palette.muted)
+        }
         Spacer(minLength: 4)
         categoryMenu
       }
@@ -28,19 +31,20 @@ struct MailListFilters: View {
   }
 
   private var categoryMenu: some View {
-    let title = store.listCategory.isEmpty ? "全部分类" : store.listCategory
-    return CossMenu(title: "邮件分类", value: title, prefersSelection: true) {
-      CossMenuItem.command("全部分类", mark: .choice(store.listCategory.isEmpty)) { store.listCategory = "" }
-      for category in store.categories {
-        CossMenuItem.command("\(category.name)（\(store.listCategoryCounts[category.name] ?? 0)）",
-          mark: .choice(category.name == store.listCategory)) { store.listCategory = category.name }
+    let title = store.labelFilterTitle
+    return CossMenu(title: "筛选标签", value: title, prefersSelection: true) {
+      CossMenuItem.command("全部标签", mark: .choice(store.listLabelID == nil && store.listCategory.isEmpty)) {
+        store.setLabelFilter(nil)
+      }
+      for label in store.categories {
+        CossMenuItem.command(label.name, mark: .choice(label.id == store.listLabelID)) { store.setLabelFilter(label.id) }
       }
       CossMenuItem.divider
-      CossMenuItem.command("管理分类…", icon: .settings3Line) { store.navigate(.organize) }
+      CossMenuItem.command("管理标签…", icon: .settings) { store.showLabelManager = true }
     } trigger: {
-      CossMenuLabel(title: menuTitle(title, limit: 20), icon: .priceTag3Line, size: .compact,
-        color: store.listCategory.isEmpty ? Palette.muted : store.categoryTone(title).ink)
-    }.fixedSize().cossTooltip(title)
+      CossMenuLabel(title: title, icon: .tag, size: .compact,
+        color: title == "全部标签" ? Palette.muted : store.categoryTone(title).ink)
+    }
   }
 }
 
@@ -50,13 +54,13 @@ struct SaveMailQueryButton: View {
   @ViewState private var name = ""
 
   var body: some View {
-    IconButton(icon: store.activeSavedSearchId == nil ? .bookmarkLine : .bookmarkFill, help: "保存当前查询", size: 28) {
+    IconButton(icon: store.activeSavedSearchId == nil ? .bookmark : .bookmarkFilled, help: "保存当前查询", size: 28) {
       name = store.savedSearches.first { $0.id == store.activeSavedSearchId }?.name ?? ""; saving = true
     }
     .cossPopover(isPresented: $saving) {
       VStack(alignment: .leading, spacing: 12) {
         Text("保存查询").font(UIType.section)
-        Text("\(store.scopeTitle) · \(store.destination.title) · \(store.filter) · \(store.listCategory.isEmpty ? "全部分类" : store.listCategory)")
+        Text("\(store.scopeTitle) · \(store.destination.title) · \(store.filter) · \(store.labelFilterTitle)")
           .font(UIType.small).foregroundStyle(Palette.muted)
         Text(store.search.isEmpty ? "无关键词条件" : store.search).font(UIType.caption).textSelection(.enabled)
         WorkflowField(title: "视图名称") {
@@ -71,7 +75,7 @@ struct SaveMailQueryButton: View {
         }
         Text("视图会保留账户范围与查询条件，保存后可从侧栏打开")
           .font(UIType.small).foregroundStyle(Palette.muted)
-      }.padding(24).frame(width: 440).background(Palette.paper)
+      }.padding(UILayout.sectionInset).frame(width: 440).background(Palette.paper)
     }
   }
 }

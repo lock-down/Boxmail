@@ -16,7 +16,7 @@ struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
       }
       footer()
     }
-    .framedSurface(bordered: bordered)
+    .framedSurface(bordered: bordered, radius: UILayout.workspaceRadius)
     .accessibilityElement(children: .contain)
   }
 }
@@ -96,7 +96,7 @@ extension View {
 
   func cossListRow(selected: Bool) -> some View {
     modifier(CossListRowSurface(selected: selected))
-      .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+      .listRowInsets(EdgeInsets(top: 0, leading: UILayout.listRowInset, bottom: 4, trailing: UILayout.listRowInset))
       .listRowSeparator(.hidden)
       .listRowBackground(Palette.paper)
   }
@@ -108,7 +108,7 @@ private struct CossListRowSurface: ViewModifier {
   @Environment(\.isEnabled) private var enabled
 
   func body(content: Content) -> some View {
-    let shape = RoundedRectangle(cornerRadius: UILayout.navigationRadius)
+    let shape = RoundedRectangle(cornerRadius: UILayout.listRowRadius, style: .continuous)
     content.frame(maxWidth: .infinity, alignment: .leading)
       .background(selected ? Palette.selected : hovered && enabled ? Palette.canvas : Palette.paper, in: shape)
       .overlay { shape.strokeBorder(selected ? Palette.border : Palette.softBorder).allowsHitTesting(false) }

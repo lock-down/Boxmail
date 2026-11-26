@@ -163,7 +163,7 @@ extension View {
     showPanel(controller, frame: frame, parent: parent, isMenu: true, didClose: didClose)
   }
 
-  func updatePopover(content: AnyView, edge: Edge, didClose: @escaping () -> Void) {
+  func updatePopover(content: AnyView, edge: Edge, alignment: HorizontalAlignment, didClose: @escaping () -> Void) {
     if let popoverHost {
       popoverHost.rootView = content
       return
@@ -171,10 +171,10 @@ extension View {
     updateTrigger(open: true, show: { [weak self] in
       guard let self, let parent = self.window else { return }
       let host = CossPopoverHost(rootView: content)
-      guard let frame = self.popoverFrame(size: host.view.fittingSize, edge: edge) else { return }
+      guard let frame = self.popoverFrame(size: host.view.fittingSize, edge: edge, alignment: alignment) else { return }
       self.popoverHost = host
       host.onLayout = { [weak self] size in
-        guard let self, let popup = self.popup, let frame = self.popoverFrame(size: size, edge: edge),
+        guard let self, let popup = self.popup, let frame = self.popoverFrame(size: size, edge: edge, alignment: alignment),
           popup.frame != frame else { return }
         popup.setFrame(frame, display: true)
       }
@@ -182,7 +182,7 @@ extension View {
     })
   }
 
-  private func popoverFrame(size: NSSize, edge: Edge) -> NSRect? {
+  private func popoverFrame(size: NSSize, edge: Edge, alignment: HorizontalAlignment) -> NSRect? {
     guard let parent = window, let screen = parent.screen ?? NSScreen.main else { return nil }
     let target = parent.convertToScreen(convert(bounds, to: nil))
     let visible = screen.visibleFrame.insetBy(dx: 8, dy: 8)
@@ -200,7 +200,9 @@ extension View {
     case .bottom, .top:
       let below = target.minY - height - offset
       let above = target.maxY + offset
-      x = target.midX - width / 2
+      if alignment == .trailing { x = target.maxX - width }
+      else if alignment == .leading { x = target.minX }
+      else { x = target.midX - width / 2 }
       y = edge == .top && above + height <= visible.maxY || below < visible.minY ? above : below
     }
     return NSRect(x: max(visible.minX, min(visible.maxX - width, x)),

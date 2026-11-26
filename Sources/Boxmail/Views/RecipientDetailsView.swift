@@ -20,16 +20,16 @@ struct RecipientDetailsView: View {
       } label: {
         HStack(spacing: 6) {
           Text(summary).lineLimit(1).truncationMode(.tail)
-          RemixIcon(.arrowDownSLine, size: 9)
+          AppicaIcon(.chevronDown, size: UILayout.smallIconSize)
             .rotationEffect(.degrees(expanded ? -180 : 0)).accessibilityHidden(true)
         }.font(.system(size: 11)).foregroundStyle(Palette.muted).controlLabel(size: .compact)
-      }.buttonStyle(ControlFeedback()).controlFocus()
+      }.buttonStyle(ControlFeedback(showsInteractionBackground: false)).controlFocus()
         .accessibilityValue(expanded ? "已展开" : "已收起")
         .cossTooltip(expanded ? "收起收件信息" : "展开完整收件信息")
       if expanded {
         RecipientAddressList(fields: fields)
           .fixedSize(horizontal: false, vertical: true)
-          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7))
+          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
           .transition(UIMotion.reveal(reduceMotion))
       }
     }.animation(UIMotion.disclosure(reduceMotion), value: expanded)

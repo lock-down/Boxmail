@@ -5,6 +5,7 @@ struct AssistantSourcesView: View {
   let store: MailStore
   let turn: AssistantTurn
   let openMailSource: (String) -> Void
+  let openAttachmentSource: (String) -> Void
   @ViewState<Bool> private var showingSources = false
 
   private var drafts: Bool { turn.scope.query?.folder == "drafts" }
@@ -16,10 +17,10 @@ struct AssistantSourcesView: View {
         Label("来源", icon: .link).foregroundStyle(Palette.ink)
         Text(countLabel).foregroundStyle(Palette.muted).monospacedDigit()
         Spacer(minLength: 0)
-        RemixIcon(.expandUpDownLine, size: 11).foregroundStyle(Palette.muted)
+        AppicaIcon(.chevronsUpDown, size: UILayout.smallIconSize).foregroundStyle(Palette.muted)
           .accessibilityHidden(true)
       }.font(UIType.caption).padding(.horizontal, 8).frame(height: 32)
-        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
+        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
         .contentShape(Rectangle())
     }.buttonStyle(ControlFeedback()).controlFocus()
       .accessibilityLabel("查看来源，\(countLabel)")
@@ -35,7 +36,7 @@ struct AssistantSourcesView: View {
         Text("回答来源").font(UIType.section).accessibilityAddTraits(.isHeader)
         Spacer()
         Text(countLabel).font(UIType.small).foregroundStyle(Palette.muted).monospacedDigit()
-        IconButton(icon: .closeLine, help: "关闭来源", size: 24) { showingSources = false }
+        IconButton(icon: .x, help: "关闭来源", size: 24) { showingSources = false }
       }.padding(.horizontal, 12).frame(height: 40)
       CossSeparator()
       ViewThatFits(in: .vertical) {
@@ -64,7 +65,7 @@ struct AssistantSourcesView: View {
         openMailSource(source.id)
       } label: {
         HStack(spacing: 8) {
-          RemixIcon(drafts ? .editBoxLine : .mailLine)
+          AppicaIcon(drafts ? .edit : .mail)
             .frame(width: 16).foregroundStyle(Palette.muted).accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -82,9 +83,9 @@ struct AssistantSourcesView: View {
       if !source.coverage.attachments.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
           ForEach(source.coverage.attachments.filter { citedAttachments.contains($0.id) && !drafts }) { file in
-            MailSourceButton(sender: file.name, date: "", subject: file.name, icon: .attachment2) {
+            MailSourceButton(sender: file.name, date: "", subject: file.name, icon: .paperclip) {
               showingSources = false
-              store.previewSourceAttachment(file.id)
+              openAttachmentSource(file.id)
             }
           }
           MailAIContextNotice(context: source.coverage, attachmentCount: source.coverage.attachments.count)

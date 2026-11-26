@@ -5,10 +5,21 @@ import { updateMessageBatch } from './mail-batch.js';
 import { runAgent } from './agent.js';
 import { categoryCatalog } from './categories.js';
 
+export const hasAutomaticAIActions = actions => ['summary', 'attachments', 'followUp', 'reply'].some(key => actions[key] === true);
+export const automaticAIPauseReason = '包含 AI 动作。可改为普通邮箱规则，或在清单中单独开启新邮件自动整理。';
+export function pausedAutomaticAIRule(rule) {
+  return rule.automatic && hasAutomaticAIActions(rule.actions)
+    ? { ...rule, automatic: false, automaticPauseReason: automaticAIPauseReason } : rule;
+}
+
 const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export class MailRules {
   constructor(repo, credentials, { locks = new Set(), agent = runAgent, onProgress } = {}) {
     this.repo = repo; this.credentials = credentials; this.locks = locks; this.agent = agent; this.onProgress = onProgress;
+    for (const rule of repo.list('mailRule')) {
+      const next = pausedAutomaticAIRule(rule);
+      if (next !== rule) repo.put('mailRule', next);
+    }
     this.worker = null; this.controller = new AbortController(); this.closing = false;
     for (const run of repo.list('ruleRun').filter(run => run.status === 'running'))
       repo.put('ruleRun', { ...run, status: 'paused', items: run.items.map(item => item.status === 'running'
@@ -39,7 +50,8 @@ export class MailRules {
     const value = { id: old?.id || randomUUID(), name, intent: String(input.intent || ''), query, actions,
       enabled: input.enabled === true, automatic: input.automatic === true,
       createdAt: old?.createdAt || new Date().toISOString(), revision: ruleRevision(query, actions) };
-    return this.repo.put('mailRule', value);
+    if (old?.automaticPauseReason && hasAutomaticAIActions(actions)) value.automaticPauseReason = automaticAIPauseReason;
+    return this.repo.put('mailRule', pausedAutomaticAIRule(value));
   }
   remove(id) { this.repo.remove('mailRule', id); return { ok: true }; }
   preview(id, ids) {

@@ -2,97 +2,145 @@ import BoxmailCore
 import SwiftUI
 
 struct WritingPreferencesView: View {
-  @Bindable var store: MailStore
-  @Bindable var writing: WritingPreferencesStore
-  let accountId: String
-  @ViewState private var managingStyle = false
-  @ViewState private var signature = ""
+  let writing: WritingPreferencesStore
+  let automaticLanguage: String
+  let customize: () -> Void
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      WorkflowField(title: "输出语言") {
-        WorkflowTextInput(
-          label: "本次输出语言", placeholder: "跟随原邮件", text: $writing.language, font: UIType.caption)
-      }
-      WorkflowField(title: "写作风格") {
-        HStack(spacing: 8) {
-          WorkflowSelection(
-            title: "写作风格", selection: $writing.selectedId,
-            options: [("", "默认")] + writing.styles.map { ($0.id, $0.name) })
-          IconButton(icon: .equalizer3Line, help: "管理写作风格") {
-            let selected = writing.styles.first { $0.id == writing.selectedId }
-            writing.name = selected?.name ?? ""
-            writing.instruction = selected?.instruction ?? ""
-            managingStyle = true
-          }.cossPopover(isPresented: $managingStyle) { styleEditor }
-        }
-      }
-      DisclosureGroup("此账户签名") {
-        VStack(alignment: .leading, spacing: 12) {
-          PlainTextEditor(text: $signature, placeholder: "账户专用签名", accessibilityLabel: "账户签名")
-            .frame(height: 90)
-            .background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
-            .overlay {
-              RoundedRectangle(cornerRadius: UILayout.controlRadius).strokeBorder(
-                Palette.softBorder)
-            }
-          ActionButton(title: "保存签名", color: Palette.accent) {
-            Task {
-              var preferences = store.settings.preferences
-              var signatures = preferences.accountSignatures ?? [:]
-              signatures[accountId] = signature
-              preferences.accountSignatures = signatures
-              do {
-                _ = try await store.saveSettings(ai: store.settings.ai, preferences: preferences)
-              } catch { store.error = error.localizedDescription }
-            }
-          }
-          Text("留空时沿用全局签名。保存后用于新邮件与回复，当前正文保留。")
-            .font(UIType.small).foregroundStyle(Palette.muted)
-        }.padding(.top, 8)
-      }.disclosureGroupStyle(SettingsDisclosureStyle())
-    }.font(UIType.caption).task {
-      await writing.load()
-      signature = store.settings.preferences.accountSignatures?[accountId] ?? ""
-    }
-    .onChange(of: accountId) { _, value in signature = store.settings.preferences.accountSignatures?[value] ?? "" }
-  }
-  private var styleEditor: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      Text("写作风格").font(UIType.section)
-      WorkflowField(title: "名称") {
-        WorkflowTextInput(
-          label: "风格名称", placeholder: "风格名称", text: $writing.name, font: UIType.caption)
-      }
-      WorkflowField(title: "要求") {
-        PlainTextEditor(
-          text: $writing.instruction, placeholder: "行文风格、结构与措辞偏好", accessibilityLabel: "写作风格要求"
-        )
-        .frame(height: 120).background(
-          Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius)
-        )
-        .overlay {
-          RoundedRectangle(cornerRadius: UILayout.controlRadius).strokeBorder(Palette.softBorder)
-        }
-      }
+    VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 8) {
-        if !writing.selectedId.isEmpty {
-          ActionButton(title: "移除") {
-            Task {
-              await writing.remove()
-              managingStyle = false
+        label("风格")
+        CossMenu(title: "写作风格", value: "\(writing.styleName)，\(writing.style.summary)", width: 232,
+          emphasis: .secondary, prefersSelection: true) {
+          CossMenuItem.heading("内置风格")
+          for preset in WritingPreferencesStore.builtInPresets {
+            CossMenuItem.command(preset.name, subtitle: preset.style.summary, mark: selected(preset.id)) {
+              writing.select(preset.id)
             }
           }
-          ActionButton(title: "另存为新风格") { writing.selectedId = "" }
-        }
-        Spacer(minLength: 0)
-        ActionButton(title: "保存", emphasis: .primary) {
-          Task {
-            await writing.save()
-            if writing.error == nil { managingStyle = false }
+          if !writing.styles.isEmpty {
+            CossMenuItem.divider
+            CossMenuItem.heading("我的风格")
+            for preset in writing.styles {
+              CossMenuItem.command(preset.name, mark: selected(preset.id)) { writing.select(preset.id) }
+            }
           }
-        }.disabled(writing.name.isEmpty || writing.instruction.isEmpty)
+        } trigger: {
+          CossMenuLabel(title: writing.styleName, detail: writing.style.summary, fillsWidth: true)
+        }
+        ActionButton(title: writing.selectedStyle == nil ? "自定义…" : "编辑…", emphasis: .secondary,
+          action: customize)
+      }.disabled(writing.isLoading)
+      HStack(spacing: 8) {
+        label("输出语言")
+        CossMenu(title: "输出语言", value: writing.language?.title ?? automaticLanguage,
+          emphasis: .secondary, prefersSelection: true) {
+          CossMenuItem.command(automaticLanguage, mark: .choice(writing.language == nil)) {
+            writing.language = nil
+          }
+          CossMenuItem.divider
+          for language in MailTranslationLanguage.allCases {
+            CossMenuItem.command(language.title, mark: .choice(writing.language == language)) {
+              writing.language = language
+            }
+          }
+        } trigger: {
+          CossMenuLabel(title: writing.language?.title ?? automaticLanguage, fillsWidth: true)
+        }
       }
       if let error = writing.error { WorkflowNotice(text: error, color: Palette.amber) }
-    }.padding(24).frame(width: 440).background(Palette.paper)
+    }
+  }
+
+  private func label(_ title: String) -> some View {
+    Text(title).font(UIType.caption).foregroundStyle(Palette.muted)
+      .frame(width: 52, alignment: .leading).accessibilityHidden(true)
+  }
+
+  private func selected(_ id: String) -> CossMenuItem.Mark {
+    .choice(!writing.isAdjusted && writing.selectedId == id)
+  }
+}
+
+struct WritingStyleEditor: View {
+  let writing: WritingPreferencesStore
+  let done: () -> Void
+  @ViewState private var style: WritingPreferencesStore.Style
+  @ViewState private var name: String
+  @ViewState private var saving = false
+
+  init(writing: WritingPreferencesStore, done: @escaping () -> Void) {
+    self.writing = writing
+    self.done = done
+    _style = ViewState(initialValue: writing.style)
+    _name = ViewState(initialValue: writing.selectedStyle?.name ?? "")
+  }
+
+  private var editingSavedStyle: Bool { writing.selectedStyle != nil }
+  private var validName: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 8) {
+        WorkflowField(title: "语气") {
+          WorkflowSelection(title: "语气", selection: $style.tone,
+            options: values(["正式", "亲切", "简洁", "专业"], keeping: style.tone))
+        }
+        WorkflowField(title: "篇幅") {
+          WorkflowSelection(title: "篇幅", selection: $style.length,
+            options: values(["简短", "适中", "详细"], keeping: style.length))
+        }
+      }
+      WorkflowField(title: "行文要求") {
+        PlainTextEditor(text: $style.instruction,
+          placeholder: "例如：先给结论，再分点说明后续安排",
+          inset: .init(width: 10, height: 8), accessibilityLabel: "行文要求", showsVerticalScroller: false)
+          .frame(height: 60).controlFieldSurface(focused: false)
+      }
+      WorkflowField(title: "预设名称", detail: "保存时填写") {
+        WorkflowTextInput(label: "预设名称", placeholder: "例如：项目进展通知", text: $name)
+      }
+      if let error = writing.error { WorkflowNotice(text: error, color: Palette.amber) }
+      CossSeparator()
+      HStack(spacing: 6) {
+        if editingSavedStyle {
+          CossMenu(title: "风格预设操作") {
+            CossMenuItem.command("另存为新预设", enabled: validName) { save(asNew: true) }
+            CossMenuItem.divider
+            CossMenuItem.command("删除预设", destructive: true) { remove() }
+          } trigger: {
+            CossMenuLabel(title: "更多", size: .compact)
+          }
+        }
+        Spacer(minLength: 0)
+        ActionButton(title: "仅本次使用", size: .compact) {
+          writing.useOnce(style)
+          done()
+        }
+        ActionButton(title: editingSavedStyle ? "更新预设" : "保存预设", emphasis: .primary, size: .compact) {
+          save(asNew: !editingSavedStyle)
+        }.disabled(!validName)
+      }
+    }.disabled(saving)
+  }
+
+  private func values(_ list: [String], keeping current: String) -> [(String, String)] {
+    (list.contains(current) ? list : list + [current]).map { ($0, $0) }
+  }
+
+  private func save(asNew: Bool) {
+    Task {
+      saving = true
+      defer { saving = false }
+      if await writing.save(name: name, style: style, asNew: asNew) { done() }
+    }
+  }
+
+  private func remove() {
+    Task {
+      saving = true
+      defer { saving = false }
+      if await writing.remove() { done() }
+    }
   }
 }

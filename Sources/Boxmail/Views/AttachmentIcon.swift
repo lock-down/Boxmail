@@ -3,16 +3,16 @@ import SwiftUI
 
 struct AttachmentIcon: View {
   let attachment: MailAttachment
-  var size: CGFloat = 25
-  private var icon: RemixGlyph {
+  var size: CGFloat = 28
+  private var icon: AppicaGlyph {
     switch attachment.kind {
-    case .image: .imageLine
-    case .pdf: .filePdfLine
-    case .spreadsheet: .fileExcelLine
-    case .presentation: .filePptLine
-    case .word, .text: .fileTextLine
-    case .archive: .fileZipLine
-    case .other: .fileLine
+    case .image: .photo
+    case .pdf: .fileTypePdf
+    case .spreadsheet: .fileExcel
+    case .presentation: .fileTypePpt
+    case .word, .text: .fileText
+    case .archive: .fileZip
+    case .other: .file
     }
   }
   private var color: Color {
@@ -27,8 +27,8 @@ struct AttachmentIcon: View {
     }
   }
   var body: some View {
-    RemixIcon(icon, size: size)
-      .foregroundStyle(color).frame(width: size + 5, height: size + 9)
+    AppicaIcon(icon, size: size)
+      .foregroundStyle(color).frame(width: size + 4, height: size + 8)
       .accessibilityHidden(true)
   }
 }

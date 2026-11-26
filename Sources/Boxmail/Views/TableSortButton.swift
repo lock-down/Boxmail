@@ -11,7 +11,7 @@ struct TableSortButton: View {
     Button(action: action) {
       HStack(spacing: 4) {
         Text(title)
-        RemixIcon(ascending ? .arrowUpLine : .arrowDownLine, size: 10)
+        AppicaIcon(ascending ? .arrowUp : .arrowDown, size: UILayout.smallIconSize)
           .frame(width: 12).opacity(selected ? 1 : 0)
       }.font(UIType.small).foregroundStyle(Palette.muted)
         .controlLabel(size: .compact)

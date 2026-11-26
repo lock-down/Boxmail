@@ -80,16 +80,16 @@ struct SearchFiltersView: View {
           .font(UIType.small).foregroundStyle(Palette.muted).lineLimit(2)
           .cossTooltip(additional.map { "\($0.field):\($0.value)" }.joined(separator: " "))
       }
-      if let error { WorkflowNotice(text: error, icon: .errorWarningLine, color: Palette.amber) }
+      if let error { WorkflowNotice(text: error, icon: .infoCircle, color: Palette.amber) }
       CossSeparator()
       HStack {
-        ActionButton(title: "清除搜索", icon: .arrowGoBackLine) { store.search = ""; store.searchAllAccounts = false; dismiss() }
+        ActionButton(title: "清除搜索", icon: .arrowBackUp) { store.search = ""; store.searchAllAccounts = false; dismiss() }
         Spacer()
         if working { CossSpinner() }
-        ActionButton(title: working ? "正在搜索…" : "搜索邮件", icon: .searchLine, emphasis: .primary) { apply() }
+        ActionButton(title: working ? "正在搜索…" : "搜索邮件", icon: .search, emphasis: .primary) { apply() }
           .disabled(working)
       }
-    }.padding(24).frame(width: 520).background(Palette.paper).tint(Palette.accent)
+    }.padding(UILayout.sectionInset).frame(width: 520).background(Palette.paper).tint(Palette.accent)
   }
   private func field(_ title: String, text: Binding<String>, placeholder: String) -> some View {
     WorkflowField(title: title) {

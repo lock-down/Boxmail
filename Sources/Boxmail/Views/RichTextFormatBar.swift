@@ -21,10 +21,10 @@ struct RichTextFormatBar: View {
       }
       CossSeparator(axis: .vertical).frame(height: 18)
       HStack(spacing: UILayout.iconGap) {
-        formatButton(.listUnordered, help: "项目符号列表", selected: controller.list == "bullet") {
+        formatButton(.list, help: "项目符号列表", selected: controller.list == "bullet") {
           controller.toggleList("bullet")
         }
-        formatButton(.listOrdered, help: "编号列表", selected: controller.list == "numbered") {
+        formatButton(.listNumbers, help: "编号列表", selected: controller.list == "numbered") {
           controller.toggleList("numbered")
         }
         IconButton(icon: .link, help: "添加链接（Command-K）") { showingLink = true }
@@ -42,7 +42,7 @@ struct RichTextFormatBar: View {
           mark: .choice(value == controller.fontSize)) { controller.setFontSize(value) }
       }
     } trigger: {
-      CossMenuLabel(title: size, icon: .fontSize, size: .compact)
+      CossMenuLabel(title: size, icon: .textSize, size: .compact)
     }.fixedSize()
   }
 
@@ -88,7 +88,7 @@ struct RichTextFormatBar: View {
   }
 
   private func formatButton(
-    _ icon: RemixGlyph, help: String, selected: Bool, action: @escaping () -> Void
+    _ icon: AppicaGlyph, help: String, selected: Bool, action: @escaping () -> Void
   ) -> some View {
     IconButton(
       icon: icon, help: help, color: selected ? Palette.accent : Palette.muted,
@@ -103,7 +103,7 @@ struct RichTextFormatBar: View {
         WorkflowTextInput(label: "链接地址", placeholder: "https://example.com", text: $link)
           .onSubmit { insertLink() }
       }
-      if let linkError { WorkflowNotice(text: linkError, icon: .errorWarningLine, color: Palette.destructive) }
+      if let linkError { WorkflowNotice(text: linkError, icon: .infoCircle, color: Palette.destructive) }
       HStack {
         ActionButton(title: "取消") { showingLink = false }
         Spacer()

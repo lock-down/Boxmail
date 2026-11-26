@@ -34,7 +34,7 @@ struct AIProviderSettingsView: View {
           options: config.providers.map { ($0.id, $0.name) }
         )
         .frame(width: SettingsFormLayout.fieldWidth)
-        SettingsInlineAction(title: "自定义 API", icon: .addLine) { addingProvider = true }
+        SettingsInlineAction(title: "自定义 API", icon: .plus) { addingProvider = true }
           .disabled(config.providers.count >= 20)
       }.frame(maxWidth: SettingsFormLayout.formWidth, alignment: .leading)
       HStack(spacing: SettingsFormLayout.columnGap) {
@@ -42,7 +42,7 @@ struct AIProviderSettingsView: View {
         SettingsAISelectionView(
           model: $config.model, effort: $config.effort, models: catalog,
           effortLevels: effortLevels)
-        SettingsInlineAction(title: "获取模型", icon: .refreshLine) { refreshModels() }
+        SettingsInlineAction(title: "获取模型", icon: .refresh) { refreshModels() }
       }.frame(maxWidth: SettingsFormLayout.formWidth, alignment: .leading)
       Text("邮件总结、翻译和写信共用当前模型。内容仅在使用 AI 功能时提交给所选服务商。")
         .font(UIType.small).foregroundStyle(Palette.muted)
@@ -67,7 +67,7 @@ struct AIProviderSettingsView: View {
             SecureField("", text: key).settingsTextInput()
               .inputPlaceholder("密钥保存在本机 .env 文件", visible: key.wrappedValue.isEmpty)
               .accessibilityLabel("当前服务商 API Key").frame(width: SettingsFormLayout.fieldWidth)
-            SettingsInlineAction(title: "测试连接", icon: .flashlightLine) { testConnection() }
+            SettingsInlineAction(title: "测试连接", icon: .bolt) { testConnection() }
               .disabled(
                 config.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                   || config.validationIssue != nil)

@@ -60,11 +60,11 @@ struct AttachmentListView: View {
                   .accessibilityLabel("\(comparisonSelection.contains(item.id) ? "取消选择" : "选择比较") \(item.name)")
                   .accessibilityAddTraits(comparisonSelection.contains(item.id) ? .isSelected : [])
               } else {
-                AttachmentIcon(attachment: item.attachment, size: 18).frame(width: AttachmentListLayout.icon)
+                AttachmentIcon(attachment: item.attachment, size: 20).frame(width: AttachmentListLayout.icon)
               }
               VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                if selectComparison != nil { AttachmentIcon(attachment: item.attachment, size: 14) }
+                if selectComparison != nil { AttachmentIcon(attachment: item.attachment, size: 18) }
                 Text(item.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
                   .truncationMode(
                     .middle)
@@ -94,11 +94,11 @@ struct AttachmentListView: View {
             }.font(UIType.small).foregroundStyle(Palette.muted).monospacedDigit()
           } actions: {
             HStack(spacing: UILayout.iconGap) {
-              IconButton(icon: .fileSearchLine, help: "预览 \(item.name)") {
+              IconButton(icon: .fileSearch, help: "预览 \(item.name)") {
                 preview(item.attachment)
               }
-              IconButton(icon: .mailLine, help: "打开原邮件") { openMail(item.source.id) }
-              IconButton(icon: .downloadLine, help: "下载 \(item.name)") {
+              IconButton(icon: .mail, help: "打开原邮件") { openMail(item.source.id) }
+              IconButton(icon: .download, help: "下载 \(item.name)") {
                 download(item.attachment)
               }
             }.frame(width: columns.actions, alignment: .leading).padding(.leading, 4).padding(
@@ -106,12 +106,12 @@ struct AttachmentListView: View {
           }
           .foregroundStyle(Palette.ink)
           .cossContextMenu {
-            CossMenuItem.command("预览附件", icon: .fileSearchLine) { preview(item.attachment) }
-            CossMenuItem.command("打开原邮件", icon: .mailLine) { openMail(item.source.id) }
-            CossMenuItem.command("下载附件", icon: .downloadLine) { download(item.attachment) }
+            CossMenuItem.command("预览附件", icon: .fileSearch) { preview(item.attachment) }
+            CossMenuItem.command("打开原邮件", icon: .mail) { openMail(item.source.id) }
+            CossMenuItem.command("下载附件", icon: .download) { download(item.attachment) }
             if onlySource != nil || selectComparison != nil { .divider }
             if let onlySource {
-              CossMenuItem.command("只看此邮件附件", icon: .filter3Line) { onlySource(item.source.id) }
+              CossMenuItem.command("只看此邮件附件", icon: .filter2) { onlySource(item.source.id) }
             }
             if let selectComparison {
               CossMenuItem.command("选入附件比较", mark: .checkbox(comparisonSelection.contains(item.id))) {

@@ -26,6 +26,11 @@ function settingsInput(value) {
     fail('配置文件中的签名或语言设置无效');
   preferences.signature = p.signature;
   preferences.language = p.language;
+  if (p.accountSignatures !== undefined) {
+    if (!object(p.accountSignatures) || Object.entries(p.accountSignatures).some(([id, signature]) =>
+      !idValid(id) || typeof signature !== 'string' || signature.length > 4000)) fail('配置文件中的账户签名格式无效');
+    preferences.accountSignatures = p.accountSignatures;
+  }
   return { id: 'settings', ai: aiConfig(value.ai, { requireModel: false }), preferences };
 }
 
@@ -45,8 +50,13 @@ function configurationInput(value) {
 }
 
 export function exportConfiguration(repo, settings) {
-  return configurationInput({ accounts: repo.list('account').filter(account => !account.isDemo),
-    settings: settings ?? repo.get('settings', 'settings') });
+  const accounts = repo.list('account').filter(account => !account.isDemo);
+  const current = settings ?? repo.get('settings', 'settings');
+  const preferences = { ...current.preferences };
+  if (preferences.accountSignatures) preferences.accountSignatures = Object.fromEntries(accounts
+    .filter(account => Object.hasOwn(preferences.accountSignatures, account.id))
+    .map(account => [account.id, preferences.accountSignatures[account.id]]));
+  return configurationInput({ accounts, settings: { ...current, preferences } });
 }
 
 function revision(repo) {
@@ -95,11 +105,21 @@ export function importConfiguration(repo, body) {
   const nextReferences = { ...oldSettings?.credentialReferences };
   for (const logical of expected) delete nextReferences[logical];
   Object.assign(nextReferences, bindings.references, references);
+  const signatures = { ...oldSettings.preferences.accountSignatures };
+  for (const { sourceId, accountId } of plan.accounts) {
+    delete signatures[accountId];
+    if (Object.hasOwn(configuration.settings.preferences.accountSignatures ?? {}, sourceId))
+      signatures[accountId] = configuration.settings.preferences.accountSignatures[sourceId];
+  }
+  if (oldSettings.preferences.accountSignatures || configuration.settings.preferences.accountSignatures)
+    configuration.settings.preferences.accountSignatures = signatures;
   const credentialsRequired = bindings.reset.filter(logical => !Object.hasOwn(references, logical));
   return repo.transaction(() => {
     for (const entry of plan.accounts) {
       const source = configuration.accounts.find(account => account.id === entry.sourceId);
       const old = repo.get('account', entry.accountId);
+      repo.remove('mailOrganizationPolicy', entry.accountId);
+      repo.remove('translationPreference', entry.accountId);
       repo.put('account', { ...old, ...source, id: entry.accountId, lastSync: old?.lastSync ?? null });
     }
     repo.put('settings', { ...configuration.settings,

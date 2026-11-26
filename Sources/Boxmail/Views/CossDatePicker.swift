@@ -8,7 +8,7 @@ struct CossDateTrigger: View {
 
   var body: some View {
     Button(action: open) {
-      CossMenuLabel(title: value.isEmpty ? "选择日期" : value, icon: .calendarLine, size: .form,
+      CossMenuLabel(title: value.isEmpty ? "选择日期" : value, icon: .calendar, size: .form,
         fillsWidth: true, color: value.isEmpty ? Palette.muted : Palette.ink)
     }.buttonStyle(ControlFeedback(emphasis: .secondary)).controlFocus().accessibilityLabel(title)
       .accessibilityValue(value.isEmpty ? "未选择日期" : value)

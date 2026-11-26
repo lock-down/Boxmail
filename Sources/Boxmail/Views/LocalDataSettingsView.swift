@@ -9,7 +9,7 @@ struct LocalDataSettingsView: View {
   private var backend: BackendService { .shared }
 
   var body: some View {
-    SectionCard(title: "本机数据", icon: .hardDrive2Line) {
+    SectionCard(title: "本机数据", icon: .server) {
       VStack(alignment: .leading, spacing: 8) {
         Text("当前保存位置").font(UIType.small).foregroundStyle(Palette.muted)
         Text(backend.dataDirectory.path).font(UIType.body).textSelection(.enabled)
@@ -29,18 +29,18 @@ struct LocalDataSettingsView: View {
           .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
       }
       WrappingFlowLayout(spacing: 8) {
-        ActionButton(title: "打开数据目录", icon: .folderLine) {
+        ActionButton(title: "打开数据目录", icon: .folder) {
           if !NSWorkspace.shared.open(backend.dataDirectory) {
             selectionError = "目录暂时无法打开，请接入原磁盘并检查文件夹权限。"
           }
         }
-        ActionButton(title: "显示凭证文件", icon: .fileTextLine) {
+        ActionButton(title: "显示凭证文件", icon: .fileText) {
           do {
             try CredentialService.createFileIfNeeded()
             NSWorkspace.shared.activateFileViewerSelecting([try CredentialService.fileURL])
           } catch { selectionError = error.localizedDescription }
         }
-        ActionButton(title: "更改位置…", icon: .folderSettingsLine, color: Palette.accent) {
+        ActionButton(title: "更改位置…", icon: .folderCog, color: Palette.accent) {
           chooseDirectory()
         }.disabled(backend.hasDataDirectoryOverride || !store.ready)
       }
@@ -75,14 +75,14 @@ struct LocalDataSettingsView: View {
       } else if let pendingDirectory {
         CossSeparator()
         VStack(alignment: .leading, spacing: 8) {
-          Label(isScheduled ? "下次启动时迁移至" : "待保存的新位置", icon: .arrowRightLine)
+          Label(isScheduled ? "下次启动时迁移至" : "待保存的新位置", icon: .arrowRight)
             .font(UIType.caption).foregroundStyle(Palette.ink)
           Text(pendingDirectory.path).font(UIType.caption).textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
           Text("保存后，重新打开 Boxmail 将复制现有数据并切换位置。原目录保留，迁移失败时继续使用原位置。")
             .font(UIType.small).foregroundStyle(Palette.muted)
             .fixedSize(horizontal: false, vertical: true)
-          ActionButton(title: "取消更改", icon: .closeLine) {
+          ActionButton(title: "取消更改", icon: .x) {
             self.pendingDirectory = nil
             selectionError = nil
           }
@@ -93,7 +93,7 @@ struct LocalDataSettingsView: View {
           .fixedSize(horizontal: false, vertical: true)
       }
       if let selectionError {
-        Label(selectionError, icon: .errorWarningLine)
+        Label(selectionError, icon: .infoCircle)
           .font(UIType.caption).foregroundStyle(Palette.amber)
           .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
       }

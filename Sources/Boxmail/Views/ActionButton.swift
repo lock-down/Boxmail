@@ -3,7 +3,7 @@ import SwiftUI
 /// Text actions share metrics and feedback; emphasis is independent of their purpose.
 struct ActionButton: View {
   let title: String
-  var icon: RemixGlyph? = nil
+  var icon: AppicaGlyph? = nil
   var color: Color = Palette.ink
   var emphasis: ButtonEmphasis = .plain
   var size: UIControlSize = .regular
@@ -30,13 +30,13 @@ struct ActionButton: View {
 
 struct ActionLabel: View {
   let title: String
-  var icon: RemixGlyph? = nil
+  var icon: AppicaGlyph? = nil
   var font: Font = UIControlSize.regular.font
 
   var body: some View {
     HStack(spacing: 8) {
       if let icon {
-        RemixIcon(icon)
+        AppicaIcon(icon)
           .frame(width: 16).accessibilityHidden(true)
       }
       Text(title).monospacedDigit().lineLimit(1).fixedSize(horizontal: true, vertical: false)

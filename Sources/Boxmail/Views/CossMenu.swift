@@ -5,12 +5,12 @@ enum CossMenuItem {
   case divider
   case heading(String)
   case note(String)
-  case submenu(String, icon: RemixGlyph? = nil, value: String? = nil, items: [Self])
+  case submenu(String, icon: AppicaGlyph? = nil, value: String? = nil, items: [Self])
 
   struct Action {
     let title: String
     let subtitle: String?
-    let icon: RemixGlyph?
+    let icon: AppicaGlyph?
     let swatch: Color?
     let shortcut: String?
     let mark: Mark
@@ -31,7 +31,7 @@ enum CossMenuItem {
   }
 
   static func command(
-    _ title: String, subtitle: String? = nil, icon: RemixGlyph? = nil, swatch: Color? = nil, shortcut: String? = nil,
+    _ title: String, subtitle: String? = nil, icon: AppicaGlyph? = nil, swatch: Color? = nil, shortcut: String? = nil,
     mark: Mark = .none, enabled: Bool = true, destructive: Bool = false, action: @escaping () -> Void
   ) -> Self {
     .action(Action(title: title, subtitle: subtitle, icon: icon, swatch: swatch, shortcut: shortcut, mark: mark,
@@ -100,7 +100,7 @@ struct CossMenu<Trigger: View>: View {
 struct CossMenuLabel: View {
   let title: String
   var detail: String? = nil
-  var icon: RemixGlyph? = nil
+  var icon: AppicaGlyph? = nil
   var swatch: Color? = nil
   var size: UIControlSize = .regular
   var fillsWidth = false
@@ -109,16 +109,16 @@ struct CossMenuLabel: View {
   var body: some View {
     HStack(spacing: 8) {
       if let swatch {
-        let shape = RoundedRectangle(cornerRadius: 3)
+        let shape = RoundedRectangle(cornerRadius: UILayout.minimumRadius, style: .continuous)
         shape.fill(swatch).overlay { shape.strokeBorder(Palette.border, lineWidth: 1) }
-          .frame(width: 13, height: 13).accessibilityHidden(true)
+          .frame(width: 16, height: 16).accessibilityHidden(true)
       } else if let icon {
-        RemixIcon(icon).foregroundStyle(Palette.muted)
+        AppicaIcon(icon).foregroundStyle(Palette.muted)
       }
       Text(title).lineLimit(1).truncationMode(.middle).layoutPriority(1)
       if fillsWidth { Spacer(minLength: 0) }
       if let detail { Text(detail).lineLimit(1).foregroundStyle(Palette.muted) }
-      RemixIcon(.arrowDownSLine, size: 9)
+      AppicaIcon(.chevronDown, size: UILayout.smallIconSize)
         .foregroundStyle(Palette.muted)
     }.font(size.font).foregroundStyle(color)
       .controlLabel(size: size, fillsWidth: fillsWidth, alignment: .leading)
@@ -137,7 +137,7 @@ struct CossMenuPanel: View {
   @ViewState private var hovered: Int?
   @ViewState private var submenu: Int?
 
-  static let inset: CGFloat = 4
+  static let inset = UILayout.menuInset
   static let maximumHeight: CGFloat = 344
   static func contentHeight(_ items: [CossMenuItem]) -> CGFloat {
     items.reduce(inset * 2) { $0 + $1.height }
@@ -146,7 +146,7 @@ struct CossMenuPanel: View {
   private var selectable: [Int] { items.indices.filter { items[$0].enabled } }
 
   var body: some View {
-    let shape = RoundedRectangle(cornerRadius: UILayout.navigationRadius)
+    let shape = RoundedRectangle(cornerRadius: UILayout.menuRadius, style: .continuous)
     ScrollViewReader { reader in
       Group {
         if Self.contentHeight(items) > height {
@@ -212,7 +212,7 @@ struct CossMenuPanel: View {
   @ViewBuilder private func row(_ item: CossMenuItem, index: Int) -> some View {
     switch item {
     case .divider:
-      Rectangle().fill(Palette.softBorder).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 3)
+      Rectangle().fill(Palette.softBorder).frame(height: 1).padding(4)
         .accessibilityHidden(true)
     case .heading(let title):
       textRow(title).font(.system(size: 11, weight: .semibold)).accessibilityAddTraits(.isHeader)
@@ -222,12 +222,12 @@ struct CossMenuPanel: View {
       itemButton(item, index: index) {
         HStack(spacing: 8) {
           if let swatch = action.swatch {
-            RoundedRectangle(cornerRadius: 3).fill(swatch).frame(width: 13, height: 13)
-              .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(Palette.border) }
+            RoundedRectangle(cornerRadius: UILayout.minimumRadius, style: .continuous).fill(swatch).frame(width: 16, height: 16)
+              .overlay { RoundedRectangle(cornerRadius: UILayout.minimumRadius, style: .continuous).strokeBorder(Palette.border) }
               .accessibilityHidden(true)
           } else if let icon = action.icon {
-            RemixIcon(icon).foregroundStyle(action.destructive ? Palette.destructive : Palette.muted)
-              .frame(width: 15).accessibilityHidden(true)
+            AppicaIcon(icon).foregroundStyle(action.destructive ? Palette.destructive : Palette.muted)
+              .frame(width: UILayout.iconSize).accessibilityHidden(true)
           }
           VStack(alignment: .leading, spacing: 2) {
             Text(action.title)
@@ -241,7 +241,7 @@ struct CossMenuPanel: View {
           }
           switch action.mark {
           case .choice(let selected):
-            RemixIcon(.checkLine, size: 11)
+            AppicaIcon(.check, size: UILayout.smallIconSize)
               .opacity(selected ? 1 : 0).accessibilityHidden(true)
           case .checkbox(let selected):
             CossCheckbox(isOn: selected).accessibilityHidden(true)
@@ -257,12 +257,12 @@ struct CossMenuPanel: View {
       itemButton(item, index: index) {
         HStack(spacing: 8) {
           if let icon {
-            RemixIcon(icon).foregroundStyle(Palette.muted).frame(width: 15).accessibilityHidden(true)
+            AppicaIcon(icon).foregroundStyle(Palette.muted).frame(width: UILayout.iconSize).accessibilityHidden(true)
           }
           Text(title).lineLimit(1)
           Spacer(minLength: 4)
           if let value { Text(value).lineLimit(1).truncationMode(.middle).foregroundStyle(Palette.muted) }
-          RemixIcon(.arrowRightSLine, size: 9)
+          AppicaIcon(.chevronRight, size: UILayout.smallIconSize)
             .foregroundStyle(Palette.muted).accessibilityHidden(true)
         }
       } activate: { submenu = index }
@@ -292,7 +292,7 @@ struct CossMenuPanel: View {
       label().font(UIType.caption).padding(.horizontal, 8).frame(height: item.height)
         .contentShape(Rectangle())
         .background(highlighted ? Palette.sidebar : .clear,
-          in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
+          in: RoundedRectangle(cornerRadius: UILayout.menuRowRadius, style: .continuous))
     }
     .buttonStyle(.plain).focusable().focusEffectDisabled().focused($focused, equals: index)
     .onKeyPress(.return) { activate(); return .handled }

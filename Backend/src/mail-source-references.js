@@ -7,6 +7,23 @@ export function remapMailSources(repo, previousId, messageId, attachmentIds = ne
       replyMessageId: item.replyMessageId === previousId ? messageId : item.replyMessageId });
   for (const snooze of repo.list('snooze').filter(item => item.messageIds.includes(previousId)))
     repo.put('snooze', { ...snooze, messageIds: snooze.messageIds.map(id => id === previousId ? messageId : id) });
+  if (previousId !== messageId) {
+    const replaceId = id => id === previousId ? messageId : id;
+    const jobs = repo.db.prepare(`SELECT data FROM records WHERE kind='job'
+      AND json_extract(data,'$.task') IN ('conversationSummary', 'conversationReply')`).all();
+    for (const row of jobs) {
+      const job = JSON.parse(row.data);
+      const result = job.result;
+      if (!result || (result.replyMessageId !== previousId && !result.sourceIds?.includes(previousId)
+        && !result.sourceMessages?.some(source => source.id === previousId))) continue;
+      if (result.replyMessageId) result.replyMessageId = replaceId(result.replyMessageId);
+      if (result.sourceIds) result.sourceIds = result.sourceIds.map(replaceId);
+      for (const source of result.sourceMessages ?? []) source.id = replaceId(source.id);
+      for (const item of [...(result.progress ?? []), ...(result.openItems ?? []), ...(result.conversationNextSteps ?? [])])
+        item.messageIds = item.messageIds.map(replaceId);
+      repo.put('job', job);
+    }
+  }
   for (const session of repo.list('assistantSession')) {
     let changed = false;
     const mapScope = scope => {

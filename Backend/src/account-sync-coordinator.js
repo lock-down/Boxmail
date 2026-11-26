@@ -4,8 +4,8 @@ import { syncSession } from './sync-session.js';
 import { accountReference, errorDiagnostic } from './diagnostics.js';
 
 export class AccountSyncCoordinator {
-  constructor(repo, { locks, tasks, queue, diagnostics, mailSync, stallTimeoutMs, credentials, afterSync }) {
-    Object.assign(this, { repo, locks, tasks, queue, diagnostics, mailSync, stallTimeoutMs, credentials, afterSync });
+  constructor(repo, { locks, tasks, queue, diagnostics, mailSync, stallTimeoutMs, credentials, afterSync, observeInbox }) {
+    Object.assign(this, { repo, locks, tasks, queue, diagnostics, mailSync, stallTimeoutMs, credentials, afterSync, observeInbox });
   }
   start(body, requestID = randomUUID()) {
     const { repo, locks, diagnostics, mailSync, tasks: syncTasks, queue: syncQueue, stallTimeoutMs: syncStallTimeoutMs } = this;
@@ -17,6 +17,7 @@ export class AccountSyncCoordinator {
     locks.add(a.id);
     const previousIds = new Set(repo.messageGraphHeaders({ accountId: a.id }).map(item => item.id));
     const controller = new AbortController();
+    let inbox;
     const task = { status: 'queued', phase: 'queued', controller, requestID };
     syncTasks.set(a.id, task);
     diagnostics.record('sync.queued', { account: accountReference(a.id), requestID, queued: syncQueue.pending.length + 1,
@@ -36,7 +37,8 @@ export class AccountSyncCoordinator {
       watchdog.unref();
       try {
         const result = await syncSession(repo, a, body.password ?? this.credentials().mail(a.id), {
-          syncBatch: mailSync, folder: body.folder || undefined, signal: controller.signal, requestID });
+          syncBatch: mailSync, folder: body.folder || undefined, signal: controller.signal, requestID,
+          onInboxInventory: point => { inbox = point; this.observeInbox?.(a, point); } });
         task.status = result.partial ? 'paused' : 'completed'; return result;
       } finally { clearInterval(watchdog); }
     };
@@ -51,7 +53,9 @@ export class AccountSyncCoordinator {
       throw error;
     }).finally(() => {
       locks.delete(a.id);
-      this.afterSync(a.id, repo.messageGraphHeaders({ accountId: a.id }).filter(item => !previousIds.has(item.id) && item.folder === 'inbox').map(item => item.id));
+      const newIds = repo.messageGraphHeaders({ accountId: a.id })
+        .filter(item => !previousIds.has(item.id) && item.folder === 'inbox').map(item => item.id);
+      this.afterSync(a.id, newIds, inbox);
       diagnostics.record(`sync.${task.status}`, { account: accountReference(a.id), phase: task.phase, requestID });
     });
     return task;

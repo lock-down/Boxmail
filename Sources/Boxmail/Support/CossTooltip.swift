@@ -69,10 +69,10 @@ private struct CossTooltipAnchor: NSViewRepresentable {
       if renderedText == text, panel != nil { return }
       Self.visibleAnchor?.hide()
       Self.visibleAnchor = self
-      let shape = RoundedRectangle(cornerRadius: UILayout.controlRadius)
+      let shape = RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
       let content = Text(text).font(UIType.small).foregroundStyle(Palette.ink)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 8).padding(.vertical, 5).frame(maxWidth: 320)
+        .padding(.horizontal, 8).padding(.vertical, 4).frame(maxWidth: 320)
         .background(Palette.paper, in: shape)
         .overlay { shape.strokeBorder(Palette.border, lineWidth: 1) }
       let host = NSHostingView(rootView: content)

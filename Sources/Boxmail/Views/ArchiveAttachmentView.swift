@@ -11,64 +11,29 @@ struct ArchiveAttachmentView: View {
   @ViewState<String?> private var error: String?
   @ViewState<Bool> private var loading = false
   private var attachment: MailAttachment? { store.attachments.first { $0.id == attachmentId } }
-  private var mail: MailMessage? { store.messages.first { $0.id == attachment?.messageId } }
-  private var job: AgentJob? { mail.flatMap { store.attachmentBatch(for: $0) } }
-  private var running: Bool { job?.status == "running" }
-  private var retryable: Bool {
-    job.map {
-      ["partial", "failed", "paused"].contains($0.status)
-        && ($0.attachmentItems ?? []).contains { $0.id == attachmentId }
-    } == true
-  }
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 12) {
-        FilterBar(values: ["文件目录", "整体整理"], selection: $tab)
-        if let document {
-          Text("已理解 \(document.understoodCount)/\(document.totalFiles) 个文件")
-            .font(UIType.small).foregroundStyle(Palette.muted).monospacedDigit()
-        }
-        Spacer(minLength: 0)
-        if running {
-          CossSpinner(size: 12)
-          ActionButton(title: "暂停", icon: .pauseLine) {
-            if let job { store.pauseAttachmentBatch(job) }
-          }
-        } else {
-          ActionButton(
-            title: retryable ? "继续未完成文件" : document?.summary == nil ? "理解压缩包" : "重新理解压缩包",
-            icon: .sparkling2Line, color: Palette.accent
-          ) {
-            guard let mail else { return }
-            store.analyzeAttachments(
-              in: mail, force: !retryable && document?.summary != nil,
-              retry: retryable ? job : nil, attachmentIds: [attachmentId])
-          }.disabled(
-            loading || document == nil || mail == nil || store.busy.contains("agent")
-              || mail.map { store.busy.contains("attachment-batch-\($0.id)") } == true)
-        }
-      }.padding(.horizontal, 20).padding(.vertical, 10).background(Palette.chrome)
-      CossSeparator()
+      if document?.summary != nil || attachment?.analysis?.isEmpty == false {
+        HStack {
+          FilterBar(values: ["文件目录", "历史分析"], selection: $tab)
+          Spacer()
+        }.padding(.horizontal, 20).padding(.vertical, 8).background(Palette.chrome)
+        CossSeparator()
+      }
       if let error {
         HStack {
           Text(error).font(UIType.caption).foregroundStyle(Palette.amber)
-          ActionButton(title: "重试", icon: .refreshLine) { Task { await reload() } }
+          ActionButton(title: "重试", icon: .refresh) { Task { await reload() } }
         }.padding(16)
       }
-      if let jobError = job?.error, retryable {
-        Text(jobError).font(UIType.caption).foregroundStyle(Palette.amber)
-          .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(
-            .vertical, 8)
-      }
       if let document {
-        if document.omitted > 0 || document.entries.contains(where: { $0.status == "unsupported" })
-        {
-          Text("本次列出 \(document.entries.count)/\(document.totalFiles) 个文件；未处理项会显示原因，整体整理仅依据已理解文件。")
+        if document.omitted > 0 {
+          Text("已列出 \(document.entries.count)/\(document.totalFiles) 个文件。可下载压缩包查看完整目录。")
             .font(UIType.small).foregroundStyle(Palette.muted)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(
               .vertical, 8)
         }
-        if tab == "整体整理" {
+        if tab == "历史分析" {
           OverlayScrollView {
             if let summary = document.summary {
               ArchiveSummaryView(summary: summary, entries: document.entries) { id in
@@ -76,12 +41,9 @@ struct ArchiveAttachmentView: View {
                 tab = "文件目录"
               }
               .padding(24).frame(maxWidth: UILayout.document, alignment: .leading)
-            } else {
-              EmptyState(
-                title: running ? "正在理解包内文件" : "还没有整体整理",
-                subtitle: "逐文件理解完成后，会整理资料用途、文件分类、关联差异和下一步行动，并附上来源。",
-                icon: .fileSearchLine
-              ).frame(maxWidth: .infinity).padding(.top, 60)
+            } else if let text = attachment?.analysis {
+              AnalysisDocumentView(text: text).padding(24)
+                .frame(maxWidth: UILayout.document, alignment: .leading)
             }
           }
         } else {
@@ -90,16 +52,13 @@ struct ArchiveAttachmentView: View {
               ForEach(document.entries) { entry in
                 VStack(alignment: .leading, spacing: 4) {
                   HStack(spacing: 6) {
-                    RemixIcon(.fileTextLine).foregroundStyle(Palette.muted)
+                    AppicaIcon(.fileText).foregroundStyle(Palette.muted)
                     Text(entry.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
                       .truncationMode(.middle)
                   }
                   Text(entry.path).font(UIType.small).foregroundStyle(Palette.muted)
                     .lineLimit(1).truncationMode(.middle)
                   HStack {
-                    Text(entry.statusTitle).foregroundStyle(
-                      entry.status == "completed" ? Palette.accent : Palette.muted)
-                    Spacer()
                     Text(fileSize(entry.size)).foregroundStyle(Palette.muted).monospacedDigit()
                   }.font(UIType.small)
                 }.padding(.horizontal, 12).padding(.vertical, 8)
@@ -111,7 +70,7 @@ struct ArchiveAttachmentView: View {
               ArchiveEntryView(attachmentId: attachmentId, entry: entry)
                 .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity).id(entry.id)
             } else {
-              EmptyState(title: "选择包内文件", subtitle: "查看原文件、理解状态和单文件结果。", icon: .fileZipLine)
+              EmptyState(title: "选择包内文件", subtitle: "选择目录项可查看原文件。", icon: .fileZip)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
           }
@@ -123,9 +82,6 @@ struct ArchiveAttachmentView: View {
       }
     }.onChange(of: attachment?.archive) { _, value in if let value { document = value } }
       .task(id: attachmentId) { await reload() }
-      .onChange(of: running) { _, active in
-        if !active { Task { await reload() } }
-      }
   }
 
   private func reload() async {
@@ -185,7 +141,7 @@ private struct ArchiveSummaryView: View {
             select(id)
           } label: {
             HStack(spacing: 7) {
-              RemixIcon(.fileTextLine).frame(width: 14)
+              AppicaIcon(.fileText).frame(width: 14)
               Text(entry.path).lineLimit(1).truncationMode(.middle)
             }.font(UIType.caption).foregroundStyle(Palette.accent)
               .frame(maxWidth: .infinity, alignment: .leading).frame(height: 32)

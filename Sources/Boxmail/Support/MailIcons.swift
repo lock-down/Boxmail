@@ -1,35 +1,35 @@
 import BoxmailCore
 
 extension MailAITab {
-  var icon: RemixGlyph {
+  var icon: AppicaGlyph {
     switch self {
     case .summary: .alignLeft
-    case .translate: .translate2
-    case .attachment: .fileSearchLine
-    case .reply: .replyLine
-    case .conversation: .discussLine
+    case .translate: .language
+    case .attachment: .fileSearch
+    case .reply: .arrowBackUp
+    case .conversation: .messages
     }
   }
 }
 
 extension MailDestination {
-  var icon: RemixGlyph {
+  var icon: AppicaGlyph {
     switch self {
-    case .inbox: .inboxLine
-    case .starred: .starLine
-    case .drafts: .editBoxLine
-    case .sent: .sendPlaneLine
-    case .attachments: .attachment2
-    case .trash: .deleteBin6Line
+    case .inbox: .inbox
+    case .starred: .star
+    case .drafts: .edit
+    case .sent: .send
+    case .attachments: .paperclip
+    case .trash: .trash
     case .summary: .alignLeft
-    case .replies: .replyAllLine
-    case .organize: .inboxArchiveLine
-    case .analysis: .fileSearchLine
-    case .archive: .archiveLine
-    case .followUps: .listCheck3
-    case .rules: .equalizer3Line
-    case .outbox: .inboxUnarchiveLine
-    case .spam: .shieldFlashLine
+    case .replies: .arrowBackUpDouble
+    case .organize: .archive
+    case .analysis: .fileSearch
+    case .archive: .archive
+    case .followUps: .listCheck
+    case .rules: .adjustments
+    case .outbox: .upload
+    case .spam: .shieldBolt
     }
   }
 }

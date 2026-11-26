@@ -24,7 +24,6 @@ enum Palette {
 }
 enum UILayout {
   static let sidebar: CGFloat = 216
-  static let assistant: CGFloat = 360
   static let mailListMinimum: CGFloat = 294
   static let readingMinimum: CGFloat = 400
   static let reading: CGFloat = 860
@@ -32,16 +31,29 @@ enum UILayout {
   static let windowInset: CGFloat = 12
   static let toolbarHeight: CGFloat = 52
   static let pageInset: CGFloat = 24
-  static let radius: CGFloat = 12
-  static let controlRadius: CGFloat = 6
-  static let navigationRadius: CGFloat = 8
-  static let segmentRadius: CGFloat = 8
-  static let segmentInset: CGFloat = 3
+  static let minimumRadius: CGFloat = 4
+  static let workspaceRadius: CGFloat = 20
+  static let cardRadius: CGFloat = 24
   static let sectionInset: CGFloat = 16
+  static let controlRadius = innerRadius(cardRadius, inset: sectionInset)
+  static let navigationRadius = innerRadius(workspaceRadius, inset: windowInset)
+  static let listRowInset: CGFloat = 8
+  static let listRowRadius = innerRadius(workspaceRadius, inset: listRowInset)
+  static let menuInset: CGFloat = 4
+  static let menuRadius: CGFloat = 12
+  static let menuRowRadius = innerRadius(menuRadius, inset: menuInset)
+  static let segmentInset: CGFloat = 4
+  static let segmentRadius = controlRadius + segmentInset
   static let iconControl: CGFloat = UIControlSize.regular.height
-  static let iconSize: CGFloat = 14
+  static let smallIconSize: CGFloat = 14
+  static let compactIconSize: CGFloat = 16
+  static let iconSize: CGFloat = 18
   static let iconRadius = controlRadius
   static let iconGap: CGFloat = 4
+
+  static func innerRadius(_ outerRadius: CGFloat, inset: CGFloat) -> CGFloat {
+    max(minimumRadius, outerRadius - inset)
+  }
 }
 enum UIType {
   static let title = Font.system(size: 24, weight: .semibold)
@@ -70,9 +82,9 @@ struct Tag: View {
   var body: some View {
     Text(text).font(.system(size: 11, weight: .medium)).lineLimit(1)
       .foregroundStyle(tone?.ink ?? (ai ? Palette.accent : Palette.muted))
-      .padding(.horizontal, 7).padding(.vertical, 3)
+      .padding(.horizontal, 8).padding(.vertical, 4)
       .background(tone?.fill ?? (ai ? Palette.accentSoft : Palette.sidebar),
-        in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
+        in: RoundedRectangle(cornerRadius: UILayout.minimumRadius, style: .continuous))
   }
 }
 struct SenderAvatar: View {
@@ -88,15 +100,15 @@ struct SenderAvatar: View {
 struct EmptyState: View {
   var title: String
   var subtitle: String
-  var icon: RemixGlyph = .inboxLine
+  var icon: AppicaGlyph = .inbox
   var actionTitle: String? = nil
   var actionDisabled = false
   var action: (() -> Void)? = nil
   var body: some View {
-    VStack(spacing: 10) {
-      RemixIcon(icon, size: 18).foregroundStyle(Palette.muted)
-        .frame(width: 42, height: 42)
-        .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: UILayout.navigationRadius))
+    VStack(spacing: 12) {
+      AppicaIcon(icon, size: 20).foregroundStyle(Palette.muted)
+        .frame(width: 44, height: 44)
+        .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: UILayout.menuRadius, style: .continuous))
         .padding(.bottom, 4).accessibilityHidden(true)
       Text(title).font(UIType.heading).accessibilityAddTraits(.isHeader)
       Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(5)
@@ -124,8 +136,8 @@ extension View {
     frame(maxWidth: .infinity, alignment: .leading).padding(UILayout.pageInset)
   }
 
-  func framedSurface(bordered: Bool = true) -> some View {
-    let shape = RoundedRectangle(cornerRadius: UILayout.radius, style: .continuous)
+  func framedSurface(bordered: Bool = true, radius: CGFloat = UILayout.cardRadius) -> some View {
+    let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
     return background(Palette.paper, in: shape).clipShape(shape)
       .overlay {
         if bordered {
@@ -136,15 +148,15 @@ extension View {
 }
 struct SectionCard<Content: View>: View {
   var title: String
-  var icon: RemixGlyph? = nil
+  var icon: AppicaGlyph? = nil
   var contentSpacing: CGFloat = 16
   var inset: CGFloat = UILayout.sectionInset
   @ViewBuilder var content: () -> Content
   var body: some View {
     VStack(alignment: .leading, spacing: contentSpacing) {
-      HStack(spacing: 9) {
+      HStack(spacing: 8) {
         if let icon {
-          RemixIcon(icon, size: 14).foregroundStyle(Palette.muted)
+          AppicaIcon(icon).foregroundStyle(Palette.muted)
             .frame(width: 20, height: 20).accessibilityHidden(true)
         }
         Text(title).font(UIType.section).accessibilityAddTraits(.isHeader)

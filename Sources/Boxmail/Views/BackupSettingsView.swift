@@ -11,14 +11,14 @@ struct BackupSettingsView: View {
   @ViewState<Bool> private var confirming = false
 
   var body: some View {
-    SectionCard(title: "完整备份与恢复", icon: .database2Line) {
+    SectionCard(title: "完整备份与恢复", icon: .database) {
       VStack(alignment: .leading, spacing: 18) {
-        SettingsTransferRow(title: "创建完整备份", detail: "保存全部账户的邮件、附件、草稿及 AI 结果", icon: .exportLine) {
-          ActionButton(title: "保存备份…", icon: .exportLine, color: Palette.accent) { chooseDestination() }
+        SettingsTransferRow(title: "创建完整备份", detail: "保存全部账户的邮件、附件、草稿及 AI 结果", icon: .upload) {
+          ActionButton(title: "保存备份…", icon: .upload, color: Palette.accent) { chooseDestination() }
         }
         CossSeparator()
-        SettingsTransferRow(title: "从备份恢复", detail: "校验 ZIP，并自动保留恢复前的完整数据", icon: .historyLine) {
-          ActionButton(title: "选择备份…", icon: .folderLine) { chooseBackup() }
+        SettingsTransferRow(title: "从备份恢复", detail: "校验 ZIP，并自动保留恢复前的完整数据", icon: .history) {
+          ActionButton(title: "选择备份…", icon: .folder) { chooseBackup() }
         }
       }.disabled(action.isWorking || !store.ready || !store.busy.isEmpty || store.composer != nil)
       SettingsActionFeedback(action: action)
@@ -65,12 +65,11 @@ struct BackupSettingsView: View {
       store.selectedMessageId = nil; store.conversation = nil; store.conversationAnchor = nil
       store.search = ""; store.pinnedMessageId = nil; store.pinnedQueryKey = ""
       store.previewAttachment = nil
-      store.summaryListChange = nil; store.summaryListError = nil; store.summaryReplyRequest = nil
+      store.summaryListChange = nil; store.summaryListError = nil
       store.mailChange = nil; store.mailActionError = nil; store.selectedMessageIds = []
       store.mailUndoManager?.removeAllActions(withTarget: store)
-      store.translatedMessageIds = []; store.aiOutputs = [:]; store.mailAIErrors = [:]
-      store.mailAITab = nil; store.activeAIMessageId = nil; store.activeAIAttachmentId = nil
-      store.attachmentResultsMessageId = nil; store.attachmentBatchErrors = [:]; store.organizeError = nil
+      store.aiOutputs = [:]; store.attachmentLoadErrors = []
+      store.mailAITab = nil
       store.conversationError = nil; store.detailError = nil; store.detailGeneration = UUID()
       store.conversationBodyRequests = [:]
       store.restoreRevision += 1
@@ -90,7 +89,7 @@ struct SearchIndexSettingsView: View {
   @Bindable var store: MailStore
   @ViewState private var action = SettingsActionState()
   var body: some View {
-    SectionCard(title: "本机搜索索引", icon: .searchLine) {
+    SectionCard(title: "本机搜索索引", icon: .search) {
       HStack(alignment: .top, spacing: 20) {
         VStack(alignment: .leading, spacing: 6) {
           if let index = store.searchIndex {
@@ -105,7 +104,7 @@ struct SearchIndexSettingsView: View {
           Text("检索正文、附件名称与提取文本、AI 结果，仅覆盖本机已缓存内容。")
             .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading)
-        ActionButton(title: action.isWorking ? "正在重建…" : "重建索引", icon: .refreshLine) { rebuild() }
+        ActionButton(title: action.isWorking ? "正在重建…" : "重建索引", icon: .refresh) { rebuild() }
           .disabled(action.isWorking || !store.ready || !store.busy.isEmpty)
       }
       SettingsActionFeedback(action: action)

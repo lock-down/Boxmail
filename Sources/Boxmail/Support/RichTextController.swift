@@ -43,19 +43,33 @@ import Observation
     let range: NSRange
     let text: String
   }
-  func rewriteSelection() -> RewriteSelection? {
+  func rewriteSelection(preservingSignature signature: String = "") -> RewriteSelection? {
     guard let view = textView, !view.hasMarkedText(), view.selectedRange().length > 0 else { return nil }
-    let range = view.selectedRange()
-    guard let storage = view.textStorage else { return nil }
+    var range = view.selectedRange()
+    if MailSignature.trailingRange(in: view.string, signature: signature) != nil {
+      let length = (MailSignature.editableContent(in: view.string, signature: signature) as NSString).length
+      range = NSIntersectionRange(range, NSRange(location: 0, length: length))
+    }
+    guard range.length > 0, let storage = view.textStorage else { return nil }
     return RewriteSelection(source: view.string, document: RichTextCodec.document(storage), range: range, text: (view.string as NSString).substring(with: range))
   }
-  @discardableResult func adopt(_ text: String, expectedSource: String, selection: RewriteSelection? = nil) -> Bool {
+  func focus() {
+    if let view = textView { view.window?.makeFirstResponder(view) }
+  }
+
+  @discardableResult func adopt(
+    _ text: String, expectedSource: String, selection: RewriteSelection? = nil, preservingSignature signature: String = ""
+  ) -> Bool {
     guard let view = textView, view.isEditable, view.string == expectedSource, !view.hasMarkedText(), let storage = view.textStorage else { return false }
     if let selection, selection.document != RichTextCodec.document(storage) { return false }
-    let range = selection?.range ?? NSRange(location: 0, length: storage.length)
+    let signatureRange = selection == nil ? MailSignature.trailingRange(in: expectedSource, signature: signature) : nil
+    let range = selection?.range ?? NSRange(location: 0, length: signatureRange?.location ?? storage.length)
     let attributes = range.location < storage.length ? storage.attributes(at: range.location, effectiveRange: nil) : view.typingAttributes
-    let replacement = selection == nil ? RichTextCodec.attributed(.init(text: text)) : NSAttributedString(string: text, attributes: attributes)
-    return replace(replacement, selection: NSRange(location: range.location + replacement.length, length: 0), name: selection == nil ? "采用 AI 正文" : "改写选区", affectedRange: range, fragment: true)
+    let body = signatureRange == nil ? text : text.trimmingCharacters(in: .newlines) + "\n\n"
+    let replacement = selection == nil ? RichTextCodec.attributed(.init(text: body)) : NSAttributedString(string: text, attributes: attributes)
+    // Leave the caret on the blank body line before the signature's newline boundary.
+    let continuation = range.location + replacement.length - (signatureRange == nil ? 0 : 1)
+    return replace(replacement, selection: NSRange(location: continuation, length: 0), name: selection == nil ? "采用 AI 正文" : "改写选区", affectedRange: range, fragment: true)
   }
 
   func toggleBold() {

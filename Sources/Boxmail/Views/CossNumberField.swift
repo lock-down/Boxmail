@@ -10,7 +10,7 @@ struct CossNumberField: View {
 
   var body: some View {
     HStack(spacing: 0) {
-      stepButton(.subtractLine, label: "减少" + title, offset: -1)
+      stepButton(.minus, label: "减少" + title, offset: -1)
         .disabled(value <= range.lowerBound)
       TextField("", text: input)
         .textFieldStyle(.plain).font(UIControlSize.form.font)
@@ -20,7 +20,7 @@ struct CossNumberField: View {
         .onSubmit { draft = nil }
         .onKeyPress(.upArrow) { step(1); return .handled }
         .onKeyPress(.downArrow) { step(-1); return .handled }
-      stepButton(.addLine, label: "增加" + title, offset: 1)
+      stepButton(.plus, label: "增加" + title, offset: 1)
         .disabled(value >= range.upperBound)
     }.padding(.horizontal, 3).frame(height: UIControlSize.form.height)
       .controlFieldSurface(focused: focused)
@@ -38,7 +38,7 @@ struct CossNumberField: View {
     })
   }
 
-  private func stepButton(_ icon: RemixGlyph, label: String, offset: Int) -> some View {
+  private func stepButton(_ icon: AppicaGlyph, label: String, offset: Int) -> some View {
     IconButton(icon: icon, help: label, size: UIControlSize.compact.height) { step(offset) }
   }
 

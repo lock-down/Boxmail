@@ -13,10 +13,10 @@ struct PageStoreErrorRow: View {
   var body: some View {
     HStack {
       if canRestore {
-        ActionButton(title: "返回上次结果", icon: .arrowGoBackLine, action: restore)
+        ActionButton(title: "返回上次结果", icon: .arrowBackUp, action: restore)
       }
       Text(error).font(UIType.caption).foregroundStyle(Palette.destructive)
-      ActionButton(title: "重试", icon: .refreshLine, action: retry)
+      ActionButton(title: "重试", icon: .refresh, action: retry)
     }
   }
 }
@@ -38,11 +38,11 @@ struct ListPagination: View {
       Text("\(total == 0 ? 0 : offset + 1)–\(offset + count) / 共 \(total) \(unit)")
       Text("每页 \(pageSize) \(unit)").foregroundStyle(Palette.muted)
       Spacer(minLength: 8)
-      IconButton(icon: .arrowLeftSLine, help: "上一页\(subject)", action: previous)
+      IconButton(icon: .chevronLeft, help: "上一页\(subject)", action: previous)
         .disabled(loading || offset == 0)
       Text("第 \(offset / pageSize + 1) / \(max(1, (total + pageSize - 1) / pageSize)) 页")
         .monospacedDigit().foregroundStyle(Palette.muted)
-      IconButton(icon: .arrowRightSLine, help: "下一页\(subject)", action: next)
+      IconButton(icon: .chevronRight, help: "下一页\(subject)", action: next)
         .disabled(loading || offset + pageSize >= total)
     }.font(UIType.small).monospacedDigit().padding(.horizontal, 12).frame(height: 40)
       .background(Palette.canvas).overlay(alignment: .top) {

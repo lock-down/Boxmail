@@ -1,3 +1,4 @@
+import { pausedAutomaticAIRule } from './mail-rules.js';
 import { migrateAttachmentArchives } from './attachment-archive-store.js';
 import { DatabaseSync } from 'node:sqlite';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -210,7 +211,13 @@ export async function restoreBackup(repo, source, approved, { beforeCommit, expe
         repo.db.exec('DELETE FROM records; DELETE FROM events;');
         const insert = repo.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?)');
         for (const row of records) {
-          const value = JSON.parse(row.data);
+          if (['mailOrganizationPolicy', 'mailOrganizationReceipt', 'mailLabelTrial', 'newMailEvent'].includes(row.kind)) continue;
+          let value = JSON.parse(row.data);
+          if (row.kind === 'mailRule') value = pausedAutomaticAIRule(value);
+          if (row.kind === 'job' && value.task === 'mailOrganization' && value.status === 'pending') {
+            value.status = 'paused';
+            value.error = '备份恢复了未提交的整理任务，请检查后重试。';
+          }
           if (row.kind === 'settings' && row.id === 'settings') {
             value.ai = settings.ai;
             value.credentialReferences = credentials.references;

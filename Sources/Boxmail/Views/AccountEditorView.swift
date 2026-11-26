@@ -26,7 +26,7 @@ struct AccountEditorView: View {
       HStack {
         Text(isNewAccount ? "添加邮箱" : "编辑邮箱").font(UIType.heading)
         Spacer()
-        IconButton(icon: .closeLine, help: "取消账号编辑") { dismiss() }.disabled(loading)
+        IconButton(icon: .x, help: "取消账号编辑") { dismiss() }.disabled(loading)
       }.padding(.horizontal, 24).frame(height: 54).background(Palette.chrome)
       CossSeparator()
       OverlayScrollView {
@@ -96,7 +96,7 @@ struct AccountEditorView: View {
         primaryDisabled: account.email.isEmpty || password.isEmpty,
         cancel: { dismiss() }, primary: { saveAccount() }
       ) {
-        ActionButton(title: "测试连接", icon: .flashlightLine) { testMail() }
+        ActionButton(title: "测试连接", icon: .bolt) { testMail() }
           .disabled(loading || account.email.isEmpty || password.isEmpty)
       }
     }.frame(width: 680, height: 530).background(Palette.paper).tint(Palette.accent)

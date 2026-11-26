@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Date selection stays consistent in the composer and the send queue.
+/// Date selection stays consistent in the composer and drafts.
 struct SendScheduleForm: View {
   @Binding var date: Date
 

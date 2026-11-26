@@ -50,6 +50,11 @@ extension MailStore {
           state.settings.credentialReferences ?? [:]
         )
       })
+    if let current = accounts.first(where: { $0.id == account.id }),
+      current.imapHost != account.imapHost || current.imapPort != account.imapPort
+        || current.imapTLS != account.imapTLS || current.username != account.username {
+      translationPreferences[account.id] = nil
+    }
     if let index = accounts.firstIndex(where: { $0.id == saved.account.id }) {
       accounts[index] = saved.account
     } else {

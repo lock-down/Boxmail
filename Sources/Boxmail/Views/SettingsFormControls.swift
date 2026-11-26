@@ -35,10 +35,10 @@ struct SettingsFieldRow: View {
 
 struct SettingsTransferRow<Action: View>: View {
   let title, detail: String
-  let icon: RemixGlyph
+  let icon: AppicaGlyph
   let action: () -> Action
   init(
-    title: String, detail: String, icon: RemixGlyph, @ViewBuilder action: @escaping () -> Action
+    title: String, detail: String, icon: AppicaGlyph, @ViewBuilder action: @escaping () -> Action
   ) {
     self.title = title
     self.detail = detail
@@ -47,7 +47,7 @@ struct SettingsTransferRow<Action: View>: View {
   }
   var body: some View {
     HStack(alignment: .center, spacing: 14) {
-      RemixIcon(icon, size: 16).foregroundStyle(Palette.muted)
+      AppicaIcon(icon, size: UILayout.iconSize).foregroundStyle(Palette.muted)
         .frame(width: 24).accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 5) {
         Text(title).font(.system(size: 13, weight: .medium))
@@ -61,7 +61,7 @@ struct SettingsTransferRow<Action: View>: View {
 
 struct SettingsInlineAction: View {
   let title: String
-  let icon: RemixGlyph
+  let icon: AppicaGlyph
   var color: Color = Palette.accent
   let action: () -> Void
 

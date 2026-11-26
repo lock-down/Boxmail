@@ -54,20 +54,22 @@ struct RuleEditor: View {
               actionToggle("归档", value: $rule.actions.archive).frame(height: SettingsFormLayout.controlHeight)
             }
           }
-          SectionCard(title: "AI 处理", contentSpacing: 10, inset: 16) {
-            WrappingFlowLayout(spacing: 16) {
-              actionToggle("生成摘要", value: $rule.actions.summary)
-              actionToggle("理解附件", value: $rule.actions.attachments)
-              actionToggle("建议跟进", value: $rule.actions.followUp)
-              actionToggle("预拟回复", value: $rule.actions.reply)
+          if rule.actions.includesAI {
+            SectionCard(title: "旧 AI 动作", contentSpacing: 10, inset: 16) {
+              Text(rule.actions.description).font(UIType.caption)
+              ActionButton(title: "移除旧 AI 动作") {
+                rule.actions.summary = nil
+                rule.actions.attachments = nil
+                rule.actions.followUp = nil
+                rule.actions.reply = nil
+              }
             }
-            Text("跟进与回复需审阅后采用，可在「AI 用量」查看模型消耗。")
-              .font(UIType.small).foregroundStyle(Palette.muted)
           }
           SectionCard(title: "运行方式", contentSpacing: 10, inset: 16) {
             WrappingFlowLayout(spacing: 16) {
               Toggle("启用规则", isOn: $rule.enabled)
               Toggle("收到新邮件时自动运行", isOn: $rule.automatic)
+                .disabled(rule.actions.includesAI)
             }
             Text("自动规则按创建顺序执行，修改仅对后续运行生效。")
               .font(UIType.small).foregroundStyle(Palette.muted)

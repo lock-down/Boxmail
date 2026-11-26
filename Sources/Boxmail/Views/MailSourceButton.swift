@@ -5,13 +5,13 @@ struct MailSourceButton: View {
   let sender: String
   let date: String
   let subject: String
-  var icon: RemixGlyph = .mailLine
+  var icon: AppicaGlyph = .mail
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
       HStack(spacing: 8) {
-        RemixIcon(icon)
+        AppicaIcon(icon)
           .frame(width: 16).accessibilityHidden(true)
         Text(sender).lineLimit(1).truncationMode(.middle)
         if !date.isEmpty { Text(displayTime(date)).font(UIType.small).monospacedDigit().fixedSize() }
@@ -19,7 +19,7 @@ struct MailSourceButton: View {
         .controlLabel(size: .compact)
     }.buttonStyle(ControlFeedback()).controlFocus()
       .cossTooltip(sender == subject ? subject : "\(sender) · \(subject)")
-      .accessibilityLabel(date.isEmpty ? "\(icon == .attachment2 ? "依据附件" : "依据邮件")：\(subject)"
+      .accessibilityLabel(date.isEmpty ? "\(icon == .paperclip ? "依据附件" : "依据邮件")：\(subject)"
         : "依据邮件：\(sender)，\(displayTime(date))，\(subject)")
   }
 }

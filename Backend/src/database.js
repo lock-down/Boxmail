@@ -19,6 +19,7 @@ export class Repository {
     this.diagnostics = diagnostics;
     this.recordObservers = new Set();
     this.messageRevision = 0;
+    this.followUpRevision = 0;
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.directory = directory;
     this.db = new DatabaseSync(path.join(directory, 'boxmail.sqlite'));
@@ -123,7 +124,7 @@ export class Repository {
   }
   draftHeaders() {
     const accounts = new Map(this.list('account').map(account => [account.id, account]));
-    const rows = this.db.prepare(`SELECT json_set(json_remove(data,'$.forwardedText','$.forwardedHTML','$.bodyHTML','$.richText','$.remoteDraft','$.remotePending','$.preview'),
+    const rows = this.db.prepare(`SELECT json_set(json_remove(data,'$.forwardedText','$.forwardedHTML','$.bodyHTML','$.richText','$.signatureStart','$.remoteDraft','$.remotePending','$.preview'),
       '$.body','','$.bodyLoaded',json('false')) AS data,
       substr(coalesce(json_extract(data,'$.body'),''),1,8192) AS previewBody,
       substr(coalesce(json_extract(data,'$.forwardedText'),''),1,8192) AS previewForwarded
@@ -159,7 +160,7 @@ export class Repository {
     return recovered.length === 1 ? { kind: 'recovery', value: this.get('recovery', recovered[0].id) } : null;
   }
   syncMessageHeaders(accountId, remotePath) {
-    return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML','$.summary') AS data
+    return this.db.prepare(`SELECT json_remove(data,'$.body','$.html','$.translation','$.translationHTML','$.translations','$.summary') AS data
       FROM records WHERE kind='message' AND json_extract(data,'$.accountId')=?
       AND json_extract(data,'$.remotePath')=? ORDER BY id`).all(accountId, remotePath).map(row => JSON.parse(row.data));
   }
@@ -183,6 +184,7 @@ export class Repository {
           { ...details, phase: 'persist' }) } : {}) }));
     if (result.changes) for (const observer of this.recordObservers) observer({ kind, id: value.id, value: original });
     if (kind === 'message' && result.changes) { this.previewCache?.delete(value.id); this.messageRevision++; }
+    if (kind === 'followUp' && result.changes) this.followUpRevision++;
     if (kind === 'sync' && result.changes) this.onSyncProgress?.(value);
     if (result.changes && ['message', 'attachment', 'job'].includes(kind)) this.searchIndex?.schedule();
     return kind === 'attachment' ? loadAttachmentArchive(this, value) : value;
@@ -190,9 +192,10 @@ export class Repository {
   remove(kind, id) {
     if (kind === 'attachment' && !this.db.isTransaction) return this.transaction(() => this.remove(kind, id));
     if (kind === 'attachment') this.remove('archive', id);
-    this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id);
+    const result = this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id);
     for (const observer of this.recordObservers) observer({ kind, id, value: null });
     if (kind === 'message') { this.previewCache?.delete(id); this.messageRevision++; }
+    if (kind === 'followUp' && result.changes) this.followUpRevision++;
     if (['message', 'attachment', 'job'].includes(kind)) this.searchIndex?.schedule();
   }
   invalidateMessagePreviews() {
@@ -225,9 +228,10 @@ export class Repository {
       .prepare('SELECT * FROM events ORDER BY time DESC LIMIT 100')
       .all();
   }
-  messageWhere({ query = '', accountId, folder, filter, category } = {}) {
+  messageWhere({ query = '', accountId, folder, filter, category, labelId } = {}) {
     const parsed = parseSearch(query);
-    const { clauses, params } = searchWhere(parsed, { accountId, folder, filter, category, accounts: this.list('account') });
+    const label = labelId ? this.get('categoryCatalog', 'categories')?.items.find(item => item.id === labelId) || { id: labelId } : null;
+    const { clauses, params } = searchWhere(parsed, { accountId, folder, filter, category, label, accounts: this.list('account') });
     const fullText = this.searchIndex.where(parsed.terms);
     if (fullText.clause) { clauses.push(fullText.clause); params.push(...fullText.params); }
     return { where: clauses.join(' AND '), params };
@@ -299,14 +303,14 @@ export class Repository {
       .all(query.trim(), accountId).map(row => row.id);
   }
   attachmentPage(options) { return attachmentPage(this, options); }
-  messagePage({ accountId, folder, filter, category, query = '', offset = 0, limit = 100, groupBy, senderGroup, revealId }) {
+  messagePage({ accountId, folder, filter, category, labelId, query = '', offset = 0, limit = 100, groupBy, senderGroup, revealId }) {
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200)
       throw new ServiceError('邮件分页参数无效');
     const drafts = draftSearchPage(this, { query, accountId, folder, filter, offset, limit });
     if (drafts) return drafts;
     if (groupBy === 'sender' || senderGroup)
-      return senderMessagePage(this, { accountId, folder, filter, category, query, offset, limit, senderGroup, revealId });
-    const { where, params } = this.messageWhere({ accountId, folder, filter, category, query });
+      return senderMessagePage(this, { accountId, folder, filter, category, labelId, query, offset, limit, senderGroup, revealId });
+    const { where, params } = this.messageWhere({ accountId, folder, filter, category, labelId, query });
     const total = this.db.prepare(`SELECT COUNT(*) AS total FROM records m WHERE ${where}`).get(...params).total;
     const rows = this.db.prepare(`SELECT ${messageHeaderJSON('m.data')} AS data,
       ${messagePreviewColumns('m.data')}

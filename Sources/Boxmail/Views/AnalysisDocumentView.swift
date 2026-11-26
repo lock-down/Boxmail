@@ -41,7 +41,7 @@ struct AnalysisDocumentView: View {
     case .listItem:
       HStack(alignment: .top, spacing: 10) {
         if let checked = block.checked {
-          RemixIcon(checked ? .checkboxFill : .checkboxBlankLine, size: 13)
+          AppicaIcon(checked ? .squareCheckFilled : .square, size: UILayout.compactIconSize)
             .foregroundStyle(checked ? Palette.accent : Palette.muted).frame(width: 18, height: 20)
             .accessibilityRepresentation { Text(checked ? "已完成" : "未完成") }
         } else {

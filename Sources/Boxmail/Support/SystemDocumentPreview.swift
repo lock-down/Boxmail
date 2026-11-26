@@ -73,7 +73,7 @@ import Foundation
     ::selection { background: #eaf1fb; }
     ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
     ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; border: 0; box-shadow: none; }
-    ::-webkit-scrollbar-thumb { background: rgba(32,36,43,.3); border: 0; border-radius: 3px; box-shadow: none; }
+    ::-webkit-scrollbar-thumb { background: rgba(32,36,43,.3); border: 0; border-radius: 999px; box-shadow: none; }
     </style>
     """
 }

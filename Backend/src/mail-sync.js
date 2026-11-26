@@ -42,6 +42,7 @@ export async function mailboxMetadata(client, remotePath, options = {}) {
   if (validity == null || !/^\d+$/.test(String(validity))
     || (client.mailbox.path && client.mailbox.path !== remotePath))
     throw new ServiceError('服务器未确认邮件文件夹，本机缓存已保留，请重试同步。', 502);
+  const observedAt = Date.now();
   const status = await imapOperation(client,
     () => client.status(remotePath, { messages: true, uidValidity: true, uidNext: true }), { ...options, phase: 'inventory-status' });
   options.onInventory?.({ selectedCount, statusCount: status?.messages ?? null });
@@ -97,7 +98,7 @@ export async function mailboxMetadata(client, remotePath, options = {}) {
   }
   options.signal?.throwIfAborted();
   report(new Set());
-  return { fetched, validity: String(validity), uidNext: mailboxUIDNext(status.uidNext ?? client.mailbox?.uidNext) };
+  return { fetched, observedAt, validity: String(validity), uidNext: mailboxUIDNext(status.uidNext ?? client.mailbox?.uidNext) };
 }
 
 function retainInternalDate(remote, response) {

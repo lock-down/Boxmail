@@ -17,7 +17,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "BoxmailCore", resources: [.process("Resources")]),
-        .executableTarget(name: "Boxmail", dependencies: ["BoxmailCore"], resources: [.copy("Resources/RemixIcon")]),
+        .executableTarget(name: "Boxmail", dependencies: ["BoxmailCore"], resources: [.copy("Resources/AppicaIcon")]),
         .executableTarget(name: "BoxmailPresentationRenderer")
     ] + localTests,
     swiftLanguageModes: [.v5]

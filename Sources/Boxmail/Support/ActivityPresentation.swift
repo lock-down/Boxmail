@@ -43,20 +43,20 @@ enum ActivityPresentation {
 
   static func taskTitle(_ task: String) -> String {
     ["summary": "邮件总结", "reply": "AI 回复", "compose": "AI 写信",
-      "classify": "邮件整理", "attachment": "附件理解", "translate": "邮件翻译",
+      "classify": "邮件整理", "mailOrganization": "清单整理", "labelMatch": "试用标签", "attachment": "附件理解", "translate": "邮件翻译",
       "question": "邮件问答", "compare": "附件比较", "searchPlan": "搜索条件",
       "archiveSummary": "资料包总览", "conversationSummary": "会话总结", "conversationReply": "会话回复"][task] ?? task
   }
 
-  static func icon(_ event: AuditEvent) -> RemixGlyph {
+  static func icon(_ event: AuditEvent) -> AppicaGlyph {
     switch event.type {
-    case "send": .sendPlaneLine
-    case "send-warning": .alertLine
-    case "sync": .timeLine
-    case "draft": .editBoxLine
-    case "agent": .sparkling2Line
-    case "organize": .folderLine
-    default: .timeLine
+    case "send": .send
+    case "send-warning": .alertTriangle
+    case "sync": .clock
+    case "draft": .edit
+    case "agent": .sparkles
+    case "organize": .folder
+    default: .clock
     }
   }
 }

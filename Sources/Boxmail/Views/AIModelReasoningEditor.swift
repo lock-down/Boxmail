@@ -19,7 +19,7 @@ struct AIModelReasoningEditor: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack {
         Text("推理等级").font(UIType.caption).foregroundStyle(Palette.muted)
-        RemixIcon(.questionLine).foregroundStyle(Palette.muted)
+        AppicaIcon(.help).foregroundStyle(Palette.muted)
           .cossTooltip("声明该模型支持的等级及其发送值。Off 留空表示不发送推理参数。")
         Spacer()
         Toggle("启用推理等级", isOn: enabled).toggleStyle(CossToggleStyle(isSwitch: true, showsLabel: false)).controlSize(.mini)
@@ -49,7 +49,7 @@ struct AIModelReasoningEditor: View {
             WorkflowTextInput(label: "\(level) 推理发送值", placeholder: level == "off" ? "不发送参数" : level,
               text: wireValue(level), font: UIType.caption, surface: Palette.paper).disabled(level == "off")
               .frame(width: SettingsFormLayout.fieldWidth)
-            IconButton(icon: .subtractLine, help: "移除推理等级 \(level)") {
+            IconButton(icon: .minus, help: "移除推理等级 \(level)") {
               var values = model.reasoningEfforts?.values ?? [:]
               values.removeValue(forKey: level); model.reasoningEfforts = .mapping(values)
             }
@@ -65,7 +65,7 @@ struct AIModelReasoningEditor: View {
             }
           }
         } trigger: {
-          CossMenuLabel(title: "添加推理等级", icon: .addLine, size: .compact)
+          CossMenuLabel(title: "添加推理等级", icon: .plus, size: .compact)
         }.fixedSize().disabled(levels.count == AIReasoningEfforts.levels.count)
       }
     }.animation(UIMotion.disclosure(reduceMotion), value: enabled.wrappedValue)

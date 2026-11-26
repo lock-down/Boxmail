@@ -9,15 +9,10 @@ struct ContentView: View {
   @ViewState<Bool> private var usedStartupPage = false
   @ViewState private var windowZoom = WindowZoomController()
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @AppStorage("BoxmailSummaryPreview") private var summaryPreview = false
   @AppStorage("BoxmailGroupMailBySender") private var groupMailBySender = true
   var body: some View {
     GeometryReader { geometry in
       let compact = geometry.size.width < MainWindowLayout.sidebarThreshold
-      let workspaceWidth = geometry.size.width - UILayout.windowInset
-        - (compact ? UILayout.windowInset : UILayout.sidebar)
-      let inlineAssistant = workspaceWidth >= MainWindowLayout.inlineAssistantWidth
-      let showingAssistant = store.ready && store.assistant.isPresented
       let navigationIsOpen = compact && showingNavigation
       HStack(spacing: 0) {
         if !compact {
@@ -27,10 +22,10 @@ struct ContentView: View {
           header(compact: compact)
           VStack(spacing: 0) {
             if !store.search.isEmpty || store.mailSource != nil { sourceContext }
-            mailWorkspace(showingAssistant: showingAssistant, inlineAssistant: inlineAssistant)
+            workspace
             if store.mailChange != nil || store.mailActionError != nil { mailActionNotice }
           }
-          .framedSurface()
+          .framedSurface(radius: UILayout.workspaceRadius)
           .padding(.leading, compact ? UILayout.windowInset : 0)
           .padding([.trailing, .bottom], UILayout.windowInset)
         }
@@ -55,13 +50,14 @@ struct ContentView: View {
           .workspaceSheet(.settings)
       }
       .sheet(item: $store.composer) { draft in
-        ComposerView(store: store, initial: draft).borderlessScrollers()
+        ComposerView(store: store, initial: draft, sendPlan: store.composerSendPlan).borderlessScrollers()
           .workspaceSheet(.composer)
       }
       .sheet(item: $store.previewAttachment, onDismiss: { store.attachmentPreviewIds = []; store.attachmentPreviewIndex = 0; store.trimAttachmentCache(keeping: Array(store.retainedAttachmentIds)) }) { attachment in
         AttachmentPreviewView(store: store, attachmentId: attachment.id).borderlessScrollers()
           .workspaceSheet(.attachment)
       }
+      .sheet(isPresented: $store.showLabelManager) { CategoryManagerView(store: store).borderlessScrollers() }
       .sheet(isPresented: $activity) { ActivityView(store: store).borderlessScrollers() }
       .environment(\.workspaceViewport, geometry.size)
     }.foregroundStyle(Palette.ink).tint(Palette.accent).background(Palette.chrome).ignoresSafeArea(
@@ -70,17 +66,14 @@ struct ContentView: View {
     .borderlessScrollers()
     .toggleStyle(CossToggleStyle())
     .disclosureGroupStyle(SettingsDisclosureStyle())
-    .onAppear { store.changeSenderGrouping(groupMailBySender); store.showSummaryPreview = summaryPreview }
-    .onChange(of: store.showSummaryPreview) { _, value in summaryPreview = value }
+    .onAppear { store.changeSenderGrouping(groupMailBySender) }
     .task(id: store.ready) {
       guard store.ready else { return }
       await store.loadSavedSearches()
       while !Task.isCancelled {
         await store.observeWorkspaceChanges()
         await store.notifications.poll(store: store)
-        if store.destination == .outbox { await store.sendQueue.load() }
-        if store.destination == .followUps { await store.followUps.load() }
-        if store.destination == .rules { await store.rules.load() }
+        if [.drafts, .outbox].contains(store.destination) { await store.sendQueue.load() }
         do { try await Task.sleep(for: .seconds(1)) } catch { return }
       }
     }
@@ -119,33 +112,6 @@ struct ContentView: View {
       dismiss: { store.notice = nil })
   }
 
-  private func mailWorkspace(showingAssistant: Bool, inlineAssistant: Bool) -> some View {
-    let overlayAssistant = showingAssistant && !inlineAssistant
-    return workspace.disabled(overlayAssistant).accessibilityHidden(overlayAssistant)
-      .padding(.trailing, showingAssistant && inlineAssistant ? UILayout.assistant + 1 : 0)
-      .overlay {
-        if overlayAssistant { drawerBackdrop { store.assistant.isPresented = false } }
-      }
-      .overlay(alignment: .trailing) {
-        if showingAssistant {
-          assistantPanel(inline: inlineAssistant).compositingGroup()
-            .shadow(color: .black.opacity(overlayAssistant ? 0.14 : 0), radius: 12, x: -4)
-            .transition(reduceMotion || inlineAssistant ? .identity : .move(edge: .trailing))
-        }
-      }
-      .animation(UIMotion.disclosure(reduceMotion), value: overlayAssistant)
-  }
-
-  private func assistantPanel(inline: Bool) -> some View {
-    HStack(spacing: 0) {
-      CossSeparator(axis: .vertical)
-      AssistantWorkspaceView(store: store, workspace: store.assistant, dismissOnEscape: !inline) { id in
-        if !inline { store.assistant.isPresented = false }
-        store.openSourceMessage(id)
-      }.frame(width: UILayout.assistant)
-    }
-  }
-
   private func drawerBackdrop(close: @escaping () -> Void) -> some View {
     Color.black.opacity(0.20).contentShape(Rectangle())
       .onTapGesture(perform: close).accessibilityHidden(true)
@@ -157,14 +123,8 @@ struct ContentView: View {
       startupContent
     } else {
       switch store.destination {
-      case .followUps, .summary: searchableWorkspace { MailWorkbenchView(store: store) }
-      case .rules: RuleWorkspaceView(store: store, workspace: store.rules)
-      case .outbox: SendQueueView(store: store, workspace: store.sendQueue)
-      case .attachments: searchableWorkspace { AttachmentsView(store: store) }
-      case .organize: searchableWorkspace {
-        OrganizeView(store: store).id("\(store.accountId)-\(store.restoreRevision)")
-      }
-      case .drafts: searchableWorkspace { DraftsView(store: store) }
+      case .followUps, .summary: searchableWorkspace { ChecklistView(store: store, workspace: store.followUps) }
+      case .drafts, .outbox: searchableWorkspace { DraftsView(store: store) }
       default: mailSplit
       }
     }
@@ -180,22 +140,22 @@ struct ContentView: View {
   private var startupContent: some View {
     VStack(spacing: 16) {
       if let error = store.startupError {
-        RemixIcon(.errorWarningLine, size: 30).foregroundStyle(Palette.muted)
+        AppicaIcon(.infoCircle, size: 32).foregroundStyle(Palette.muted)
         Text("本机服务暂时无法启动").font(UIType.heading)
         Text(error).font(UIType.caption).foregroundStyle(Palette.muted)
           .multilineTextAlignment(.center).textSelection(.enabled)
           .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 480)
         HStack(spacing: 10) {
-          ActionButton(title: "打开数据设置", icon: .equalizer3Line) {
+          ActionButton(title: "打开数据设置", icon: .adjustments) {
             store.settingsTab = "高级"
             store.showSettings = true
           }
-          ActionButton(title: "重试", icon: .refreshLine, color: Palette.accent) {
+          ActionButton(title: "重试", icon: .refresh, color: Palette.accent) {
             Task { await store.load() }
           }
         }
       } else {
-        CossSpinner(size: 22)
+        CossSpinner(size: 24)
         Text(BackendService.shared.pendingDataDirectory == nil
           ? "正在启动本机邮件服务…" : "正在迁移本机数据，请保持磁盘连接…")
           .font(UIType.caption).foregroundStyle(Palette.muted)
@@ -208,14 +168,14 @@ struct ContentView: View {
       Group {
         if store.selectedMails.count > 1 {
           EmptyState(title: "已选择 \(store.selectedMails.count) 封邮件",
-            subtitle: "使用列表上方的操作批量归档、标记或删除邮件。", icon: .archiveStackLine)
+            subtitle: "使用列表上方的操作批量归档、标记或删除邮件。", icon: .stack2)
         } else if let message = store.selectedMessage,
           store.filteredMessages.contains(where: { $0.id == message.id })
         {
           if let error = store.detailError {
             VStack(spacing: 14) {
-              EmptyState(title: "邮件加载未完成", subtitle: error, icon: .mailLine)
-              ActionButton(title: "重新加载", icon: .refreshLine) {
+              EmptyState(title: "邮件加载未完成", subtitle: error, icon: .mail)
+              ActionButton(title: "重新加载", icon: .refresh) {
                 Task { await store.loadSelectedMessage() }
               }
             }
@@ -228,7 +188,7 @@ struct ContentView: View {
           }
         } else if !store.search.isEmpty && store.filteredMessages.isEmpty {
           EmptyState(
-            title: "暂无可预览内容", subtitle: "更换关键词或清除搜索，继续浏览邮件。", icon: .searchLine)
+            title: "暂无可预览内容", subtitle: "更换关键词或清除搜索，继续浏览邮件。", icon: .search)
         } else {
           EmptyState(
             title: store.filteredMessages.isEmpty ? "这里还没有邮件" : "选择一封邮件",
@@ -242,15 +202,15 @@ struct ContentView: View {
   private func header(compact: Bool) -> some View {
     HStack(spacing: 10) {
       if compact {
-        IconButton(icon: .sidebarUnfoldLine, help: "显示邮箱与账户") { showingNavigation = true }
-        IconButton(icon: .editBoxLine, help: "写邮件（Command-N）") { store.newDraft() }
+        IconButton(icon: .layoutSidebarLeftExpand, help: "显示邮箱与账户") { showingNavigation = true }
+        IconButton(icon: .edit, help: "写邮件（Command-N）") { store.newDraft() }
       }
       WindowTitlebarRegion(zoom: windowZoom)
         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity).layoutPriority(-1)
       HStack(spacing: 4) {
         SearchField(
           placeholder: "搜索邮件（含附件内容）", text: $store.search, focusRequest: store.searchFocusRequest)
-        IconButton(icon: .filter3Line, help: "组合条件搜索") { searchFilters = true }
+        IconButton(icon: .filter2, help: "组合条件搜索") { searchFilters = true }
           .cossPopover(isPresented: $searchFilters) {
             SearchFiltersView(store: store, dismiss: { searchFilters = false })
           }
@@ -258,29 +218,25 @@ struct ContentView: View {
       WindowTitlebarRegion(zoom: windowZoom)
         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity).layoutPriority(-1)
       HStack(spacing: 6) {
-        SelectionButton(title: "邮件助手", icon: .chatAiLine, selected: store.assistant.isPresented, size: .compact) {
-          store.assistant.isPresented.toggle()
-        }.disabled(!store.ready).keyboardShortcut("j", modifiers: [.command, .shift])
-          .cossTooltip("展开或收起右侧邮件助手（Command-Shift-J）")
         if store.busy.contains("sync") {
           CossSpinner().frame(width: 18).accessibilityLabel(store.syncProgressText)
-          IconButton(icon: .stopFill, help: "停止本次同步，保留已下载邮件") {
+          IconButton(icon: .playerStopFilled, help: "停止本次同步，保留已下载邮件") {
             Task { await store.cancelSync() }
           }.disabled(store.syncCancelInFlight)
         } else {
-          IconButton(icon: .loopRightLine, help: "同步所有账户") {
+          IconButton(icon: .refresh, help: "同步所有账户") {
             Task { await store.syncAll() }
           }
         }
-        IconButton(icon: .notification3Line, help: "活动记录") { activity = true }
-        IconButton(icon: .settings3Line, help: "设置") { store.showSettings = true }
+        IconButton(icon: .bell, help: "活动记录") { activity = true }
+        IconButton(icon: .settings, help: "设置") { store.showSettings = true }
       }.padding(.trailing, 14)
     }.padding(.leading, compact ? 80 : 16).frame(height: UILayout.toolbarHeight)
       .background(Palette.chrome)
   }
   private var sourceContext: some View {
     HStack(spacing: 12) {
-      ActionButton(title: store.mailSource?.returnTitle ?? "返回\(store.destination.title)", icon: .arrowLeftSLine) {
+      ActionButton(title: store.mailSource?.returnTitle ?? "返回\(store.destination.title)", icon: .chevronLeft) {
         if store.mailSource != nil { store.returnToMailSource() }
         else { store.search = "" }
       }
@@ -303,10 +259,10 @@ struct ContentView: View {
         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
       Spacer(minLength: 8)
       if store.mailChange?.undo.isEmpty == false {
-        ActionButton(title: "撤销", icon: .arrowGoBackLine, color: Palette.accent) { store.undoMailChange() }
+        ActionButton(title: "撤销", icon: .arrowBackUp, color: Palette.accent) { store.undoMailChange() }
           .disabled(store.mailActionInProgress).cossTooltip("撤销最近一次邮件操作（Command-Z）")
       }
-      IconButton(icon: .closeLine, help: "关闭邮件操作提示", size: 24) {
+      IconButton(icon: .x, help: "关闭邮件操作提示", size: 24) {
         store.mailChange = nil; store.mailActionError = nil
         store.mailUndoManager?.removeAllActions(withTarget: store)
       }.disabled(store.mailActionInProgress)

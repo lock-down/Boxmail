@@ -14,9 +14,9 @@ struct SettingsActionFeedback: View {
     } else if let feedback = action.feedback {
       switch feedback {
       case .success(let text):
-        WorkflowNotice(text: text, icon: .checkboxCircleLine, color: Palette.success)
+        WorkflowNotice(text: text, icon: .circleCheck, color: Palette.success)
       case .failure(let text):
-        WorkflowNotice(text: text, icon: .errorWarningLine, color: Palette.amber)
+        WorkflowNotice(text: text, icon: .infoCircle, color: Palette.amber)
       }
     }
   }

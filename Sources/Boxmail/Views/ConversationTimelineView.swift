@@ -11,7 +11,7 @@ struct ConversationTimelineView<SelectedContent: View>: View {
       if let conversation = store.conversation, store.conversationAnchor == selected.id, conversation.total > 1 {
         VStack(alignment: .leading, spacing: 7) {
           HStack {
-            Label("往来邮件 · \(conversation.total) 封", icon: .discussLine)
+            Label("往来邮件 · \(conversation.total) 封", icon: .messages)
               .font(UIType.section)
             Spacer()
             Text("当前邮件置顶 · 时间倒序").font(UIType.small).foregroundStyle(Palette.muted)
@@ -37,7 +37,7 @@ struct ConversationTimelineView<SelectedContent: View>: View {
           CossSeparator()
         }
         if conversation.nextOffset != nil {
-          ActionButton(title: "继续加载（已显示 \(conversation.messages.count) / \(conversation.total) 封）", icon: .arrowDownSLine, color: Palette.accent) {
+          ActionButton(title: "继续加载（已显示 \(conversation.messages.count) / \(conversation.total) 封）", icon: .chevronDown, color: Palette.accent) {
             Task { await store.loadConversation(reset: false) }
           }
         }
@@ -45,7 +45,7 @@ struct ConversationTimelineView<SelectedContent: View>: View {
       if let error = store.conversationError {
         VStack(alignment: .leading, spacing: 8) {
           Text("会话加载未完成：\(error)").font(UIType.small).foregroundStyle(Palette.amber)
-          ActionButton(title: "重新加载会话", icon: .refreshLine, color: Palette.accent) { Task { await store.loadConversation() } }
+          ActionButton(title: "重新加载会话", icon: .refresh, color: Palette.accent) { Task { await store.loadConversation() } }
         }
       }
     }
@@ -80,7 +80,7 @@ private struct ConversationMessageView: View {
               Text(header.preview).font(UIType.caption).foregroundStyle(Palette.muted).lineLimit(1)
             }
           }.frame(maxWidth: .infinity, alignment: .leading)
-          RemixIcon(expanded ? .arrowDownSLine : .arrowRightSLine, size: 10)
+          AppicaIcon(expanded ? .chevronDown : .chevronRight, size: UILayout.smallIconSize)
             .foregroundStyle(Palette.muted)
             .frame(width: 14, height: 32)
         }.foregroundStyle(Palette.ink).padding(12)
@@ -92,14 +92,14 @@ private struct ConversationMessageView: View {
             Text(message.senderEmail).font(UIType.small).foregroundStyle(Palette.muted).textSelection(.enabled)
             RecipientDetailsView(to: message.to, cc: message.cc)
             WrappingFlowLayout(spacing: 8) {
-              ActionButton(title: "回复此封", icon: .replyLine, color: Palette.accent) { store.newDraft(reply: message) }
-              ActionButton(title: "打开此封邮件", icon: .arrowRightUpLine) { store.openMail(message) }
+              ActionButton(title: "回复此封", icon: .arrowBackUp, color: Palette.accent) { store.newDraft(reply: message) }
+              ActionButton(title: "打开此封邮件", icon: .arrowUpRight) { store.openMail(message) }
               if message.folder == "trash" {
-                ActionButton(title: message.restoreTitle, icon: .arrowGoBackLine) { store.restore(message) }
+                ActionButton(title: message.restoreTitle, icon: .arrowBackUp) { store.restore(message) }
               } else if message.folder == "archive" {
-                ActionButton(title: "取消归档", icon: .arrowGoBackLine) { store.restore(message) }
+                ActionButton(title: "取消归档", icon: .arrowBackUp) { store.restore(message) }
               } else {
-                ActionButton(title: "归档", icon: .archiveLine) { store.update(message, ["folder": "archive"]) }
+                ActionButton(title: "归档", icon: .archive) { store.update(message, ["folder": "archive"]) }
               }
             }
             QuoteCollapsingBodyView(message: message, preferences: store.settings.preferences)
@@ -126,7 +126,7 @@ struct QuoteCollapsingBodyView: View {
       MailBodyView(message: message, preferences: preferences, collapseQuotes: hasQuotes && !showingQuotes,
         updatesTextOnly: updatesTextOnly)
       if hasQuotes {
-        ActionButton(title: showingQuotes ? "收起引用内容" : "显示引用内容", icon: .doubleQuotesL) { showingQuotes.toggle() }
+        ActionButton(title: showingQuotes ? "收起引用内容" : "显示引用内容", icon: .quote) { showingQuotes.toggle() }
       }
     }
   }

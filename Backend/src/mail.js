@@ -12,6 +12,7 @@ import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
 import { applyMailMutations, archiveRestoreFolder, discoverMailFolders, folderForPath, mailFolderNames, trashRestoreFolder, missingMailbox } from './mail-folders.js';
 import { clearTrash } from './mail-trash.js';
+import { replaceLegacyLabel } from './mail-labels.js';
 import { imapOperation, mailboxMetadata, mailboxUIDNext, messageSource, MessageSourceError } from './mail-sync.js';
 import { draftContent, inlineForwardImages } from './forward-content.js';
 import { MailContentWorker } from './mail-content-worker.js';
@@ -100,7 +101,7 @@ export async function syncAccount(
   { clientFactory = clientFor, batchSize = 200, folder: requestedFolder, signal,
     downloadBudgetMs = 20000, operationTimeoutMs = 45000, deferredSources = new Set(),
     sourceFailureStreaks = new Map(), inventories = new Map(), parseTimeoutMs = 60000,
-    contentWorker: suppliedWorker } = {},
+    contentWorker: suppliedWorker, onInboxInventory } = {},
 ) {
   let client = clientFactory(account, password);
   const reference = accountReference(account.id);
@@ -187,6 +188,7 @@ export async function syncAccount(
         }), createdAt: performance.now() };
         inventories.set(remotePath, inventory);
         const { fetched, validity } = inventory;
+        if (folder === 'inbox') onInboxInventory?.({ path: remotePath, validity, uidNext: inventory.uidNext, observedAt: inventory.observedAt });
         if (reusedInventory) {
           currentSync = { ...currentSync, inventory: { metadataCount: fetched.length,
             uidCount: fetched.length, metadataRequests: 0, reused: true }, updatedAt: new Date().toISOString() };
@@ -390,7 +392,12 @@ export async function syncAccount(
               message.summaryHidden = retained.original.summaryHidden;
               message.translation = retained.original.translation;
               message.translationHTML = retained.original.translationHTML;
+              message.translations = retained.original.translations;
               message.category = retained.original.category;
+              message.labels = retained.original.labels;
+              message.excludedLabels = retained.original.excludedLabels;
+              message.organizationRetained = true;
+              message.previousAttachmentSummary = retained.original.previousAttachmentSummary;
               // Older forwarded copies may still share ids with their source mail.
               await copyBorrowedAttachments(
                 repo, retained.original.attachmentIds || [], retained.original.id, {
@@ -531,7 +538,10 @@ function applyMessageUpdate(repo, id, input) {
       throw new ServiceError('状态格式错误');
     if (key === 'folder' && !Object.hasOwn(mailFolderNames, input[key]))
       throw new ServiceError('文件夹无效');
-    if (key === 'category') input[key] = required(input[key], '分类', 100);
+    if (key === 'category') {
+      Object.assign(message, replaceLegacyLabel(repo, message, required(input[key], '分类', 100)));
+      continue;
+    }
     let targetPath;
     if (key === 'folder') {
       if (message.folder === input[key]) continue;

@@ -9,9 +9,10 @@ struct SettingsView: View {
   @ViewState<Preferences> private var preferences = Preferences()
   @ViewState<[String: String]> private var aiKeys = [:]
   @ViewState<[String: String]> private var originalAIKeys = [:]
-  @ViewState<String> private var promptTab = "summary"
+  @ViewState<String> private var promptTab = "translate"
   @ViewState<String> private var aiSection = "模型与连接"
   @ViewState<MailAccount?> private var accountToEdit = nil
+  @ViewState private var signatureAccountId = ""
   @ViewState<String> private var status = ""
   @ViewState<Bool> private var loading = false
   @ViewState<Bool> private var transferringConfiguration = false
@@ -19,7 +20,7 @@ struct SettingsView: View {
   @ViewState<URL?> private var pendingDataDirectory = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Namespace private var settingsSelection
-  let tabs = ["常用", "账号", "AI 助手", "高级", "开发者"]
+  let tabs = ["常用", "账号", "邮箱规则", "AI", "高级", "开发者"]
   init(store: MailStore) {
     self.store = store
     _config = ViewState(wrappedValue: store.settings.ai)
@@ -35,7 +36,7 @@ struct SettingsView: View {
               .disabled(transferringConfiguration || loading)
           }
           Spacer()
-          IconButton(icon: .closeLine, help: "关闭设置") { dismiss() }
+          IconButton(icon: .x, help: "关闭设置") { dismiss() }
             .disabled(transferringConfiguration || loading)
         }.padding(.horizontal, 22).frame(height: 54).background(Palette.chrome)
         CossSeparator()
@@ -46,13 +47,15 @@ struct SettingsView: View {
           }
           settingsContent
         }
-        SettingsActionBar(
-          primaryTitle: loading ? "正在保存…" : "保存", isWorking: loading,
-          primaryDisabled: transferringConfiguration, cancelDisabled: transferringConfiguration,
-          cancel: { dismiss() }, primary: { save() }
-        ) {
-          if store.settingsTab == "账号" {
-            Text("账号在编辑窗口中单独保存").font(UIType.small).foregroundStyle(Palette.muted)
+        if store.settingsTab != "邮箱规则" {
+          SettingsActionBar(
+            primaryTitle: loading ? "正在保存…" : "保存", isWorking: loading,
+            primaryDisabled: transferringConfiguration, cancelDisabled: transferringConfiguration,
+            cancel: { dismiss() }, primary: { save() }
+          ) {
+            if store.settingsTab == "账号" {
+              Text("账号连接在编辑窗口中单独保存").font(UIType.small).foregroundStyle(Palette.muted)
+            }
           }
         }
       }
@@ -90,7 +93,7 @@ struct SettingsView: View {
       }
       .onChange(of: store.restoreRevision) { _, _ in
         config = store.settings.ai; preferences = store.settings.preferences
-        aiKeys = [:]; originalAIKeys = [:]; accountToEdit = nil
+        aiKeys = [:]; originalAIKeys = [:]; accountToEdit = nil; signatureAccountId = ""
       }
   }
   private var settingsSidebar: some View {
@@ -100,7 +103,7 @@ struct SettingsView: View {
           withAnimation(UIMotion.selection(reduceMotion)) { store.settingsTab = tab }
         } label: {
           HStack(spacing: 11) {
-            RemixIcon(icon(tab), size: 14)
+            AppicaIcon(icon(tab), size: UILayout.iconSize)
               .frame(width: 20, height: 20).accessibilityHidden(true)
             Text(tab)
             Spacer()
@@ -133,7 +136,7 @@ struct SettingsView: View {
       Text(
         "Boxmail · \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"
       ).font(.system(size: 11)).foregroundStyle(Palette.muted)
-    }.padding(14).frame(width: 190).background(Palette.sidebar)
+    }.padding(UILayout.windowInset).frame(width: 190).background(Palette.sidebar)
   }
   private var settingsContent: some View {
     OverlayScrollView {
@@ -145,26 +148,27 @@ struct SettingsView: View {
               .fixedSize(horizontal: false, vertical: true)
           }
           Spacer()
-          if store.settingsTab == "AI 助手" {
-            Toggle("启用 AI 助手", isOn: $config.enabled).toggleStyle(CossToggleStyle(isSwitch: true)).font(
+          if store.settingsTab == "AI" {
+            Toggle("启用 AI", isOn: $config.enabled).toggleStyle(CossToggleStyle(isSwitch: true)).font(
               .system(size: 12)
             ).controlSize(.small).fixedSize().padding(.top, 4)
           }
         }
         switch store.settingsTab {
-        case "AI 助手": aiSettings
+        case "AI": aiSettings
         case "账号": accountSettings
+        case "邮箱规则": RuleManagementView(store: store, workspace: store.rules)
         case "常用": generalSettings
         case "开发者": DeveloperSettingsView(store: store)
         default: advancedSettings
         }
         if !status.isEmpty {
-          Label(status, icon: statusFailed ? .errorWarningLine : .informationLine)
+          Label(status, icon: statusFailed ? .infoCircle : .infoCircle)
             .font(.system(size: 12))
             .foregroundStyle(statusFailed ? Palette.destructive : Palette.muted)
           .textSelection(.enabled).lineSpacing(4).padding(12)
           .frame(maxWidth: .infinity, alignment: .leading).background(
-            Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
+            Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
         }
       }.frame(maxWidth: 720, alignment: .leading).padding(24).frame(
         maxWidth: .infinity, alignment: .leading)
@@ -175,20 +179,22 @@ struct SettingsView: View {
   }
   private var subtitle: String {
     switch store.settingsTab {
-    case "AI 助手": return "配置模型接口与默认提示词，为邮件总结、回复、整理和附件解析提供能力"
-    case "账号": return "使用邮箱授权码连接 IMAP 和 SMTP，凭证保存在本机 .env 文件"
-    case "常用": return "同步频率、阅读行为与邮件签名"
+    case "AI": return "配置清单整理、翻译与写作使用的模型和提示词"
+    case "账号": return "连接邮箱并设置发信签名"
+    case "邮箱规则": return "设置收信条件和邮箱动作，预览匹配后运行"
+    case "常用": return "同步与阅读偏好"
     case "开发者": return "导出同步与 API 运行日志，帮助定位异常和性能问题"
     default: return "管理本机数据、诊断与同步状态"
     }
   }
-  private func icon(_ tab: String) -> RemixGlyph {
+  private func icon(_ tab: String) -> AppicaGlyph {
     switch tab {
-    case "常用": .settings3Line
-    case "账号": .userLine
-    case "高级": .equalizer3Line
-    case "开发者": .hammerLine
-    default: .sparkling2Line
+    case "常用": .settings
+    case "账号": .user
+    case "邮箱规则": .filter2
+    case "高级": .adjustments
+    case "开发者": .hammer
+    default: .sparkles
     }
   }
   private var aiSettings: some View {
@@ -209,12 +215,8 @@ struct SettingsView: View {
         WrappingFlowLayout(spacing: 6) {
           ForEach(
             [
-              ("summary", "邮件总结"), ("reply", "自动回复"), ("classify", "智能整理"), ("attachment", "附件解析"),
-              ("compose", "AI 写信"),
-              ("translate", "邮件翻译"),
-              ("conversationSummary", "会话总结"), ("conversationReply", "会话回复"),
-              ("question", "邮件问答"), ("compare", "附件比较"),
-              ("archiveSummary", "资料包总览"),
+              ("translate", "邮件翻译"), ("compose", "帮我写"),
+              ("reply", "基于原邮件回复"), ("conversationReply", "参考会话回复"),
             ], id: \.0
           ) { item in
             SelectionButton(title: item.1, selected: promptTab == item.0, size: .compact) {
@@ -228,9 +230,9 @@ struct SettingsView: View {
             set: { config.prompts[promptTab] = $0 }),
           fontSize: 13, inset: .init(width: 5, height: 5), accessibilityLabel: "AI 默认提示词"
         ).frame(height: 160).padding(12)
-          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
           .id(promptTab)
-        Text("已预设每类任务的提示词，可自定义语气和分析要求。清空后保存会恢复默认。邮件内容、图片和文档内容会发送至你配置的 AI 服务。").font(
+        Text("清空提示词后保存会恢复默认。翻译和写作会将对应范围的内容提交给已配置的服务商。").font(
           .system(size: 11)
         )
         .foregroundStyle(Palette.muted)
@@ -257,8 +259,8 @@ struct SettingsView: View {
               Tag(text: "演示数据")
             } else {
               ActionButton(title: "编辑") { accountToEdit = account }
-              IconMenu(icon: .moreLine, help: "账号更多操作") {
-                CossMenuItem.command("移除账号…", icon: .deleteBin6Line, destructive: true) { removingAccount = account }
+              IconMenu(icon: .dots, help: "账号更多操作") {
+                CossMenuItem.command("移除账号…", icon: .trash, destructive: true) { removingAccount = account }
               }
             }
           }.padding(16)
@@ -266,8 +268,9 @@ struct SettingsView: View {
             CossSeparator().padding(.leading, 58)
           }
         }
-      }.background(Palette.paper, in: RoundedRectangle(cornerRadius: 8))
-      ActionButton(title: "添加邮箱", icon: .addLine, emphasis: .secondary) { accountToEdit = MailAccount() }
+      }.background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+      ActionButton(title: "添加邮箱", icon: .plus, emphasis: .secondary) { accountToEdit = MailAccount() }
+      signatureSettings
     }
   }
   private var generalSettings: some View {
@@ -275,16 +278,15 @@ struct SettingsView: View {
       syncSettings
       readSettings
       NotificationPreferencesView(preferences: $preferences, coordinator: store.notifications)
-      composeSettings
       spamSettings
     }
   }
   private var syncSettings: some View {
-    SectionCard(title: "邮箱同步", icon: .loopRightLine, contentSpacing: 12) {
+    SectionCard(title: "邮箱同步", icon: .refresh, contentSpacing: 12) {
       HStack(spacing: 16) {
         WorkflowStepper(title: "自动同步间隔", value: $preferences.syncMinutes, range: 1...60, unit: "分钟")
         Spacer(minLength: 0)
-        ActionButton(title: "立即同步", icon: .refreshLine, color: Palette.accent) {
+        ActionButton(title: "立即同步", icon: .refresh, color: Palette.accent) {
           Task { await store.syncAll() }
         }.disabled(store.busy.contains("sync"))
       }
@@ -295,18 +297,35 @@ struct SettingsView: View {
         .font(.system(size: 12)).foregroundStyle(Palette.muted)
     }
   }
-  private var composeSettings: some View {
-    SectionCard(title: "邮件签名", icon: .quillPenLine) {
-      PlainTextEditor(text: $preferences.signature, fontSize: 13, inset: .init(width: 4, height: 4),
-        accessibilityLabel: "邮件签名").frame(height: 144).padding(12).background(
-        Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
-        .frame(maxWidth: 620, alignment: .leading)
-      Text("新邮件会自动附上签名。草稿在停止输入后自动保存到本机；发送前始终需要确认。").font(.system(size: 12)).foregroundStyle(
-        Palette.muted)
+  private var signatureSettings: some View {
+    let signature = Binding(
+      get: { preferences.accountSignatures?[signatureAccountId] ?? preferences.signature },
+      set: { value in
+        if signatureAccountId.isEmpty { preferences.signature = value }
+        else {
+          var signatures = preferences.accountSignatures ?? [:]
+          signatures[signatureAccountId] = value
+          preferences.accountSignatures = signatures
+        }
+      })
+    return SectionCard(title: "邮件签名", icon: .feather) {
+      HStack(spacing: 8) {
+        WorkflowSelection(title: "应用签名的邮件账户", selection: $signatureAccountId,
+          options: [("", "默认签名")] + store.accounts.map { ($0.id, $0.email) })
+          .frame(width: 270)
+        if !signatureAccountId.isEmpty, preferences.accountSignatures?[signatureAccountId] != nil {
+          ActionButton(title: "使用默认签名") { preferences.accountSignatures?.removeValue(forKey: signatureAccountId) }
+        }
+      }
+      PlainTextEditor(text: signature, fontSize: 13, inset: .init(width: 4, height: 4),
+        accessibilityLabel: "邮件签名").frame(height: 120).padding(12).background(
+          Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+      Text(signatureAccountId.isEmpty ? "未设置单独签名的账户使用此签名。" : "保存后用于该账户新建的草稿。")
+        .font(UIType.caption).foregroundStyle(Palette.muted)
     }
   }
   private var readSettings: some View {
-    SectionCard(title: "阅读行为", icon: .mailOpenLine) {
+    SectionCard(title: "阅读行为", icon: .mailOpened) {
       Toggle("打开邮件时标记为已读", isOn: $preferences.markRead).font(.system(size: 13))
       WorkflowStepper(title: "正文字号", value: $preferences.fontSize, range: 12...24, unit: "pt")
       Toggle("屏蔽远程图片", isOn: $preferences.blockRemoteImages).font(.system(size: 13))
@@ -331,7 +350,7 @@ struct SettingsView: View {
       ConfigurationSettingsView(store: store, transferring: $transferringConfiguration)
       BackupSettingsView(store: store).disabled(transferringConfiguration)
       SearchIndexSettingsView(store: store).disabled(transferringConfiguration)
-      SectionCard(title: "运行诊断", icon: .stethoscopeLine) {
+      SectionCard(title: "运行诊断", icon: .stethoscope) {
         Text(
           "本机服务：\(store.ready ? "已连接" : "未连接")\n待同步更改：\(store.pendingMutations) 项\n应用版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版")"
         )

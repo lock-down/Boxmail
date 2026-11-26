@@ -29,14 +29,14 @@ struct CalendarMonthView: View {
   var body: some View {
     VStack(spacing: 12) {
       HStack(spacing: 8) {
-        IconButton(icon: .arrowLeftSLine, help: "上个月") { moveMonth(-1) }
+        IconButton(icon: .chevronLeft, help: "上个月") { moveMonth(-1) }
         HStack(spacing: 24) {
           WorkflowSelection(title: "日历年份", selection: yearSelection,
             options: (max(1, year - 50)...min(9999, year + 20)).map { ($0, "\($0) 年") }, style: .inline)
           WorkflowSelection(title: "日历月份", selection: monthSelection,
             options: (1...12).map { ($0, "\($0) 月") }, style: .inline)
         }
-        IconButton(icon: .arrowRightSLine, help: "下个月") { moveMonth(1) }
+        IconButton(icon: .chevronRight, help: "下个月") { moveMonth(1) }
       }.frame(height: 32)
       HStack(spacing: 4) {
         ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) { day in
@@ -68,12 +68,12 @@ struct CalendarMonthView: View {
         .foregroundStyle(selected ? Palette.primaryForeground : Palette.ink)
         .frame(maxWidth: .infinity).frame(height: 32)
         .background(today && !selected ? Palette.sidebar : .clear,
-          in: RoundedRectangle(cornerRadius: UILayout.controlRadius))
+          in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
     }.buttonStyle(ControlFeedback(emphasis: selected ? .primary : .plain))
       .focusable().focusEffectDisabled().focused($focusedDay, equals: date)
       .overlay {
         if focusedDay == date {
-          RoundedRectangle(cornerRadius: UILayout.controlRadius)
+          RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
             .strokeBorder(Palette.accent, lineWidth: 2).allowsHitTesting(false)
         }
       }

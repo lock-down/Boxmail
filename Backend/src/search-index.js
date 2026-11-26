@@ -55,6 +55,8 @@ export class SearchIndex {
       'html',substr(json_extract(data,'$.html'),1,?),
       'body',substr(coalesce(json_extract(data,'$.body'),''),1,?),
       'translation',substr(coalesce(json_extract(data,'$.translation'),''),1,65536),
+      'translations',substr((SELECT group_concat(substr(json_extract(value,'$.text'),1,65536),char(10))
+        FROM json_each(records.data,'$.translations')),1,65536),
       'summary',json(CASE WHEN length(json_extract(data,'$.summary'))<=65536
         THEN coalesce(json_extract(data,'$.summary'),'null') ELSE 'null' END)) AS data
       FROM records WHERE kind='message' AND id=?`).get(MAX_INDEX_TEXT, MAX_INDEX_TEXT, id);
@@ -70,7 +72,7 @@ export class SearchIndex {
         key = db.prepare('SELECT rowid FROM search_documents WHERE message_id=?').get(id);
       }
       let text = [message.subject, message.sender, message.senderEmail, message.to, message.cc,
-        message.bcc, message.body, message.category, message.translation, humanText(message.summary),
+        message.bcc, message.body, message.category, message.translation, message.translations, humanText(message.summary),
       ].filter(Boolean).join('\n');
       const related = db.prepare(`SELECT kind,CASE WHEN kind='attachment' THEN
         substr(coalesce(json_extract(data,'$.name'),'')||char(10)||coalesce(json_extract(data,'$.text'),'')

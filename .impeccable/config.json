@@ -20,6 +20,33 @@
         ],
         "createdAt": "2026-10-28T08:06:57.386Z",
         "reason": "Codex: this file sanitizes arbitrary incoming email HTML; line 75 is a regex detecting remote image URLs, not a product image with an empty source."
+      },
+      {
+        "rule": "wide-tracking",
+        "value": "*",
+        "files": [
+          "website/index.html"
+        ],
+        "createdAt": "2026-11-17T03:54:06.112Z",
+        "reason": "Agent: Browser inspection at 1447px and 390px shows the matched tracking belongs to the existing short figure/section labels, not reading paragraphs; the documentation edit retains the website typography."
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "website/index.html"
+        ],
+        "createdAt": "2026-11-17T03:54:06.175Z",
+        "reason": "Agent: The same 21 detections occur in the pre-edit snapshot. Desktop/mobile text-range measurements confirm inner containers and flex/grid centering provide insets: sections 64px/18px, captions 14-19px vertically, context core 28-40px vertically, and FAQ 52px+ from the top border. Screenshot images intentionally meet their frame edges; text does not."
+      },
+      {
+        "rule": "gpt-thin-border-wide-shadow",
+        "value": "*",
+        "files": [
+          "website/index.html"
+        ],
+        "createdAt": "2026-11-17T03:54:06.234Z",
+        "reason": "Agent: The unchanged download illustration uses a faint image-edge outline and diffuse shadow on the real Boxmail app icon. This is an existing icon presentation, not a text card with duplicated container elevation."
       }
     ]
   }

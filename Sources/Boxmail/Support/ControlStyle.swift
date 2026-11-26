@@ -53,9 +53,11 @@ struct ControlFeedback: ButtonStyle {
   var selected = false
   var emphasis: ButtonEmphasis = .plain
   var corner: CGFloat = UILayout.controlRadius
+  var showsInteractionBackground = true
 
   func makeBody(configuration: Configuration) -> some View {
-    FeedbackBody(configuration: configuration, selected: selected, emphasis: emphasis, corner: corner)
+    FeedbackBody(configuration: configuration, selected: selected, emphasis: emphasis,
+      corner: corner, showsInteractionBackground: showsInteractionBackground)
   }
 
   private struct FeedbackBody: View {
@@ -63,6 +65,7 @@ struct ControlFeedback: ButtonStyle {
     let selected: Bool
     let emphasis: ButtonEmphasis
     let corner: CGFloat
+    let showsInteractionBackground: Bool
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewState<Bool> private var hovered = false
@@ -79,7 +82,8 @@ struct ControlFeedback: ButtonStyle {
           shape.fill(
             (emphasis.isSolid ? Palette.primaryForeground : selected ? Palette.accent : Palette.ink).opacity(
               ControlStateAppearance.overlayOpacity(
-                enabled: enabled, pressed: configuration.isPressed, hovered: hovered, emphasis: emphasis)
+                enabled: enabled && showsInteractionBackground,
+                pressed: configuration.isPressed, hovered: hovered, emphasis: emphasis)
             )
           ).allowsHitTesting(false)
         }
@@ -89,7 +93,7 @@ struct ControlFeedback: ButtonStyle {
           }
         }
         .opacity(enabled ? 1 : ControlStateAppearance.disabledOpacity)
-        .onHover { hovered = $0 }
+        .onHover { hovered = showsInteractionBackground && $0 }
         .animation(UIMotion.feedback(reduceMotion), value: hovered)
         .animation(UIMotion.feedback(reduceMotion), value: configuration.isPressed)
     }
@@ -104,9 +108,9 @@ private struct ControlFocus: ViewModifier {
   func body(content: Content) -> some View {
     content.focused($focused).overlay {
       if focused && enabled {
-        RoundedRectangle(cornerRadius: corner + 3, style: .continuous)
+        RoundedRectangle(cornerRadius: corner + 4, style: .continuous)
           .stroke(Palette.accent.opacity(ControlStateAppearance.focusOpacity), lineWidth: 2)
-          .padding(-3).allowsHitTesting(false)
+          .padding(-4).allowsHitTesting(false)
       }
     }.preference(key: CossControlFocusKey.self, value: focused && enabled)
   }

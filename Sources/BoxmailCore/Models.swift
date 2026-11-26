@@ -37,7 +37,9 @@ public struct MailMessage: Codable, Identifiable, Hashable {
     category: String
   public var unread, starred: Bool
   public var attachmentIds: [String]
+  public var labels: [String: String]?
   public var summary: MailSummary?
+  public var previousAttachmentSummary: MailSummary?
   public var summaryHidden: Bool?
   public var isInSummaryOverview: Bool { summary != nil && summaryHidden != true && folder != "trash" }
   public var messageId: String?
@@ -47,6 +49,7 @@ public struct MailMessage: Codable, Identifiable, Hashable {
   public var uid: Int?
   public var translation: String?
   public var translationHTML: String?
+  public var translations: [String: MailTranslationResult]?
   public var replyTo, inReplyTo: String?
   public var references: [String]?
   public var bodyLoaded: Bool?
@@ -158,6 +161,7 @@ public struct MailDraft: Codable, Identifiable, Hashable {
   public var forwardedHTML, forwardedText: String?
   public var bodyHTML: String?
   public var richText: RichTextDocument?
+  public var signatureStart: Int?
   public var revision, syncState, syncError, conflictOf: String?
   public var attachmentIds: [String]
   public var inReplyTo, sourceMessageId: String?
@@ -170,12 +174,14 @@ public struct MailDraft: Codable, Identifiable, Hashable {
     header.forwardedText = nil
     header.bodyHTML = nil
     header.richText = nil
+    header.signatureStart = nil
     header.bodyLoaded = false
     return header
   }
   public func hasSameContent(as other: MailDraft) -> Bool {
     id == other.id && accountId == other.accountId && to == other.to && cc == other.cc
       && bcc == other.bcc && subject == other.subject && body == other.body && richText == other.richText
+      && signatureStart == other.signatureStart
       && forwardedHTML == other.forwardedHTML && forwardedText == other.forwardedText
       && attachmentIds == other.attachmentIds && inReplyTo == other.inReplyTo && references == other.references
   }
@@ -210,7 +216,7 @@ public struct SettingsData: Codable {
 }
 public struct AgentJob: Codable, Identifiable {
   public var id, task, status, createdAt: String
-  public var messageId, error, accountId, attachmentId, replyPreset: String?
+  public var messageId, error, accountId, attachmentId, replyPreset, targetLanguage: String?
   public var preview: Bool?
   public var result: AgentResult?
   public var progress: OrganizeProgress?
@@ -240,7 +246,7 @@ public enum MailAITab: String, CaseIterable, Identifiable {
 }
 public struct AgentResult: Codable {
   public var context: MailAIContext?
-  public var subject, body, draftId, text: String?
+  public var subject, body, draftId, text, html: String?
   public var items: [Classification]?
   public var progress, openItems, conversationNextSteps: [ConversationFinding]?
   public var conversationId, contextFingerprint, replyMessageId: String?
@@ -325,7 +331,7 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     case .organize: return "智能整理"
     case .analysis: return "附件解析"
     case .archive: return "已归档"
-    case .followUps: return "跟进"
+    case .followUps: return "清单"
     case .rules: return "规则与用量"
     case .outbox: return "发送管理"
     case .spam: return "垃圾邮件"

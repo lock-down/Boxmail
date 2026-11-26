@@ -28,7 +28,7 @@ public enum MailHTMLDocument {
       #mail-content a { color: #246de3; }
       ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
       ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; border: 0; box-shadow: none; }
-      ::-webkit-scrollbar-thumb { background: rgba(32,36,43,.3); border: 0; border-radius: 3px; box-shadow: none; }
+      ::-webkit-scrollbar-thumb { background: rgba(32,36,43,.3); border: 0; border-radius: 999px; box-shadow: none; }
       #mail-content .boxmail-recipient-label { width: 1%; min-width: 4em; white-space: nowrap !important; word-break: normal !important; overflow-wrap: normal !important; writing-mode: horizontal-tb !important; vertical-align: top; padding-right: 10px; }
       #mail-content li.boxmail-recipient-row { list-style: none; }
       #mail-content .boxmail-recipient-slot { display: inline-block; vertical-align: top; width: 100%; height: 28px; }

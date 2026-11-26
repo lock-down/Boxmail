@@ -40,7 +40,7 @@ export function parseSearch(query = '') {
   return result;
 }
 
-export function searchWhere(parsed, { accountId, folder, filter, category, accounts = [] } = {}) {
+export function searchWhere(parsed, { accountId, folder, filter, category, label, accounts = [] } = {}) {
   const clauses = ["m.kind='message'"], params = [];
   const add = (sql, value) => { clauses.push(sql); if (value !== undefined) params.push(value); };
   if (accountId && !parsed.conditions.some(item => item.field === 'account')) add("json_extract(m.data,'$.accountId')=?", accountId);
@@ -68,6 +68,17 @@ export function searchWhere(parsed, { accountId, folder, filter, category, accou
       : `json_extract(m.data,'$.unread')=${value.toLowerCase() === 'unread' ? 1 : 0}`);
   }
   if (category) add("coalesce(json_extract(m.data,'$.category'),'未分类')=?", category);
+  if (label) {
+    if (label.id === 'unclassified') {
+      add(`CASE WHEN json_type(m.data,'$.labels')='object'
+        THEN NOT EXISTS (SELECT 1 FROM json_each(m.data,'$.labels'))
+        ELSE coalesce(json_extract(m.data,'$.category'),'未分类')='未分类' END`);
+    } else if (label.name) {
+      clauses.push(`(EXISTS (SELECT 1 FROM json_each(m.data,'$.labels') WHERE key=?)
+        OR (coalesce(json_type(m.data,'$.labels'),'null')='null' AND json_extract(m.data,'$.category')=?))`);
+      params.push(label.id, label.name);
+    } else add('0');
+  }
   if (filter === '未读') add("json_extract(m.data,'$.unread')=1");
   if (filter === '有附件') add("json_array_length(json_extract(m.data,'$.attachmentIds'))>0");
   if (filter === 'AI 已总结') add("json_type(m.data,'$.summary')='object'");

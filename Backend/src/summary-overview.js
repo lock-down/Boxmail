@@ -1,4 +1,5 @@
 import { ServiceError } from './validation.js';
+import { FollowUps } from './follow-ups.js';
 
 // Overview membership is independent of the saved summary and its todos.
 export function setSummaryVisibility(repo, input) {
@@ -22,8 +23,11 @@ export function setSummaryVisibility(repo, input) {
   }
   const changed = messages.filter(message => (message.summaryHidden === true) !== input.hidden);
   const ids = new Set(changed.map(message => message.id));
+  const followUps = new FollowUps(repo);
   repo.transaction(() => {
     for (const message of changed) repo.put('message', { ...message, summaryHidden: input.hidden });
+    for (const item of repo.list('followUp', { accountId: input.accountId }))
+      if (ids.has(item.messageId) && item.collected === false && item.snoozedUntil) followUps.updateSnooze(item);
     // Pending folder reconciliation carries the membership along with the original mail.
     for (const kind of ['relocation', 'recovery']) {
       for (const record of repo.list(kind)) {

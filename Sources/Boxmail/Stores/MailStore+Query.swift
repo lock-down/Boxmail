@@ -5,9 +5,11 @@ extension MailStore {
   var supportsUnifiedScope: Bool { [.inbox, .starred, .sent, .archive, .spam, .trash].contains(destination) }
   var mailQuery: MailQuery {
     .init(accountId: (unifiedInbox && supportsUnifiedScope) || (!search.isEmpty && searchAllAccounts) ? nil : accountId,
-      folder: [.followUps, .rules, .outbox, .attachments, .organize].contains(destination) ? "inbox" : destination.rawValue, query: search, filter: filter, category: listCategory.isEmpty ? nil : listCategory)
+      folder: [.followUps, .rules, .outbox, .attachments, .organize].contains(destination) ? "inbox" : destination.rawValue, query: search, filter: filter, category: listCategory.isEmpty ? nil : listCategory, labelId: listLabelID)
   }
-  var scopeTitle: String { unifiedInbox && supportsUnifiedScope ? "所有账户" : currentAccount?.sidebarName ?? "邮箱" }
+  var scopeTitle: String {
+    unifiedInbox && (supportsUnifiedScope || destination == .followUps) ? "所有账户" : currentAccount?.sidebarName ?? "邮箱"
+  }
   func loadSavedSearches() async {
     do { savedSearches = try await backend.request("/saved-searches") }
     catch { self.error = error.localizedDescription }
@@ -26,8 +28,11 @@ extension MailStore {
     if let account = query.accountId { accountId = account }
     unifiedInbox = query.accountId == nil
     searchAllAccounts = query.accountId == nil
-    destination = MailDestination(rawValue: query.folder) ?? .inbox
+    let target = MailDestination(rawValue: query.folder) ?? .inbox
+    destination = target == .summary ? .followUps : target
     search = query.query; filter = query.filter; listCategory = query.category ?? ""
+    listLabelID = query.labelId
+    labelReturnSource = nil
     activeSavedSearchId = saved.id
   }
   func removeSavedSearch(_ id: String) async {

@@ -82,6 +82,8 @@ extension MailStore {
       keepSelection, let header = messages.first(where: { $0.id == id }),
       mailQuery.accountId == nil || header.accountId == mailQuery.accountId,
       mailQuery.category == nil || mailQuery.category == header.category,
+      mailQuery.labelId == nil || labels(for: header).contains(where: { $0.id == mailQuery.labelId })
+        || mailQuery.labelId == "unclassified" && labels(for: header).isEmpty,
       search.isEmpty || selectionWasInQuery || pinnedQueryKey == key,
       !search.isEmpty
         || (destination == .starred
@@ -138,10 +140,11 @@ extension MailStore {
       try Task.checkCancellation()
       guard revision == restoreRevision else { return }
       cacheAttachment(full)
+      attachmentLoadErrors.remove(id)
     } catch is CancellationError {
     } catch {
-      if revision == restoreRevision, retainedAttachmentIds.contains(id), let selectedMessageId {
-        mailAIErrors[selectedMessageId] = "附件内容加载失败，可重新打开邮件重试。"
+      if revision == restoreRevision, retainedAttachmentIds.contains(id) {
+        attachmentLoadErrors.insert(id)
       }
     }
   }

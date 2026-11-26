@@ -3,7 +3,7 @@ import SwiftUI
 /// Standalone choices and filter groups share the same control, including moving highlights.
 struct SelectionButton: View {
   let title: String
-  var icon: RemixGlyph? = nil
+  var icon: AppicaGlyph? = nil
   var selected = false
   var size: UIControlSize = .regular
   var fillsWidth = false

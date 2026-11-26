@@ -4,12 +4,19 @@ import Foundation
 struct WorkspaceStatusSnapshot: Decodable, Equatable {
   let messageRevision: Int
   let snoozes, sendPlans: [String]
+  let followUpRevision, dueFollowUpCount: Int?
 }
 
 extension MailStore {
   func observeWorkspaceChanges() async {
     do {
       let status: WorkspaceStatusSnapshot = try await backend.request("/workspace-status", timeout: 8)
+      if lastWorkspaceStatus.map({ previous in
+        previous.messageRevision != status.messageRevision || previous.followUpRevision != status.followUpRevision
+          || previous.dueFollowUpCount != status.dueFollowUpCount || previous.snoozes != status.snoozes
+      }) ?? true {
+        followUps.revision += 1
+      }
       let changed = status.messageRevision != lastMessageRevision || (lastWorkspaceStatus.map { $0.snoozes != status.snoozes || $0.sendPlans != status.sendPlans } ?? false)
       lastWorkspaceStatus = status
       if changed && !busy.contains("sync") { try await refresh(reloadContent: false) }
@@ -19,18 +26,6 @@ extension MailStore {
     } catch { backend.diagnostics.record("workspace.refresh.failed", RuntimeDiagnostics.errorFields(error)) }
   }
 
-  func attachmentWorkspace() -> AttachmentPageStore {
-    if let workspace = attachmentWorkspaces[accountId] { return workspace }
-    let workspace = AttachmentPageStore(backend: backend, accountId: accountId)
-    attachmentWorkspaces[accountId] = workspace
-    return workspace
-  }
-  func showAttachments(from message: MailMessage) {
-    accountId = message.accountId
-    let workspace = attachmentWorkspace()
-    workspace.sourceMessageId = message.id; workspace.query = ""; workspace.type = "全部"
-    navigate(.attachments)
-  }
   func previewFile(_ attachment: MailAttachment) {
     let revision = restoreRevision
     Task {
@@ -54,17 +49,18 @@ extension MailStore {
       } catch { if revision == restoreRevision { self.error = error.localizedDescription } }
     }
   }
-  func openSourceMessage(_ id: String) {
+  func openSourceMessage(_ id: String, tab: MailAITab? = nil) {
     let source = captureSourceContext()
     Task {
       do {
         let message: MailMessage = try await backend.request("/messages/\(id)")
-        guard source.destination == destination, source.accountId == accountId else { return }
+        guard source.destination == destination, source.accountId == accountId,
+          source.unified == nil || source.unified == unifiedInbox else { return }
         if let draftId = message.draftId {
           editDraft(draftId)
           return
         }
-        openMail(message); mailSource = source
+        openMail(message, tab: tab); mailSource = source
       } catch { self.error = error.localizedDescription }
     }
   }
@@ -74,20 +70,21 @@ extension MailStore {
         "sourceKey": sourceKey ?? todo.map { "todo:\($0.title)\u{1f}\($0.due)" } ?? "mail:\(message.id)"]
       if let todo { input["todoId"] = todo.id }
       if let item = await followUps.save(input) {
-        followUps.editorRequest = item.id; followUps.suggestSnooze = snooze
-        followUps.filter = item.isSnoozed ? "已延后" : item.state == "waiting" ? "等待对方" : item.state == "completed" ? "已完成" : "待我处理"
-        navigate(.followUps)
+        revealChecklistItem(item.id, accountId: item.accountId, edit: true, snooze: snooze)
       } else { error = followUps.error }
     }
   }
-  var suggestedAssistantScope: AssistantScope {
-    assistantScope(for: Self.assistantFolders.contains(destination) ? destination : .inbox)
-  }
-  static let assistantFolders: [MailDestination] = [.inbox, .drafts, .sent, .archive, .starred, .spam, .trash]
-
-  func assistantScope(for folder: MailDestination) -> AssistantScope {
-    let scopeAccount = unifiedInbox && folder != .drafts || accountId.isEmpty ? nil : accountId
-    return .init(kind: "folder", query: .init(accountId: scopeAccount, folder: folder.rawValue))
+  func revealChecklistItem(_ id: String, accountId: String? = nil, edit: Bool = false, snooze: Bool = false) {
+    mailSource = nil
+    navigate(.followUps)
+    if let accountId {
+      self.accountId = accountId
+      unifiedInbox = false
+    } else {
+      unifiedInbox = true
+    }
+    followUps.setFilter(.all)
+    followUps.reveal = .init(followUpId: id, edit: edit, snooze: snooze)
   }
   func signature(for accountId: String) -> String { settings.preferences.accountSignatures?[accountId] ?? settings.preferences.signature }
 }
