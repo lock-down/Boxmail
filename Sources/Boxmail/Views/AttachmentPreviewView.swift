@@ -12,7 +12,7 @@ struct AttachmentPreviewView: View {
   @ViewState<String?> private var workbookHTML: String?
   @ViewState<Bool> private var previewLoading = true
   @ViewState<String> private var previewError = ""
-  @ViewState<String> private var tab = "原文件预览"
+  @ViewState<String> private var tab = "原文件"
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var currentId: String { store.attachmentPreviewIds.indices.contains(store.attachmentPreviewIndex) ? store.attachmentPreviewIds[store.attachmentPreviewIndex] : attachmentId }
   var attachment: MailAttachment? { store.attachments.first { $0.id == currentId } }
@@ -31,7 +31,7 @@ struct AttachmentPreviewView: View {
             Text("\(store.attachmentPreviewIndex + 1)/\(store.attachmentPreviewIds.count)").font(UIType.small)
             IconButton(icon: .chevronRight, help: "下一个来源附件") { store.attachmentPreviewIndex += 1 }.disabled(store.attachmentPreviewIndex + 1 == store.attachmentPreviewIds.count)
           }
-          ActionButton(title: "打开原文件", icon: .externalLink, emphasis: .secondary) {
+          ActionButton(title: "打开原件", icon: .externalLink) {
             store.download(attachment, preview: true)
           }
           ActionButton(title: "下载", icon: .download) { store.download(attachment) }
@@ -40,10 +40,10 @@ struct AttachmentPreviewView: View {
         CossSeparator()
         HStack(spacing: 12) {
           if !attachment.isArchive && attachment.analysis?.isEmpty == false {
-            FilterBar(values: ["原文件预览", "历史分析"], selection: $tab)
+            FilterBar(values: ["原文件", "历史分析"], selection: $tab)
           }
           Spacer(minLength: 0)
-          ActionButton(title: "打开原邮件", icon: .mail) {
+          ActionButton(title: "打开原信", icon: .mail) {
             dismiss()
             if attachment.messageId == store.selectedMessageId { store.mailAITab = .attachment }
             else { store.openSourceMessage(attachment.messageId, tab: .attachment) }
@@ -70,13 +70,13 @@ struct AttachmentPreviewView: View {
       }
     }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white).tint(Palette.accent)
       .animation(UIMotion.disclosure(reduceMotion), value: tab)
-      .onChange(of: currentId) { _, _ in tab = "原文件预览" }
+      .onChange(of: currentId) { _, _ in tab = "原文件" }
       .task(id: "\(currentId)-\(tab)") {
         previewLoading = true
         previewFile?.remove(); previewFile = nil; documentPreviewURL = nil; workbookHTML = nil
         let id = currentId
         await store.loadAttachment(id)
-        guard !Task.isCancelled, currentId == id, attachment?.isArchive != true, tab == "原文件预览" else { return }
+        guard !Task.isCancelled, currentId == id, attachment?.isArchive != true, tab == "原文件" else { return }
         await loadOriginal()
       }
       .onDisappear {
@@ -104,7 +104,7 @@ struct AttachmentPreviewView: View {
             ? "Markdown 原文件预览" : "系统原文件预览 · 保留文档格式、表格与图片")
           .font(.system(size: 11)).foregroundStyle(Palette.muted)
         Spacer()
-        Text("特殊格式可使用上方“打开原文件”查看").font(.system(size: 11)).foregroundStyle(Palette.muted)
+        Text("特殊格式可使用上方“打开原件”查看").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }.padding(.horizontal, 20).padding(.vertical, 10).background(Palette.chrome)
     } else if previewLoading {
       CossSpinner(label: "正在加载原文件…").frame(maxWidth: .infinity, maxHeight: .infinity)

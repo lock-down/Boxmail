@@ -6,7 +6,7 @@ import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { setImmediate as yieldToRequests } from 'node:timers/promises';
 import { rm } from 'node:fs/promises';
-import { prepareAttachment, attachmentBytes, attachmentFiles, copyBorrowedAttachments, reassignAttachments } from './attachments.js';
+import { prepareAttachment, attachmentFiles, copyBorrowedAttachments, reassignAttachments } from './attachments.js';
 import { ServiceError, required, recipients } from './validation.js';
 import { mailServiceError } from './mail-errors.js';
 import { mailBody, MAIL_BODY_VERSION } from './mail-body.js';
@@ -733,7 +733,11 @@ export async function sendDraft(
       });
       // Borrowed files were copied before SMTP, so every sent attachment belongs to this draft.
       reassignAttachments(repo, draft.attachmentIds || [], sentId, draft.id);
-      repo.event('send', `已发送：${draft.subject}`);
+      if (result.rejected?.length) {
+        repo.event('send-warning', `「${draft.subject || '无主题'}」已部分发送。SMTP 未接受以下收件人：${result.rejected.join(', ')}`);
+      } else {
+        repo.event('send', `已发送：${draft.subject}`);
+      }
     });
     let warning = '';
     try {

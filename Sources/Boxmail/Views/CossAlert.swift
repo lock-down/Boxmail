@@ -70,7 +70,7 @@ private struct CossAlertPanel: View {
         ForEach(actions.indices, id: \.self) { index in
           let action = actions[index]
           ActionButton(title: action.title, emphasis: action.emphasis, size: .form,
-            minimumWidth: 72, role: action.role) {
+            width: UILayout.pairedActionWidth, role: action.role) {
             dismiss()
             action.run()
           }.disabled(!action.enabled)

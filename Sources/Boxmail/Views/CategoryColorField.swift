@@ -26,7 +26,7 @@ struct CategoryColorField: View {
         }
         HStack(spacing: 8) {
           Button { editingColor.toggle() } label: {
-            CossMenuLabel(title: "自定义颜色", icon: .palette, size: .compact)
+            CossMenuLabel(title: "自定颜色", icon: .palette, size: .compact)
           }.buttonStyle(ControlFeedback(emphasis: .secondary)).controlFocus()
             .cossPopover(isPresented: $editingColor) {
               VStack(alignment: .leading, spacing: 12) {

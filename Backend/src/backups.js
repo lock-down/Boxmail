@@ -213,6 +213,7 @@ export async function restoreBackup(repo, source, approved, { beforeCommit, expe
         for (const row of records) {
           if (['mailOrganizationPolicy', 'mailOrganizationReceipt', 'mailLabelTrial', 'newMailEvent'].includes(row.kind)) continue;
           let value = JSON.parse(row.data);
+          if ((row.kind === 'mailOrganizationBatch' && value.labelId) || (row.kind === 'job' && value.task === 'labelMatch')) continue;
           if (row.kind === 'mailRule') value = pausedAutomaticAIRule(value);
           if (row.kind === 'job' && value.task === 'mailOrganization' && value.status === 'pending') {
             value.status = 'paused';

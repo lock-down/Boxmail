@@ -5,6 +5,7 @@ import Foundation
 @MainActor public final class LocalBackendProcess {
   private let child: Process
   private let lifetime: Pipe
+  private let startupAnnouncement: BackendStartupAnnouncement
   private let errors: Pipe
   private let failureClassifier: RuntimeFailureClassifier
   private let diagnosticHandler: (@Sendable (String) -> Void)?
@@ -12,6 +13,7 @@ import Foundation
   private var shutdown: Task<Void, Never>?
   public var isRunning: Bool { child.isRunning }
   public var processIdentifier: Int32 { child.processIdentifier }
+  public var announcedPort: Int? { startupAnnouncement.port }
 
   public init(
     executable: URL, arguments: [String], directory: URL,
@@ -27,6 +29,7 @@ import Foundation
     environment["BOXMAIL_LIFETIME_PIPE"] = "1"
     child.environment = environment
     let lifetime = Pipe()
+    let startupAnnouncement = BackendStartupAnnouncement()
     let inherited = try lease.inheritedFileHandle()
     // Foundation retains standardInput after termination. Close our duplicate
     // immediately after spawning so it cannot keep a dead child's lock alive.
@@ -43,7 +46,14 @@ import Foundation
     try? lifetime.fileHandleForWriting.close()
     try? errors.fileHandleForWriting.close()
     lifetime.fileHandleForReading.readabilityHandler = { handle in
-      if (try? handle.read(upToCount: 4096))?.isEmpty != false { handle.readabilityHandler = nil }
+      // The backend keeps stdout open for lifetime heartbeats. Read the bytes
+      // already in the pipe rather than waiting to fill a requested byte count.
+      let data = handle.availableData
+      guard !data.isEmpty else {
+        handle.readabilityHandler = nil
+        return
+      }
+      startupAnnouncement.consume(data)
     }
     errors.fileHandleForReading.readabilityHandler = { handle in
       guard let data = try? handle.read(upToCount: 4096), !data.isEmpty else {
@@ -54,6 +64,7 @@ import Foundation
     }
     self.child = child
     self.lifetime = lifetime
+    self.startupAnnouncement = startupAnnouncement
     self.errors = errors
     self.failureClassifier = classifier
     self.diagnosticHandler = onDiagnostic
@@ -135,5 +146,31 @@ import Foundation
       }
       return recovered
     }.value
+  }
+}
+
+private final class BackendStartupAnnouncement: @unchecked Sendable {
+  private struct Startup: Decodable { let port: Int }
+  private let lock = NSLock()
+  private var stdout = Data()
+  private var value: Int?
+
+  var port: Int? { lock.withLock { value } }
+
+  func consume(_ data: Data) {
+    lock.withLock {
+      guard value == nil else { return }
+      stdout.append(data)
+      while let newline = stdout.firstIndex(of: 0x0A) {
+        if let message = try? JSONDecoder().decode(Startup.self, from: stdout[..<newline]),
+          (1...65535).contains(message.port)
+        {
+          value = message.port
+          stdout = Data()
+          return
+        }
+        stdout.removeSubrange(...newline)
+      }
+    }
   }
 }

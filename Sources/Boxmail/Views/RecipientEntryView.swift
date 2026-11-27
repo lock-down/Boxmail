@@ -95,9 +95,10 @@ private struct RecipientTextInput: NSViewRepresentable {
     field.textColor = NSColor(Palette.ink)
     field.usesSingleLineMode = true
     field.cell?.isScrollable = true
-    field.placeholderAttributedString = NSAttributedString(string: "姓名或邮箱地址，多个地址用逗号分隔",
+    field.placeholderAttributedString = NSAttributedString(string: "姓名邮箱",
       attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor(Palette.muted)])
     field.setAccessibilityLabel(label)
+    field.setAccessibilityHelp("输入姓名或邮箱，多个地址用逗号分隔")
     field.delegate = context.coordinator
     field.focusChanged = { [weak coordinator = context.coordinator] field, focused in
       coordinator?.focusChanged(field, focused: focused)

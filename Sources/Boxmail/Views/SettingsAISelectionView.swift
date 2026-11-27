@@ -38,7 +38,7 @@ struct SettingsAISelectionView: View {
     }
     if models.isEmpty { result.append(.note("刷新列表后可选择更多模型")) }
     if !result.isEmpty { result.append(.divider) }
-    result.append(.command("自定义模型…", icon: .plus) {
+    result.append(.command("自定模型", icon: .plus) {
       editingModel = true
     })
     return result
@@ -71,7 +71,7 @@ struct SettingsCustomModelEditor: View {
       VStack(alignment: .leading, spacing: 12) {
         Text("自定义模型").font(.system(size: 12, weight: .semibold))
         TextField("", text: $draft).settingsTextInput()
-          .inputPlaceholder("例如 deepseek-flash", visible: draft.isEmpty)
+          .inputPlaceholder("模型ID", visible: draft.isEmpty)
           .focused($focused).accessibilityLabel("模型名称")
           .frame(width: SettingsFormLayout.fieldWidth)
       }.frame(maxWidth: .infinity, alignment: .leading).padding(24)

@@ -19,7 +19,7 @@ struct MailHistoryView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       if let summary {
-        DisclosureGroup("整封邮件分析") {
+        DisclosureGroup("邮件分析") {
           VStack(alignment: .leading, spacing: 12) {
             AnalysisDocumentView(text: summary.points.joined(separator: "\n\n"))
             if !summary.keyInfo.isEmpty { SummaryFactsView(facts: summary.keyInfo) }
@@ -40,7 +40,7 @@ struct MailHistoryView: View {
               findings("未决事项", items: result.openItems ?? [], sources: result.sourceMessages ?? [])
               findings("下一步", items: result.conversationNextSteps ?? [], sources: result.sourceMessages ?? [])
               if let sources = result.sourceMessages, !sources.isEmpty {
-                DisclosureGroup("查阅的邮件") { sourceLinks(sources) }
+                DisclosureGroup("查阅邮件") { sourceLinks(sources) }
               }
             }.padding(.vertical, 8)
           }

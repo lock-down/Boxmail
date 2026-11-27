@@ -2,6 +2,7 @@ import { usageRequest } from './ai-usage.js';
 import { aiConfig, ServiceError } from './validation.js';
 import { partialResult } from './ai-progress.js';
 import { errorDiagnostic } from './diagnostics.js';
+import { validateToolCall } from '@earendil-works/pi-ai/utils/validation';
 
 import { OUTPUT_FORMATS, completionInstructions } from './ai-instructions.js';
 
@@ -26,7 +27,7 @@ export async function completion(configInput, apiKey, task, content, images = []
   const deadline = AbortSignal.timeout(config.timeout * 1000);
   const signal = options.signal ? AbortSignal.any([deadline, options.signal]) : deadline;
   const uploaded = [];
-  const usage = usageRequest(options.repository, config, task, options.taskId);
+  let usage = usageRequest(options.repository, config, task, options.taskId);
   let usageStatus = "failed";
   try {
     const instructions = completionInstructions(config, task, content, options);
@@ -53,9 +54,56 @@ export async function completion(configInput, apiKey, task, content, images = []
         parts.push({ type: 'input_image', file_id: file.id });
       }
     }
-    const raw = await protocolCompletion(config, apiKey, instructions, prepared, { signal, responseParts: parts,
-      onUsage: value => usage?.update(value),
-      onText: options.onProgress ? raw => options.onProgress(partialResult(raw)) : undefined });
+    const tools = options.tools ?? [];
+    const definitions = tools.map(({ run, ...definition }) => definition);
+    let round = 0;
+    const nextUsage = status => {
+      usage?.finish(status);
+      usage = usageRequest(options.repository, config, task, options.taskId);
+      round++;
+    };
+    const reportTool = (call, status, detail) => options.onTool?.({
+      id: `${round}-${call.id}`, name: tools.find(item => item.name === call.name)?.name, status, detail,
+    });
+    const send = activeTools => {
+      options.onModelRequest?.();
+      return protocolCompletion(config, apiKey, instructions, prepared, { signal, responseParts: parts,
+        onUsage: value => usage?.update(value), onThinking: options.onThinking, onThinkingSummary: options.onThinkingSummary,
+        onToolCall: call => reportTool(call, 'requested'), tools: activeTools,
+        onText: options.onProgress ? raw => options.onProgress(partialResult(raw)) : undefined });
+    };
+    let raw;
+    try { raw = await send(definitions); }
+    catch (error) {
+      if (error.code !== 'MODEL_TOOLS_UNSUPPORTED') throw error;
+      nextUsage('failed');
+      raw = await send([]);
+    }
+    // Each catalog/preview tool can be requested in its own round. Finish with
+    // a response-only round once both opportunities have been used.
+    for (let step = 0; typeof raw !== 'string'; step++) {
+      signal.throwIfAborted();
+      const { assistant } = raw;
+      prepared.context.messages.push(assistant);
+      for (const call of assistant.content.filter(part => part.type === 'toolCall')) {
+        const tool = tools.find(item => item.name === call.name);
+        reportTool(call, 'running');
+        let output, isError = false;
+        try {
+          const args = validateToolCall(definitions, call);
+          output = await tool.run(args);
+        } catch (error) {
+          isError = true;
+          output = { error: error instanceof ServiceError ? error.message : '工具不可用或参数无效' };
+        }
+        reportTool(call, isError ? 'failed' : 'completed', isError ? output.error : output.detail);
+        prepared.context.messages.push({ role: 'toolResult', toolCallId: call.id, toolName: call.name,
+          content: [{ type: 'text', text: JSON.stringify(output) }], timestamp: Date.now(), isError });
+      }
+      signal.throwIfAborted();
+      nextUsage('completed');
+      raw = await send(step + 1 < definitions.length ? definitions : []);
+    }
     if (!raw.trim()) throw new ServiceError('模型返回内容为空', 502);
     try {
       const result = JSON.parse(raw.replace(/^\s*```(?:json)?\s*/, '').replace(/\s*```\s*$/, ''));

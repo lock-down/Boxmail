@@ -25,7 +25,7 @@ struct CossColorEditor: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 8) {
-        let shape = RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous)
         shape.fill(CategoryTone(hex: validHex ?? fallbackHex).swatch)
           .overlay { shape.strokeBorder(Palette.border, lineWidth: 1) }
           .frame(width: UIControlSize.form.height, height: UIControlSize.form.height)

@@ -25,9 +25,9 @@ struct ContentView: View {
             workspace
             if store.mailChange != nil || store.mailActionError != nil { mailActionNotice }
           }
-          .framedSurface(radius: UILayout.workspaceRadius)
-          .padding(.leading, compact ? UILayout.windowInset : 0)
-          .padding([.trailing, .bottom], UILayout.windowInset)
+          .workspaceWindowSurface()
+          .padding(.leading, compact ? UILayout.workspaceWindowInset : 0)
+          .padding([.trailing, .bottom], UILayout.workspaceWindowInset)
         }
       }
       .disabled(navigationIsOpen)
@@ -47,15 +47,12 @@ struct ContentView: View {
       .onChange(of: compact) { _, compact in if !compact { showingNavigation = false } }
       .sheet(isPresented: $store.showSettings) {
         SettingsView(store: store).borderlessScrollers()
-          .workspaceSheet(.settings)
+          .workspaceWindowSize(.settings)
       }
-      .sheet(item: $store.composer) { draft in
-        ComposerView(store: store, initial: draft, sendPlan: store.composerSendPlan).borderlessScrollers()
-          .workspaceSheet(.composer)
-      }
+      .background { ComposerWindowAnchor(store: store, draft: store.composer) }
       .sheet(item: $store.previewAttachment, onDismiss: { store.attachmentPreviewIds = []; store.attachmentPreviewIndex = 0; store.trimAttachmentCache(keeping: Array(store.retainedAttachmentIds)) }) { attachment in
         AttachmentPreviewView(store: store, attachmentId: attachment.id).borderlessScrollers()
-          .workspaceSheet(.attachment)
+          .workspaceWindowSize(.attachment)
       }
       .sheet(isPresented: $store.showLabelManager) { CategoryManagerView(store: store).borderlessScrollers() }
       .sheet(isPresented: $activity) { ActivityView(store: store).borderlessScrollers() }
@@ -67,16 +64,6 @@ struct ContentView: View {
     .toggleStyle(CossToggleStyle())
     .disclosureGroupStyle(SettingsDisclosureStyle())
     .onAppear { store.changeSenderGrouping(groupMailBySender) }
-    .task(id: store.ready) {
-      guard store.ready else { return }
-      await store.loadSavedSearches()
-      while !Task.isCancelled {
-        await store.observeWorkspaceChanges()
-        await store.notifications.poll(store: store)
-        if [.drafts, .outbox].contains(store.destination) { await store.sendQueue.load() }
-        do { try await Task.sleep(for: .seconds(1)) } catch { return }
-      }
-    }
     .onChange(of: store.groupMailBySender) { _, value in groupMailBySender = value }
     .onChange(of: store.destination) { _, _ in showingNavigation = false }
     .onChange(of: store.accountId) { _, _ in showingNavigation = false }
@@ -146,7 +133,7 @@ struct ContentView: View {
           .multilineTextAlignment(.center).textSelection(.enabled)
           .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 480)
         HStack(spacing: 10) {
-          ActionButton(title: "打开数据设置", icon: .adjustments) {
+          ActionButton(title: "数据设置", icon: .adjustments) {
             store.settingsTab = "高级"
             store.showSettings = true
           }
@@ -209,7 +196,9 @@ struct ContentView: View {
         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity).layoutPriority(-1)
       HStack(spacing: 4) {
         SearchField(
-          placeholder: "搜索邮件（含附件内容）", text: $store.search, focusRequest: store.searchFocusRequest)
+          placeholder: "搜索邮件", text: $store.search, focusRequest: store.searchFocusRequest)
+          .accessibilityHint("也可搜索附件内容")
+          .cossTooltip("搜索邮件及附件内容")
         IconButton(icon: .filter2, help: "组合条件搜索") { searchFilters = true }
           .cossPopover(isPresented: $searchFilters) {
             SearchFiltersView(store: store, dismiss: { searchFilters = false })
@@ -228,6 +217,9 @@ struct ContentView: View {
             Task { await store.syncAll() }
           }
         }
+        if store.destination != .followUps && store.organizationBatchProgress.contains(where: \.active) {
+          IconButton(icon: .listCheck, help: "整理进行中，查看进度", color: Palette.accent) { store.navigate(.followUps) }
+        }
         IconButton(icon: .bell, help: "活动记录") { activity = true }
         IconButton(icon: .settings, help: "设置") { store.showSettings = true }
       }.padding(.trailing, 14)
@@ -236,7 +228,8 @@ struct ContentView: View {
   }
   private var sourceContext: some View {
     HStack(spacing: 12) {
-      ActionButton(title: store.mailSource?.returnTitle ?? "返回\(store.destination.title)", icon: .chevronLeft) {
+      ActionButton(title: "返回", icon: .chevronLeft,
+        help: store.mailSource?.returnTitle ?? "返回\(store.destination.title)") {
         if store.mailSource != nil { store.returnToMailSource() }
         else { store.search = "" }
       }

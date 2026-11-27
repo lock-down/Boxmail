@@ -26,15 +26,15 @@ struct AIProviderSettingsView: View {
   }
 
   var body: some View {
-    SectionCard(title: "模型与连接", contentSpacing: 16) {
+    SectionCard(title: "模型连接", contentSpacing: 16) {
       HStack(spacing: SettingsFormLayout.columnGap) {
-        SettingsFormLabel(title: "当前服务商")
+        SettingsFormLabel(title: "服务商")
         WorkflowSelection(
           title: "当前 AI 服务商", selection: $config.providerId,
           options: config.providers.map { ($0.id, $0.name) }
         )
         .frame(width: SettingsFormLayout.fieldWidth)
-        SettingsInlineAction(title: "自定义 API", icon: .plus) { addingProvider = true }
+        SettingsInlineAction(title: "添加服务", icon: .plus) { addingProvider = true }
           .disabled(config.providers.count >= 20)
       }.frame(maxWidth: SettingsFormLayout.formWidth, alignment: .leading)
       HStack(spacing: SettingsFormLayout.columnGap) {
@@ -50,12 +50,12 @@ struct AIProviderSettingsView: View {
       DisclosureGroup("连接设置", isExpanded: $showingConnection) {
         VStack(alignment: .leading, spacing: 14) {
           SettingsFieldRow(
-            title: "显示名称", text: $config.activeProvider.name, placeholder: "服务商名称")
+            title: "显示名称", text: $config.activeProvider.name, placeholder: "服务名称")
           SettingsFieldRow(
-            title: "API 地址", text: $config.baseURL,
+            title: "接口地址", text: $config.baseURL,
             placeholder: config.apiProtocol.addressPlaceholder)
           HStack(spacing: SettingsFormLayout.columnGap) {
-            SettingsFormLabel(title: "API 协议")
+            SettingsFormLabel(title: "接口协议")
             WorkflowSelection(
               title: "API 协议", selection: $config.apiProtocol,
               options: AIAPIProtocol.allCases.map { ($0, $0.title) }
@@ -63,9 +63,9 @@ struct AIProviderSettingsView: View {
             Spacer(minLength: 0)
           }
           HStack(spacing: SettingsFormLayout.columnGap) {
-            SettingsFormLabel(title: "API Key")
+            SettingsFormLabel(title: "服务密钥")
             SecureField("", text: key).settingsTextInput()
-              .inputPlaceholder("密钥保存在本机 .env 文件", visible: key.wrappedValue.isEmpty)
+              .inputPlaceholder("服务密钥", visible: key.wrappedValue.isEmpty)
               .accessibilityLabel("当前服务商 API Key").frame(width: SettingsFormLayout.fieldWidth)
             SettingsInlineAction(title: "测试连接", icon: .bolt) { testConnection() }
               .disabled(
@@ -85,7 +85,7 @@ struct AIProviderSettingsView: View {
               .textSelection(.enabled)
             Spacer()
             if config.providerId != "default" {
-              ActionButton(title: "移除服务商…", color: Palette.amber, size: .compact, role: .destructive) {
+              ActionButton(title: "移除服务", color: Palette.amber, size: .compact, role: .destructive) {
                 removeProvider()
               }
                 .disabled(config.providers.count <= 1)

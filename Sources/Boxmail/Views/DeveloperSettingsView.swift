@@ -15,7 +15,7 @@ struct DeveloperSettingsView: View {
           .font(UIType.caption).foregroundStyle(Palette.muted).fixedSize(
             horizontal: false, vertical: true)
         ActionButton(
-          title: action.isWorking ? "正在导出…" : "导出诊断日志…", icon: .upload, color: Palette.accent
+          title: action.isWorking ? "导出中…" : "导出日志", icon: .upload, color: Palette.accent
         ) {
           export()
         }.disabled(action.isWorking)

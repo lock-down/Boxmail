@@ -81,13 +81,16 @@ struct CossMenu<Trigger: View>: View {
   var width: CGFloat = 216
   var emphasis: ButtonEmphasis = .plain
   var prefersSelection = false
+  var showsInteractionBackground = true
+  var corner: CGFloat = UILayout.controlRadius
   @CossMenuItems var items: () -> [CossMenuItem]
   @ViewBuilder var trigger: () -> Trigger
   @ViewState private var isOpen = false
 
   var body: some View {
     Button { isOpen.toggle() } label: { trigger() }
-      .buttonStyle(ControlFeedback(selected: isOpen, emphasis: emphasis)).controlFocus()
+      .buttonStyle(ControlFeedback(selected: isOpen, emphasis: emphasis, corner: corner,
+        showsInteractionBackground: showsInteractionBackground)).controlFocus(corner: corner)
       .accessibilityLabel(title)
       .accessibilityValue(value.map { isOpen ? "\($0)，已展开" : $0 } ?? (isOpen ? "已展开" : "已收起"))
       .background {

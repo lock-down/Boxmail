@@ -9,8 +9,10 @@ struct WorkflowPanelHeader: View {
     HStack(alignment: .top, spacing: 20) {
       VStack(alignment: .leading, spacing: 6) {
         Text(title).font(UIType.heading).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
-        Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted)
-          .fixedSize(horizontal: false, vertical: true)
+        if !subtitle.isEmpty {
+          Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
       Spacer(minLength: 0)
       IconButton(icon: .x, help: closeLabel, action: close)

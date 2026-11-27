@@ -1,8 +1,8 @@
 # 开发路线
 
-Boxmail 围绕通用 IMAP／SMTP、原生 macOS 操作和自带 API 密钥的 AI 功能开发。当前行为见 [使用指南](USER_GUIDE.md)，已发布版本及源码工作区的未发布变化见 [变更记录](../CHANGELOG.md)。
+Boxmail 围绕通用 IMAP／SMTP、原生 macOS 操作和自带 API 密钥的 AI 功能开发。当前行为见 [使用指南](USER_GUIDE.md)，1.0.0 的交付范围见 [更新日志](../CHANGELOG.md)。
 
-## 0.1.12 已实现
+## 1.0.0 已实现
 
 | 范围 | 已实现 |
 | --- | --- |
@@ -29,9 +29,3 @@ Boxmail 围绕通用 IMAP／SMTP、原生 macOS 操作和自带 API 密钥的 AI
 | 本地 MCP 接口 | 先评估只读查询的账户边界和可审计性，再考虑需要现有确认流程的操作。 |
 
 Gmail／Outlook 专用接入、OAuth、移动端、云端常驻运行和团队协作暂无排期。每项新行为按 [开发说明](DEVELOPMENT.md) 验证。合成回归、隔离 App 操作和真实服务验证各自记录适用范围。
-
-2026-11-16 的对标记录可从发布标签查阅，用于追溯当时的观察和产品取舍。
-
-```bash
-git show v0.1.11:docs/research/FILO_BENCHMARK_2026-11-16.md
-```

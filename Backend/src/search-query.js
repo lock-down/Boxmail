@@ -40,15 +40,15 @@ export function parseSearch(query = '') {
   return result;
 }
 
-export function searchWhere(parsed, { accountId, folder, filter, category, label, accounts = [] } = {}) {
+export function searchWhere(parsed, { accountId, folder, filter, category, label, fixedScope = false, accounts = [] } = {}) {
   const clauses = ["m.kind='message'"], params = [];
   const add = (sql, value) => { clauses.push(sql); if (value !== undefined) params.push(value); };
-  if (accountId && !parsed.conditions.some(item => item.field === 'account')) add("json_extract(m.data,'$.accountId')=?", accountId);
-  if (!parsed.terms.length && !parsed.conditions.length) {
+  if (accountId && (fixedScope || !parsed.conditions.some(item => item.field === 'account'))) add("json_extract(m.data,'$.accountId')=?", accountId);
+  if (fixedScope || !parsed.terms.length && !parsed.conditions.length) {
     if (folder === 'inbox') add("NOT EXISTS (SELECT 1 FROM records s, json_each(s.data,'$.messageIds') member WHERE s.kind='snooze' AND datetime(json_extract(s.data,'$.until'))>datetime('now') AND member.value=m.id)");
     if (folder === 'starred') add("json_extract(m.data,'$.starred')=1 AND json_extract(m.data,'$.folder')!='trash'");
     else if (folder === 'summary') add("json_type(m.data,'$.summary')='object' AND json_extract(m.data,'$.folder')!='trash'");
-    else if (folder) add("json_extract(m.data,'$.folder')=?", ['replies', 'analysis'].includes(folder) ? 'inbox' : folder);
+    else if (folder && folder !== 'all') add("json_extract(m.data,'$.folder')=?", ['replies', 'analysis'].includes(folder) ? 'inbox' : folder);
   }
   for (const { field, value } of parsed.conditions) {
     if (field === 'account') {

@@ -14,11 +14,11 @@ struct BackupSettingsView: View {
     SectionCard(title: "完整备份与恢复", icon: .database) {
       VStack(alignment: .leading, spacing: 18) {
         SettingsTransferRow(title: "创建完整备份", detail: "保存全部账户的邮件、附件、草稿及 AI 结果", icon: .upload) {
-          ActionButton(title: "保存备份…", icon: .upload, color: Palette.accent) { chooseDestination() }
+          ActionButton(title: "保存备份", icon: .upload, color: Palette.accent) { chooseDestination() }
         }
         CossSeparator()
         SettingsTransferRow(title: "从备份恢复", detail: "校验 ZIP，并自动保留恢复前的完整数据", icon: .history) {
-          ActionButton(title: "选择备份…", icon: .folder) { chooseBackup() }
+          ActionButton(title: "选择备份", icon: .folder) { chooseBackup() }
         }
       }.disabled(action.isWorking || !store.ready || !store.busy.isEmpty || store.composer != nil)
       SettingsActionFeedback(action: action)
@@ -64,6 +64,8 @@ struct BackupSettingsView: View {
       store.detailCache = [:]; store.attachmentCache = [:]; store.conversationBodies = [:]
       store.selectedMessageId = nil; store.conversation = nil; store.conversationAnchor = nil
       store.search = ""; store.pinnedMessageId = nil; store.pinnedQueryKey = ""
+      store.activeSavedSearchId = nil; store.savedSearches = []
+      store.listLabelID = nil; store.listCategory = ""; store.filter = "全部"
       store.previewAttachment = nil
       store.summaryListChange = nil; store.summaryListError = nil
       store.mailChange = nil; store.mailActionError = nil; store.selectedMessageIds = []
@@ -73,6 +75,7 @@ struct BackupSettingsView: View {
       store.conversationError = nil; store.detailError = nil; store.detailGeneration = UUID()
       store.conversationBodyRequests = [:]
       store.restoreRevision += 1
+      await store.loadSavedSearches()
       var refreshed = true
       do { try await store.refresh() } catch { refreshed = false }
       var status = "备份已恢复。恢复前的数据保存在：\n\(result.previousBackup ?? "本机数据目录的 backups 文件夹")\n请检查账户和待同步更改后再同步邮箱。"
@@ -104,7 +107,7 @@ struct SearchIndexSettingsView: View {
           Text("检索正文、附件名称与提取文本、AI 结果，仅覆盖本机已缓存内容。")
             .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading)
-        ActionButton(title: action.isWorking ? "正在重建…" : "重建索引", icon: .refresh) { rebuild() }
+        ActionButton(title: action.isWorking ? "重建中…" : "重建索引", icon: .refresh) { rebuild() }
           .disabled(action.isWorking || !store.ready || !store.busy.isEmpty)
       }
       SettingsActionFeedback(action: action)

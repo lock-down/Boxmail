@@ -7,8 +7,10 @@ struct ChecklistView: View {
   @ViewState private var editing: EditRequest?
   @ViewState private var showsMailPicker = false
   @ViewState private var showsPolicy = false
+  @ViewState private var showsAgent = false
   @ViewState private var policy: MailOrganizationPolicy?
   @ViewState private var policyRevision = 0
+  @ViewState private var disablePolicy: MailOrganizationPolicy?
 
   private var policyAccountID: String { store.unifiedInbox ? "" : store.accountId }
 
@@ -27,18 +29,27 @@ struct ChecklistView: View {
   var body: some View {
     ScrollViewReader { proxy in
       VStack(alignment: .leading, spacing: 16) {
-        WorkspaceHeader(title: "清单", subtitle: "") { toolbar }
+        WorkspaceHeader(title: workspace.filter == .removed ? workspace.filter.title : MailDestination.followUps.title, subtitle: "") { toolbar }
+        if !store.visibleOrganizationBatches.isEmpty {
+          ChecklistOrganizationProgress(store: store)
+        }
         if let policy, policy.id == policyAccountID, store.currentAccount?.isDemo == false,
           policy.mode == "undecided", !store.dismissedOrganizationPrompts.contains(policy.id) {
           consentNotice(policy)
-        } else if let policy, policy.id == policyAccountID, policy.mode == "automatic", policy.point == nil {
-          Text("等待连接邮箱以建立新信起点").font(UIType.caption).foregroundStyle(Palette.muted)
+        } else if let policy, policy.id == policyAccountID, store.currentAccount?.isDemo == false {
+          HStack {
+            Text(policy.statusTitle).font(UIType.caption).foregroundStyle(Palette.muted)
+            Spacer()
+            if policy.mode == "automatic" {
+              ActionButton(title: "关闭自动", size: .compact) { disablePolicy = policy }
+            }
+          }
         }
         if let error = workspace.error ?? store.summaryListError {
           WorkflowNotice(text: error, color: Palette.destructive)
         }
         if let change = store.summaryListChange {
-          feedback(change.hidden ? "已移除摘要" : "已恢复摘要", undo: store.undoSummaryListChange) {
+          feedback(change.hidden ? "已移除" : "已恢复摘要", undo: store.undoSummaryListChange) {
             store.summaryListChange = nil
           }
         }
@@ -75,11 +86,19 @@ struct ChecklistView: View {
     }
     .sheet(item: $editing) { request in
       FollowUpEditor(workspace: workspace, row: request.row, item: request.item, startSnoozed: request.snooze)
-        .workspaceSheet(.categories)
+        .workspaceWindowSize(.categories)
     }
+    .sheet(isPresented: $showsAgent) { RuleAgentView(store: store) { policyRevision += 1 } }
     .sheet(isPresented: $showsMailPicker) { OrganizationMailPicker(store: store, label: nil) }
     .sheet(isPresented: $showsPolicy) {
       OrganizationPolicyView(store: store, initialAccountID: policyAccountID) { policyRevision += 1 }
+    }
+    .cossAlert("关闭自动整理？", isPresented: Binding(get: { disablePolicy != nil }, set: { if !$0 { disablePolicy = nil } }),
+      presenting: disablePolicy) { policy in
+      CossAlertAction("取消", role: .cancel) { disablePolicy = nil }
+      CossAlertAction("关闭自动", role: .destructive) { setManualPolicy(policy) }
+    } message: { _ in
+      Text(MailOrganizationPolicy.disableNotice)
     }
     .task(id: "\(policyAccountID)-\(policyRevision)-\(store.restoreRevision)") {
       let account = policyAccountID
@@ -104,36 +123,51 @@ struct ChecklistView: View {
           store.dismissedOrganizationPrompts.insert(policy.id)
         }
       }
-      Text("新邮件的主题和正文会提交给已配置的 AI 服务商，用于生成摘要和待办。启用标签匹配时也会提交发件人和已启用的条件。费用按服务商计收。")
+      Text("新邮件的主题和正文会提交给已配置的 AI 服务商，用于生成摘要、待办和分类标签，并附现有分类说明。启用标签匹配时也会提交发件人和已启用的条件。费用按服务商计收。")
         .font(UIType.caption).foregroundStyle(Palette.muted)
       HStack {
-        ActionButton(title: "开启自动整理", emphasis: .primary, size: .compact) { showsPolicy = true }
-        ActionButton(title: "仅手动整理", emphasis: .secondary, size: .compact) {
-          Task {
-            do { _ = try await store.saveOrganizationPolicy(["accountId": policy.id, "mode": "manual"]); policyRevision += 1 }
-            catch { workspace.error = error.localizedDescription }
-          }
+        ActionButton(title: "开启自动", emphasis: .primary, size: .compact) { showsPolicy = true }
+        ActionButton(title: "仅手动", emphasis: .secondary, size: .compact) {
+          setManualPolicy(policy)
         }
       }
     }.padding(12).framedSurface()
   }
 
+  private func setManualPolicy(_ policy: MailOrganizationPolicy) {
+    disablePolicy = nil
+    Task {
+      do {
+        _ = try await store.saveOrganizationPolicy(["accountId": policy.id, "mode": "manual"])
+        policyRevision += 1
+      } catch { workspace.error = error.localizedDescription }
+    }
+  }
+
   private var toolbar: some View {
     HStack(spacing: 8) {
-      CossMenu(title: "筛选清单", value: workspace.filter.title, emphasis: .secondary, prefersSelection: true) {
-        for filter in ChecklistFilter.allCases where filter != .removed {
-          CossMenuItem.command(filter.title, mark: .choice(workspace.filter == filter)) {
-            workspace.setFilter(filter)
-          }
+      if workspace.filter == .removed {
+        ActionButton(title: "返回清单", icon: .chevronLeft, emphasis: .secondary) {
+          workspace.returnFromRemoved()
         }
-      } trigger: {
-        CossMenuLabel(title: workspace.filter == .removed ? "全部" : workspace.filter.title, icon: .filter2)
+      } else {
+        CossMenu(title: "筛选清单", value: workspace.filter.title, emphasis: .secondary, prefersSelection: true) {
+          for filter in ChecklistFilter.allCases where filter != .removed {
+            CossMenuItem.command(filter.title, mark: .choice(workspace.filter == filter)) {
+              workspace.setFilter(filter)
+            }
+          }
+        } trigger: {
+          CossMenuLabel(title: workspace.filter.title, icon: .filter2)
+        }
       }
-      ActionButton(title: "整理邮件…", emphasis: .secondary, size: .compact) { showsMailPicker = true }
+      ActionButton(title: "整理助手", emphasis: .primary, width: UILayout.pairedActionWidth) { showsAgent = true }
+        .disabled(store.accounts.isEmpty)
+      ActionButton(title: "整理邮件", emphasis: .secondary, width: UILayout.pairedActionWidth) { showsMailPicker = true }
         .disabled(store.accounts.isEmpty)
       IconMenu(icon: .dots, help: "清单菜单") {
-        CossMenuItem.command("新邮件自动整理…", enabled: store.accounts.contains { !$0.isDemo }) { showsPolicy = true }
-        CossMenuItem.command("已移除摘要", mark: .choice(workspace.filter == .removed)) {
+        CossMenuItem.command("自动整理", enabled: store.accounts.contains { !$0.isDemo }) { showsPolicy = true }
+        CossMenuItem.command(ChecklistFilter.removed.title, mark: .choice(workspace.filter == .removed)) {
           workspace.setFilter(.removed)
         }
         CossMenuItem.divider
@@ -155,17 +189,12 @@ struct ChecklistView: View {
       if page.rows.isEmpty {
         EmptyState(title: workspace.filter == .removed ? "没有已移除的摘要" : "没有符合条件的邮件",
           subtitle: workspace.filter == .all ? "也可以从邮件菜单手工加入事项。" : "", icon: .listCheck,
-          actionTitle: workspace.filter == .all ? "整理邮件…" : nil, actionDisabled: store.accounts.isEmpty) {
+          actionTitle: workspace.filter == .all ? "整理邮件" : nil, actionDisabled: store.accounts.isEmpty) {
           showsMailPicker = true
         }
       } else {
         WorkspaceList(items: page.rows, scrollPosition: workspace.scrollPosition) {
-          if workspace.filter == .removed {
-            Text(workspace.filter.title).font(UIType.section)
-              .frame(maxWidth: .infinity, alignment: .leading).padding(16)
-              .accessibilityAddTraits(.isHeader)
-            CossSeparator()
-          }
+          EmptyView()
         } footer: {
           ListPagination(offset: page.offset, count: page.rows.count, total: page.total, limit: page.limit,
             unit: "封", subject: "清单邮件", loading: workspace.pages.loading) {
@@ -222,7 +251,7 @@ struct ChecklistView: View {
           .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
       }
       if !row.items.isEmpty {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 4) {
           ForEach(row.items) { item in
             actionRow(item, in: row).id(item.followUp?.id ?? item.id)
           }
@@ -256,15 +285,15 @@ struct ChecklistView: View {
             .fixedSize(horizontal: false, vertical: true).padding(.leading, 24)
         }
         if let reply = item.followUp?.replyMessageId {
-          ActionButton(title: "已收到回复", icon: .arrowBackUp, color: Palette.accent, size: .compact) {
+          ActionButton(title: "查看回复", color: Palette.accent, size: .compact) {
             store.openSourceMessage(reply)
           }.padding(.leading, 16)
         }
       }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
       IconMenu(icon: .dots, help: "事项操作：\(item.title)") {
-        CossMenuItem.command("编辑事项…", icon: .edit) { editing = .init(row: row, item: item) }
+        CossMenuItem.command("编辑事项", icon: .edit) { editing = .init(row: row, item: item) }
         if !completed {
-          CossMenuItem.command(item.state == "waiting" ? "转为待我处理" : "等待对方") {
+          CossMenuItem.command(item.state == "waiting" ? "待我处理" : "等待对方") {
             Task { await workspace.update(item, in: row, ["state": item.state == "waiting" ? "mine" : "waiting"]) }
           }
           if item.followUp?.isSnoozed == true {
@@ -273,7 +302,7 @@ struct ChecklistView: View {
             CossMenuItem.command("延后…", icon: .clock) { editing = .init(row: row, item: item, snooze: true) }
           }
           if item.followUp?.effectiveDate != nil, item.followUp?.reminderCancelled == false {
-            CossMenuItem.command("取消本次提醒") { Task { await workspace.update(item, in: row, ["cancelReminder": true]) } }
+            CossMenuItem.command("取消提醒") { Task { await workspace.update(item, in: row, ["cancelReminder": true]) } }
           }
         }
         if item.todoId != nil {
@@ -287,7 +316,7 @@ struct ChecklistView: View {
         }
       }
     }.font(UIType.body).padding(.horizontal, 8)
-      .background(selected ? Palette.accentSoft : Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+      .background(selected ? Palette.accentSoft : Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
       .disabled(workspace.isMutating(item, in: row))
   }
 

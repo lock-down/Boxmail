@@ -13,7 +13,7 @@ enum ChecklistFilter: String, CaseIterable {
     case .snoozed: "已延后"
     case .completed: "已完成"
     case .due: "已到期"
-    case .removed: "已移除摘要"
+    case .removed: "已移除"
     }
   }
 }
@@ -58,6 +58,7 @@ struct ChecklistReveal: Equatable {
   var reveal: ChecklistReveal?
   var selectedId: String?
   var filter: ChecklistFilter = .all
+  private var filterBeforeRemoved: ChecklistFilter = .all
   var revision = 0
   var dismissedItem: FollowUp?
   private(set) var mutating: Set<String> = []
@@ -68,9 +69,12 @@ struct ChecklistReveal: Equatable {
   }
 
   func setFilter(_ value: ChecklistFilter) {
+    if value == .removed && filter != .removed { filterBeforeRemoved = filter }
     filter = value
     resetPosition()
   }
+
+  func returnFromRemoved() { setFilter(filterBeforeRemoved) }
 
   func resetPosition() {
     pages.resetOffset()

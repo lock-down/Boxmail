@@ -14,9 +14,9 @@ struct SettingsActionBar<Leading: View>: View {
       if isWorking { CossSpinner() }
       leading()
       Spacer(minLength: 12)
-      ActionButton(title: "取消", size: .form, minimumWidth: 72, action: cancel)
+      ActionButton(title: "取消", size: .form, width: UILayout.pairedActionWidth, action: cancel)
         .keyboardShortcut(.cancelAction).disabled(isWorking || cancelDisabled)
-      ActionButton(title: primaryTitle, emphasis: .primary, size: .form, minimumWidth: 72, action: primary)
+      ActionButton(title: primaryTitle, emphasis: .primary, size: .form, width: UILayout.pairedActionWidth, action: primary)
         .keyboardShortcut(.defaultAction).disabled(isWorking || primaryDisabled)
     }.padding(.horizontal, 24).frame(height: 64).background(Palette.chrome)
       .overlay(alignment: .top) { Rectangle().fill(Palette.softBorder).frame(height: 1) }

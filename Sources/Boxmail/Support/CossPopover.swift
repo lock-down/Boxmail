@@ -4,10 +4,11 @@ import SwiftUI
 extension View {
   func cossPopover<Popup: View>(
     isPresented: Binding<Bool>, arrowEdge: Edge = .bottom, alignment: HorizontalAlignment = .center,
+    radius: CGFloat = UILayout.popoverRadius,
     @ViewBuilder content: @escaping () -> Popup
   ) -> some View {
     background {
-      CossPopoverAnchor(isPresented: isPresented, edge: arrowEdge, alignment: alignment, content: content)
+      CossPopoverAnchor(isPresented: isPresented, edge: arrowEdge, alignment: alignment, radius: radius, content: content)
     }
   }
 }
@@ -16,6 +17,7 @@ private struct CossPopoverAnchor<Popup: View>: NSViewRepresentable {
   @Binding var isPresented: Bool
   let edge: Edge
   let alignment: HorizontalAlignment
+  let radius: CGFloat
   let content: () -> Popup
 
   func makeNSView(context: Context) -> CossMenuAnchorView { CossMenuAnchorView() }
@@ -26,7 +28,7 @@ private struct CossPopoverAnchor<Popup: View>: NSViewRepresentable {
       view.dismiss()
       return
     }
-    let shape = RoundedRectangle(cornerRadius: UILayout.cardRadius, style: .continuous)
+    let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
     let root = content()
       .foregroundStyle(Palette.ink).tint(Palette.accent)
       .toggleStyle(CossToggleStyle()).disclosureGroupStyle(SettingsDisclosureStyle())

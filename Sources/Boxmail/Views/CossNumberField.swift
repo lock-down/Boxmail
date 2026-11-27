@@ -5,6 +5,7 @@ struct CossNumberField: View {
   @Binding var value: Int
   let range: ClosedRange<Int>
   var digits = 1
+  var size: UIControlSize = .form
   @ViewState private var draft: String?
   @FocusState private var focused: Bool
 
@@ -13,7 +14,7 @@ struct CossNumberField: View {
       stepButton(.minus, label: "减少" + title, offset: -1)
         .disabled(value <= range.lowerBound)
       TextField("", text: input)
-        .textFieldStyle(.plain).font(UIControlSize.form.font)
+        .textFieldStyle(.plain).font(size.font)
         .monospacedDigit().multilineTextAlignment(.center)
         .frame(minWidth: 30, maxWidth: .infinity)
         .focused($focused).accessibilityLabel(title)
@@ -22,7 +23,7 @@ struct CossNumberField: View {
         .onKeyPress(.downArrow) { step(-1); return .handled }
       stepButton(.plus, label: "增加" + title, offset: 1)
         .disabled(value >= range.upperBound)
-    }.padding(.horizontal, 3).frame(height: UIControlSize.form.height)
+    }.padding(.horizontal, 3).frame(height: size.height)
       .controlFieldSurface(focused: focused)
       .onChange(of: focused) { _, editing in if !editing { draft = nil } }
       .onChange(of: value) { _, value in
@@ -39,7 +40,7 @@ struct CossNumberField: View {
   }
 
   private func stepButton(_ icon: AppicaGlyph, label: String, offset: Int) -> some View {
-    IconButton(icon: icon, help: label, size: UIControlSize.compact.height) { step(offset) }
+    IconButton(icon: icon, help: label, size: size.height - 8) { step(offset) }
   }
 
   private func step(_ offset: Int) {

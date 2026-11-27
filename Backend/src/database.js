@@ -228,10 +228,10 @@ export class Repository {
       .prepare('SELECT * FROM events ORDER BY time DESC LIMIT 100')
       .all();
   }
-  messageWhere({ query = '', accountId, folder, filter, category, labelId } = {}) {
+  messageWhere({ query = '', accountId, folder, filter, category, labelId, fixedScope } = {}) {
     const parsed = parseSearch(query);
     const label = labelId ? this.get('categoryCatalog', 'categories')?.items.find(item => item.id === labelId) || { id: labelId } : null;
-    const { clauses, params } = searchWhere(parsed, { accountId, folder, filter, category, label, accounts: this.list('account') });
+    const { clauses, params } = searchWhere(parsed, { accountId, folder, filter, category, label, fixedScope, accounts: this.list('account') });
     const fullText = this.searchIndex.where(parsed.terms);
     if (fullText.clause) { clauses.push(fullText.clause); params.push(...fullText.params); }
     return { where: clauses.join(' AND '), params };

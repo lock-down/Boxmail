@@ -41,12 +41,12 @@ struct SearchFiltersView: View {
   }
   private var filtersForm: some View {
     VStack(alignment: .leading, spacing: 16) {
-      WorkflowPanelHeader(title: "搜索条件", subtitle: "所有条件同时满足，仅搜索本机已缓存的邮件", closeLabel: "关闭搜索条件") { dismiss() }
+      WorkflowPanelHeader(title: "搜索条件", subtitle: "所有条件同时满足，仅搜索本机缓存的邮件和附件", closeLabel: "关闭搜索条件") { dismiss() }
       VStack(spacing: 14) {
-        field("关键词", text: $keywords, placeholder: "正文、附件名称或 AI 结果")
+        field("关键词", text: $keywords, placeholder: "搜索词")
         HStack(alignment: .top, spacing: 16) {
-          field("发件人", text: $sender, placeholder: "姓名或邮箱")
-          field("收件人", text: $recipient, placeholder: "含抄送与密送")
+          field("发件人", text: $sender, placeholder: "姓名邮箱")
+          field("收件人", text: $recipient, placeholder: "含抄密送")
         }
       }
       CossSeparator()
@@ -58,12 +58,16 @@ struct SearchFiltersView: View {
           }
           WorkflowField(title: "文件夹") {
             WorkflowSelection(title: "搜索文件夹", selection: folderSelection,
-              options: [("", "全部文件夹")] + [MailDestination.inbox, .sent, .archive, .trash, .drafts].map { ($0.rawValue, $0.title) } + [("spam", "垃圾邮件")])
+              options: [("", "不限")] + [MailDestination.inbox, .sent, .archive, .trash, .drafts, .spam].map { ($0.rawValue, $0.title) })
           }
         }
         HStack(alignment: .top, spacing: 16) {
-          WorkflowField(title: "起始日期（含当天）") { CossDatePicker(title: "选择起始日期", value: $after) }
-          WorkflowField(title: "截止日期（不含当天）") { CossDatePicker(title: "选择截止日期", value: $before) }
+          WorkflowField(title: "起始日期", detail: "含当天") {
+            CossDatePicker(title: "起始日期，含当天", value: $after)
+          }
+          WorkflowField(title: "截止日期", detail: "不含当天") {
+            CossDatePicker(title: "截止日期，不含当天", value: $before)
+          }
         }
         HStack {
           Text("状态").font(UIType.caption).foregroundStyle(Palette.muted)
@@ -83,10 +87,15 @@ struct SearchFiltersView: View {
       if let error { WorkflowNotice(text: error, icon: .infoCircle, color: Palette.amber) }
       CossSeparator()
       HStack {
-        ActionButton(title: "清除搜索", icon: .arrowBackUp) { store.search = ""; store.searchAllAccounts = false; dismiss() }
+        ActionButton(title: "清除搜索", icon: .arrowBackUp, width: UILayout.pairedActionWidth) {
+          store.search = ""
+          store.searchAllAccounts = false
+          dismiss()
+        }
         Spacer()
         if working { CossSpinner() }
-        ActionButton(title: working ? "正在搜索…" : "搜索邮件", icon: .search, emphasis: .primary) { apply() }
+        ActionButton(title: working ? "搜索中…" : "搜索邮件", icon: .search, emphasis: .primary,
+          width: UILayout.pairedActionWidth) { apply() }
           .disabled(working)
       }
     }.padding(UILayout.sectionInset).frame(width: 520).background(Palette.paper).tint(Palette.accent)

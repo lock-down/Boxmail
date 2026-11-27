@@ -10,11 +10,14 @@ import ObjectiveC
         .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
     let persistent = (objc_getAssociatedObject(scrollView, &persistentKey) as? NSNumber)?.boolValue == true
+    let isNativeTable = scrollView.documentView is NSTableView
+    // Keep List and Table's scroller layout, including the user's scroll bar preference.
+    let style: NSScroller.Style = isNativeTable ? scrollView.scrollerStyle : persistent ? .legacy : .overlay
     if scrollView.borderType != .noBorder { scrollView.borderType = .noBorder }
     if scrollView.drawsBackground { scrollView.drawsBackground = false }
     if scrollView.focusRingType != .none { scrollView.focusRingType = .none }
     if scrollView.contentView.focusRingType != .none { scrollView.contentView.focusRingType = .none }
-    if !scrollView.autohidesScrollers { scrollView.autohidesScrollers = true }
+    if !isNativeTable && !scrollView.autohidesScrollers { scrollView.autohidesScrollers = true }
     if let layer = scrollView.layer, layer.borderWidth != 0 { layer.borderWidth = 0 }
     if let scroller = scrollView.verticalScroller, !(scroller is BorderlessOverlayScroller) {
       let visible = scrollView.hasVerticalScroller
@@ -26,15 +29,11 @@ import ObjectiveC
       scrollView.horizontalScroller = BorderlessOverlayScroller(copying: scroller)
       scrollView.hasHorizontalScroller = visible
     }
-    let style: NSScroller.Style = persistent ? .legacy : .overlay
     if scrollView.scrollerStyle != style { scrollView.scrollerStyle = style }
   }
 
   static func applyRecursively(to view: NSView) {
-    // SwiftUI List and Table manage their AppKit scrollers when laying out native rows.
-    if let scrollView = view as? NSScrollView, !(scrollView.documentView is NSTableView) {
-      apply(to: scrollView)
-    }
+    if let scrollView = view as? NSScrollView { apply(to: scrollView) }
     for child in view.subviews { applyRecursively(to: child) }
   }
 }

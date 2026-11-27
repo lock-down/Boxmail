@@ -29,21 +29,26 @@ enum UILayout {
   static let reading: CGFloat = 860
   static let document: CGFloat = 920
   static let windowInset: CGFloat = 12
+  static let workspaceWindowInset: CGFloat = 8
   static let toolbarHeight: CGFloat = 52
   static let pageInset: CGFloat = 24
   static let minimumRadius: CGFloat = 4
-  static let workspaceRadius: CGFloat = 20
-  static let cardRadius: CGFloat = 24
+  static let workspaceRadius: CGFloat = 12
+  static let workspaceSurfaceRadius = innerRadius(workspaceRadius, inset: workspaceWindowInset)
+  static let cardRadius: CGFloat = 8
+  static let popoverRadius: CGFloat = 12
   static let sectionInset: CGFloat = 16
-  static let controlRadius = innerRadius(cardRadius, inset: sectionInset)
-  static let navigationRadius = innerRadius(workspaceRadius, inset: windowInset)
+  static let controlRadius = minimumRadius
+  static let fieldRadius = controlRadius
+  static let navigationRadius = controlRadius
   static let listRowInset: CGFloat = 8
-  static let listRowRadius = innerRadius(workspaceRadius, inset: listRowInset)
+  static let listRowRadius = innerRadius(cardRadius, inset: listRowInset)
   static let menuInset: CGFloat = 4
-  static let menuRadius: CGFloat = 12
+  static let menuRadius: CGFloat = 8
   static let menuRowRadius = innerRadius(menuRadius, inset: menuInset)
   static let segmentInset: CGFloat = 4
   static let segmentRadius = controlRadius + segmentInset
+  static let pairedActionWidth: CGFloat = 104
   static let iconControl: CGFloat = UIControlSize.regular.height
   static let smallIconSize: CGFloat = 14
   static let compactIconSize: CGFloat = 16
@@ -71,10 +76,6 @@ extension Color {
   }
 }
 
-func menuTitle(_ value: String, limit: Int = 34) -> String {
-  guard value.count > limit else { return value }
-  return String(value.prefix(limit - 10)) + "…" + String(value.suffix(9))
-}
 struct Tag: View {
   var text: String
   var ai = false
@@ -108,7 +109,7 @@ struct EmptyState: View {
     VStack(spacing: 12) {
       AppicaIcon(icon, size: 20).foregroundStyle(Palette.muted)
         .frame(width: 44, height: 44)
-        .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: UILayout.menuRadius, style: .continuous))
+        .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: UILayout.cardRadius, style: .continuous))
         .padding(.bottom, 4).accessibilityHidden(true)
       Text(title).font(UIType.heading).accessibilityAddTraits(.isHeader)
       Text(subtitle).font(UIType.caption).foregroundStyle(Palette.muted).lineSpacing(5)
@@ -132,6 +133,12 @@ struct PageHeading: View {
   }
 }
 extension View {
+  func workspaceWindowSurface() -> some View {
+    let shape = RoundedRectangle(cornerRadius: UILayout.workspaceSurfaceRadius, style: .continuous)
+    return background(Palette.paper, in: shape).clipShape(shape)
+      .overlay { shape.strokeBorder(Palette.border, lineWidth: 1).allowsHitTesting(false) }
+  }
+
   func workspacePage() -> some View {
     frame(maxWidth: .infinity, alignment: .leading).padding(UILayout.pageInset)
   }

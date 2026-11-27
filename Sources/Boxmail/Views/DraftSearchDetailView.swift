@@ -9,7 +9,7 @@ struct DraftSearchDetailView: View {
       HStack {
         Label("本机草稿", icon: .edit).font(UIType.caption).foregroundStyle(Palette.muted)
         Spacer()
-        ActionButton(title: "继续编辑草稿", icon: .edit, color: Palette.accent) {
+        ActionButton(title: "继续编辑", icon: .edit, color: Palette.accent) {
           if let id = message.draftId { store.editDraft(id) }
         }.disabled(store.drafts.first(where: { $0.id == message.draftId })?.status == "sending")
       }.padding(.horizontal, 20).frame(height: 52)
@@ -37,7 +37,7 @@ struct DraftSearchDetailView: View {
             Text("附件 · \(message.attachmentIds.count) 个").font(UIType.section)
             ForEach(message.attachmentIds, id: \.self) { id in
               if let attachment = store.attachments.first(where: { $0.id == id }) {
-                AttachmentCard(attachment: attachment) { store.previewAttachment = attachment }
+                AttachmentCard(attachment: attachment, action: { store.previewAttachment = attachment })
               }
             }
           }

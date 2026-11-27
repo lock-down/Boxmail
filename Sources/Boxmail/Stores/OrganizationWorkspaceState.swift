@@ -6,11 +6,8 @@ import Observation
   let pages: OrganizationPageStore
   var scope = "unclassified"
   var limit = 50
-  var reviewOffset = 0
   let scrollPosition = ScrollPositionState()
   var selectedMessageId: String?
-  var showsTaskDetails = false
-  var showsNewTask = false
 
   init(backend: BackendService, accountId: String) {
     pages = OrganizationPageStore(backend: backend, accountId: accountId)

@@ -27,7 +27,7 @@ enum ComposerWritingScope: String {
     case .selection: "跟随选区"
     case .body: "跟随正文"
     case .source, .thread: "跟随来信"
-    case .new: "跟随写作要求"
+    case .new: "跟随要求"
     }
   }
 }
@@ -126,7 +126,7 @@ private struct ComposerWritingForm: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       WorkflowField(title: "写作要求") {
-        PlainTextEditor(text: $session.prompt, placeholder: "例如：确认收到，并询问下一步安排",
+        PlainTextEditor(text: $session.prompt, placeholder: "写作要求",
           fontSize: 13, lineSpacing: 3, inset: .init(width: 10, height: 8),
           accessibilityLabel: "写作要求", showsVerticalScroller: false,
           submitShortcut: .commandReturn, onSubmit: submit)
@@ -135,16 +135,24 @@ private struct ComposerWritingForm: View {
       if scope == .selection || isReply {
         HStack(spacing: 6) {
           if scope == .selection {
-            ActionButton(title: "缩短", emphasis: .secondary, size: .compact) { generate("缩短选区，保留原意。", nil) }
-            ActionButton(title: "润色", emphasis: .secondary, size: .compact) { generate("润色选区，保留原意。", nil) }
+            ActionButton(title: "缩短", emphasis: .secondary, size: .compact, fillsWidth: true) {
+              generate("缩短选区，保留原意。", nil)
+            }
+            ActionButton(title: "润色", emphasis: .secondary, size: .compact, fillsWidth: true) {
+              generate("润色选区，保留原意。", nil)
+            }
             CossMenu(title: "译为…", emphasis: .secondary) {
               for language in MailTranslationLanguage.allCases {
                 CossMenuItem.command(language.title) { generate("翻译选区。", language) }
               }
-            } trigger: { CossMenuLabel(title: "译为…", size: .compact) }
+            } trigger: { CossMenuLabel(title: "译为…", size: .compact, fillsWidth: true) }
           } else {
-            ActionButton(title: "确认收到", emphasis: .secondary, size: .compact) { generate("礼貌确认已收到。", nil) }
-            ActionButton(title: "婉拒", emphasis: .secondary, size: .compact) { generate("礼貌婉拒来信中的邀请或请求。", nil) }
+            ActionButton(title: "确认收到", emphasis: .secondary, size: .compact, fillsWidth: true) {
+              generate("礼貌确认已收到。", nil)
+            }
+            ActionButton(title: "婉拒", emphasis: .secondary, size: .compact, fillsWidth: true) {
+              generate("礼貌婉拒来信中的邀请或请求。", nil)
+            }
           }
         }.disabled(unavailable)
       }
@@ -162,7 +170,7 @@ private struct ComposerWritingForm: View {
         }.padding(.leading, 4)
       }
       .disclosureGroupStyle(SettingsDisclosureStyle())
-      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
       if isReply { Toggle("参考会话", isOn: $session.referenceThread).toggleStyle(CossToggleStyle()) }
       if let error = session.error { WorkflowNotice(text: error, color: Palette.amber) }
       CossSeparator()

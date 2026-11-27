@@ -19,22 +19,9 @@ else {
     userInfo: [NSLocalizedDescriptionKey: "无法读取图标源文件：\(source)"])
 }
 
-// The supplied artwork includes a light backdrop. Crop its outer five percent,
-// then apply the same rounded tile mask used by the sidebar, without recoloring.
-let insetX = CGFloat(original.width) * 0.05
-let insetY = CGFloat(original.height) * 0.05
-let crop = CGRect(
-  x: insetX, y: insetY,
-  width: CGFloat(original.width) - 2 * insetX,
-  height: CGFloat(original.height) - 2 * insetY)
-guard let artwork = original.cropping(to: crop) else {
-  throw NSError(
-    domain: "BoxmailIcon", code: 2,
-    userInfo: [NSLocalizedDescriptionKey: "无法裁切图标源文件"])
-}
 let image = NSImage(
-  cgImage: artwork,
-  size: NSSize(width: CGFloat(artwork.width), height: CGFloat(artwork.height)))
+  cgImage: original,
+  size: NSSize(width: CGFloat(original.width), height: CGFloat(original.height)))
 try manager.createDirectory(atPath: output, withIntermediateDirectories: true)
 for size in [16, 32, 128, 256, 512] {
   for scale in [1, 2] {
@@ -48,6 +35,7 @@ for size in [16, 32, 128, 256, 512] {
     NSGraphicsContext.current?.imageInterpolation = .high
     NSColor.clear.setFill()
     NSRect(x: 0, y: 0, width: CGFloat(pixels), height: CGFloat(pixels)).fill(using: .copy)
+    // The artwork defines the tile's corners. Leave only the macOS icon margin.
     let inset = CGFloat(pixels) * 0.075
     let ratio = min(
       (CGFloat(pixels) - 2 * inset) / image.size.width,
@@ -57,7 +45,6 @@ for size in [16, 32, 128, 256, 512] {
     let rect = NSRect(
       x: (CGFloat(pixels) - width) / 2,
       y: (CGFloat(pixels) - height) / 2, width: width, height: height)
-    NSBezierPath(roundedRect: rect, xRadius: width * 0.25, yRadius: height * 0.25).addClip()
     image.draw(in: rect)
     NSGraphicsContext.restoreGraphicsState()
     let name = "icon_\(size)x\(size)" + (scale == 2 ? "@2x" : "") + ".png"

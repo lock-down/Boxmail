@@ -12,8 +12,8 @@ struct AnalysisTableView: View {
       Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
         row(table.headers, header: true)
         ForEach(Array(table.rows.enumerated()), id: \.offset) { _, values in row(values) }
-      }.clipShape(RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous).strokeBorder(Palette.softBorder, lineWidth: 1) }
+      }.clipShape(RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous).strokeBorder(Palette.softBorder, lineWidth: 1) }
     }.background {
       GeometryReader { geometry in
         Color.clear.onAppear { availableWidth = geometry.size.width }

@@ -252,7 +252,11 @@ export async function startServer({
       if (maintenance && (req.method !== 'GET' || archiveRequest)) throw new ServiceError('正在维护本机数据，请稍候', 409);
       if (req.method !== 'GET' || archiveRequest) { activeWrites++; countedWrite = true; }
       let result;
-      const domain = await services.route(req.method, route, body, url.searchParams);
+      const disconnect = route === '/mail-rules/agent-draft' && req.method === 'POST' ? new AbortController() : null;
+      if (disconnect) res.once('close', () => {
+        if (!res.writableEnded) disconnect.abort();
+      });
+      const domain = await services.route(req.method, route, body, url.searchParams, { signal: disconnect?.signal });
       if (domain.handled) result = domain.result;
       else
       if (req.method === 'GET' && route === '/health') result = { ok: true };
@@ -579,6 +583,8 @@ export async function startServer({
         const id = body.id || randomUUID();
         if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new ServiceError('草稿标识无效');
         const old = repo.get('draft', id);
+        if (!old && body.revision != null)
+          throw new ServiceError('原草稿已移除，当前编辑内容仍保留。请另存为新草稿。', 409);
         const moved = old && old.accountId !== body.accountId;
         const plan = body.sendPlanId ? repo.get('sendPlan', body.sendPlanId) : null;
         if (body.sendPlanId && (!plan || plan.draftId !== id || plan.status !== 'paused' || old?.status !== 'queued'))
@@ -715,7 +721,18 @@ export async function startServer({
         durationMs: performance.now() - requestStarted });
     }
   });
-  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+  } catch (error) {
+    repo.close();
+    throw error;
+  }
   diagnostics.record('service.started');
   const serviceTimer = setInterval(() => { void Promise.all([services.tick(), realtime.tick()]).catch(error => diagnostics.record('services.failed', errorDiagnostic(error))); }, 1000);
   serviceTimer.unref();

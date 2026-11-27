@@ -13,11 +13,11 @@ struct ConfigurationSettingsView: View {
     SectionCard(title: "配置导出与导入", icon: .adjustments) {
       VStack(alignment: .leading, spacing: 18) {
         SettingsTransferRow(title: "导出配置", detail: "邮箱账号与授权码、AI 配置与密钥、签名及其他偏好", icon: .upload) {
-          ActionButton(title: "导出配置…", icon: .upload, color: Palette.accent) { export() }
+          ActionButton(title: "导出配置", icon: .upload, color: Palette.accent) { export() }
         }
         CossSeparator()
         SettingsTransferRow(title: "导入配置", detail: "按邮箱合并账号，应用 AI、签名和其他偏好", icon: .fileImport) {
-          ActionButton(title: "选择配置…", icon: .folder) { chooseConfiguration() }
+          ActionButton(title: "选择配置", icon: .folder) { chooseConfiguration() }
         }
       }.disabled(transferring || !store.ready || !store.busy.isEmpty || store.composer != nil)
       if !store.ready {
@@ -143,7 +143,7 @@ private struct ConfigurationImportReview: View {
         }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
       }
       SettingsActionBar(
-        primaryTitle: importing ? "正在导入…" : "导入配置", isWorking: importing,
+        primaryTitle: importing ? "导入中…" : "导入配置", isWorking: importing,
         cancel: cancel, primary: apply
       ) {
         EmptyView()

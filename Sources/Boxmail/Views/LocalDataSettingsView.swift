@@ -29,18 +29,18 @@ struct LocalDataSettingsView: View {
           .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
       }
       WrappingFlowLayout(spacing: 8) {
-        ActionButton(title: "打开数据目录", icon: .folder) {
+        ActionButton(title: "打开目录", icon: .folder) {
           if !NSWorkspace.shared.open(backend.dataDirectory) {
             selectionError = "目录暂时无法打开，请接入原磁盘并检查文件夹权限。"
           }
         }
-        ActionButton(title: "显示凭证文件", icon: .fileText) {
+        ActionButton(title: "查看凭证", icon: .fileText) {
           do {
             try CredentialService.createFileIfNeeded()
             NSWorkspace.shared.activateFileViewerSelecting([try CredentialService.fileURL])
           } catch { selectionError = error.localizedDescription }
         }
-        ActionButton(title: "更改位置…", icon: .folderCog, color: Palette.accent) {
+        ActionButton(title: "更改位置", icon: .folderCog, color: Palette.accent) {
           chooseDirectory()
         }.disabled(backend.hasDataDirectoryOverride || !store.ready)
       }

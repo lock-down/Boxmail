@@ -29,7 +29,7 @@ struct CategoryManagerView: View {
         CossSeparator(axis: .vertical)
         editor.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       }
-    }.background(Palette.paper).tint(Palette.accent).workspaceSheet(.categories)
+    }.background(Palette.paper).tint(Palette.accent).workspaceWindowSize(.categories)
       .onAppear { color = CategoryTone.suggestedHex(in: store.categories) }
       .disabled(saving)
       .sheet(item: $trialLabel) { OrganizationMailPicker(store: store, label: $0) }
@@ -63,6 +63,9 @@ struct CategoryManagerView: View {
                 VStack(alignment: .leading, spacing: 5) {
                   Text(category.name).font(.system(size: 13, weight: editingID == category.id ? .medium : .regular))
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                  if category.origin == "mailOrganization" {
+                    Text("Agent 整理创建").font(UIType.small).foregroundStyle(Palette.muted)
+                  }
                   if category.id == "unclassified" || !category.description.isEmpty {
                     Text(category.id == "unclassified" ? "系统分类" : category.description)
                       .font(UIType.small).foregroundStyle(Palette.muted).lineLimit(2)
@@ -98,26 +101,28 @@ struct CategoryManagerView: View {
         OverlayScrollView {
           VStack(alignment: .leading, spacing: 18) {
             WorkflowField(title: "标签名称", detail: "\(name.count) / 32") {
-              WorkflowTextInput(label: "标签名称", placeholder: "例如：合同审批", text: $name)
+              WorkflowTextInput(label: "标签名称", placeholder: "合同审批", text: $name)
             }
-            Toggle("自定义颜色", isOn: $hasColor).toggleStyle(CossToggleStyle())
+            Toggle("自定颜色", isOn: $hasColor).toggleStyle(CossToggleStyle())
             if hasColor {
               CategoryColorField(hex: $color, name: name.trimmingCharacters(in: .whitespacesAndNewlines))
             }
             WorkflowField(title: "标签说明", detail: "\(description.count) / 500") {
-              WorkflowTextInput(label: "标签说明", placeholder: "例如：需要审核的采购合同、补充协议及审批进度", text: $description, lines: 4)
+              WorkflowTextInput(label: "标签说明", placeholder: "标签用途", text: $description, lines: 4)
             }
-            Toggle("整理时匹配", isOn: $matches).toggleStyle(CossToggleStyle(isSwitch: true))
+            Toggle("整理匹配", isOn: $matches).toggleStyle(CossToggleStyle(isSwitch: true))
             if matches {
               WorkflowField(title: "匹配条件") {
-                WorkflowTextInput(label: "匹配条件", placeholder: "例如：来自 AWS Billing 且列出本期应付金额", text: $condition, lines: 3)
+                WorkflowTextInput(label: "匹配条件", placeholder: "匹配条件", text: $condition, lines: 3)
               }
               Text("启用此条件的邮箱整理邮件时，会使用发件人、主题和正文。")
                 .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
               if let selected, selected.match == condition.trimmingCharacters(in: .whitespacesAndNewlines) {
                 HStack(spacing: 8) {
-                  ActionButton(title: "试用条件…", emphasis: .secondary, size: .compact) { trialLabel = selected }
-                  ActionButton(title: "启用的邮箱…", emphasis: .secondary, size: .compact) { rulesLabel = selected }
+                  ActionButton(title: "试用条件", emphasis: .secondary, size: .compact,
+                    width: UILayout.pairedActionWidth) { trialLabel = selected }
+                  ActionButton(title: "适用邮箱", emphasis: .secondary, size: .compact,
+                    width: UILayout.pairedActionWidth) { rulesLabel = selected }
                 }
               }
             }
@@ -130,7 +135,7 @@ struct CategoryManagerView: View {
           }
           Spacer(minLength: 0)
           if editingID != nil { ActionButton(title: "取消编辑") { reset() } }
-          ActionButton(title: saving ? "正在保存…" : editingID == nil ? "添加标签" : "保存修改", icon: .check, color: Palette.accent) { save() }
+          ActionButton(title: saving ? "保存中…" : editingID == nil ? "添加标签" : "保存修改", icon: .check, color: Palette.accent) { save() }
             .disabled(saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 32 || description.count > 500)
             .disabled(hasColor && CategoryTone.canonicalHex(color) == nil)
             .disabled(matches && (condition.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || condition.count > 500))

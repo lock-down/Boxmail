@@ -45,17 +45,17 @@ struct NewAIProviderView: View {
         OverlayScrollView {
           VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
-              SettingsFieldRow(title: "Provider ID", text: $id, placeholder: "acme-gateway")
+              SettingsFieldRow(title: "服务标识", text: $id, placeholder: "acme-gateway")
                 .focused($focused)
               Text("以小写字母开头，使用小写字母、数字和连字符；创建后保持不变。")
                 .font(UIType.small).foregroundStyle(Palette.muted)
                 .padding(.leading, SettingsFormLayout.labelWidth + SettingsFormLayout.columnGap)
                 .frame(maxWidth: .infinity, alignment: .leading)
-              SettingsFieldRow(title: "显示名称", text: $name, placeholder: "例如 工作模型服务")
+              SettingsFieldRow(title: "显示名称", text: $name, placeholder: "服务名称")
               SettingsFieldRow(
-                title: "API 地址", text: $baseURL, placeholder: apiProtocol.addressPlaceholder)
+                title: "接口地址", text: $baseURL, placeholder: apiProtocol.addressPlaceholder)
               HStack(spacing: SettingsFormLayout.columnGap) {
-                SettingsFormLabel(title: "API 协议")
+                SettingsFormLabel(title: "接口协议")
                 WorkflowSelection(
                   title: "新服务商 API 协议", selection: $apiProtocol,
                   options: AIAPIProtocol.allCases.map { ($0, $0.title) }
@@ -64,10 +64,12 @@ struct NewAIProviderView: View {
                 Spacer(minLength: 0)
               }
               HStack(spacing: SettingsFormLayout.columnGap) {
-                SettingsFormLabel(title: "API Key")
+                SettingsFormLabel(title: "服务密钥")
                 SecureField("", text: $key).settingsTextInput()
-                  .inputPlaceholder("输入 API 密钥，本地服务可留空", visible: key.isEmpty)
+                  .inputPlaceholder("服务密钥", visible: key.isEmpty)
                   .accessibilityLabel("新服务商 API Key")
+                  .accessibilityHint("本地服务可留空")
+                  .cossTooltip("本地服务可留空")
                   .frame(width: SettingsFormLayout.fieldWidth)
                 Spacer(minLength: 0)
               }
@@ -76,7 +78,7 @@ struct NewAIProviderView: View {
             HStack {
               Text("模型参数按服务商提供的能力填写。").font(UIType.small).foregroundStyle(Palette.muted)
               Spacer()
-              SettingsInlineAction(title: fetching ? "正在获取…" : "获取模型", icon: .refresh) {
+              SettingsInlineAction(title: fetching ? "获取中…" : "获取模型", icon: .refresh) {
                 fetchModels()
               }
               .disabled(fetching || provider.id.isEmpty || provider.baseURL.isEmpty)
@@ -91,7 +93,7 @@ struct NewAIProviderView: View {
         }
       }.padding(24)
       SettingsActionBar(
-        primaryTitle: "添加并使用", primaryDisabled: issue != nil || fetching,
+        primaryTitle: "添加使用", primaryDisabled: issue != nil || fetching,
         cancel: { dismiss() },
         primary: {
           add(provider, key.trimmingCharacters(in: .whitespacesAndNewlines)); dismiss()
@@ -101,7 +103,7 @@ struct NewAIProviderView: View {
           .font(UIType.small).foregroundStyle(Palette.muted)
           .fixedSize(horizontal: false, vertical: true)
       }
-    }.background(Palette.paper).workspaceSheet(.provider).onAppear { focused = true }
+    }.background(Palette.paper).workspaceWindowSize(.provider).onAppear { focused = true }
       .sheet(isPresented: $discovering) {
         AIModelDiscoveryView(candidates: candidates, existingIDs: Set(models.map(\.id))) {
           models.append(contentsOf: $0)

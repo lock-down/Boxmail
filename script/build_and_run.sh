@@ -30,7 +30,6 @@ case "$MODE" in
   APP_NAME="Boxmail Review"
   DEMO_DATA="true"
   APP_BUNDLE="$ROOT_DIR/artifacts/ui-review/Boxmail Review.app"
-  pkill -f "$APP_BUNDLE/Contents/MacOS/" >/dev/null 2>&1 || true
   ;;
 --package|package|--package-test|package-test)
   BUILD_CONFIGURATION="release"
@@ -43,9 +42,7 @@ case "$MODE" in
   # Recreate only this generated bundle so stale development files cannot enter the package.
   rm -rf "$APP_BUNDLE"
   ;;
-run|--verify|verify|--debug|debug|--logs|logs|--telemetry|telemetry)
-  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-  ;;
+run|--verify|verify|--debug|debug|--logs|logs|--telemetry|telemetry) ;;
 *) echo "usage: $0 [run|--verify|--debug|--logs|--telemetry|--review|--package|--package-test]" >&2; exit 2 ;;
 esac
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -58,8 +55,24 @@ if [[ ! -d Backend/node_modules ]]; then npm ci --prefix Backend --no-fund --no-
 swift build --configuration "$BUILD_CONFIGURATION"
 BUILD_DIR="$(swift build --configuration "$BUILD_CONFIGURATION" --show-bin-path)"
 BUILD_BINARY="$BUILD_DIR/Boxmail"
+running_bundle_pids() {
+  local pid
+  for pid in $(pgrep -x "$APP_NAME" || true); do
+    if [[ "$(ps -p "$pid" -o comm= 2>/dev/null)" == "$APP_CONTENTS/MacOS/$APP_NAME" ]]; then
+      printf '%s\n' "$pid"
+    fi
+  done
+}
+case "$MODE" in
+--package|package|--package-test|package-test) ;;
+*)
+  while IFS= read -r pid; do
+    kill "$pid" 2>/dev/null || true
+  done < <(running_bundle_pids)
+  ;;
+esac
 launch_app() {
-  local -a launch_arguments=(-n "$APP_BUNDLE")
+  local -a launch_arguments=("$APP_BUNDLE")
   if [[ -n "${BOXMAIL_DATA:-}" ]]; then
     launch_arguments+=(--env "BOXMAIL_DATA=$BOXMAIL_DATA")
   fi
@@ -93,11 +106,14 @@ rsync -a --delete "$BUILD_DIR/Boxmail_BoxmailCore.bundle/" "$APP_CONTENTS/Resour
 rsync -a --delete "$BUILD_DIR/Boxmail_Boxmail.bundle/" "$APP_CONTENTS/Resources/Boxmail_Boxmail.bundle/"
 chmod +x "$APP_CONTENTS/MacOS/$APP_NAME" "$APP_CONTENTS/Resources/Runtime/node" "$APP_CONTENTS/Resources/Runtime/BoxmailPresentationRenderer"
 BRAND_MARK="Sources/BoxmailCore/Resources/BoxmailMark.png"
-if [[ ! -f "$APP_CONTENTS/Resources/Boxmail.icns" || script/generate_icon.swift -nt "$APP_CONTENTS/Resources/Boxmail.icns" || "$BRAND_MARK" -nt "$APP_CONTENTS/Resources/Boxmail.icns" ]]; then
+APP_ICON_FILE="BoxmailAppIcon.icns"
+APP_ICON_PATH="$APP_CONTENTS/Resources/$APP_ICON_FILE"
+if [[ ! -f "$APP_ICON_PATH" || script/generate_icon.swift -nt "$APP_ICON_PATH" || "$BRAND_MARK" -nt "$APP_ICON_PATH" ]]; then
   mkdir -p artifacts/Boxmail.iconset
   swift script/generate_icon.swift artifacts/Boxmail.iconset "$BRAND_MARK"
-  iconutil -c icns artifacts/Boxmail.iconset -o "$APP_CONTENTS/Resources/Boxmail.icns"
+  iconutil -c icns artifacts/Boxmail.iconset -o "$APP_ICON_PATH"
 fi
+rm -f "$APP_CONTENTS/Resources/Boxmail.icns"
 cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -108,12 +124,13 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
 <key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>zh-Hant</string><string>en</string></array>
 <key>CFBundleAllowMixedLocalizations</key><true/>
-<key>CFBundleIconFile</key><string>Boxmail</string>
+<key>CFBundleIconFile</key><string>$APP_ICON_FILE</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
 <key>CFBundleVersion</key><string>$APP_BUILD</string>
 <key>BoxmailDemoDataEnabled</key><$DEMO_DATA/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>LSMultipleInstancesProhibited</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
@@ -134,7 +151,14 @@ case "$MODE" in
 --package-test|package-test) echo "已生成独立诊断修复测试 App：$APP_BUNDLE" ;;
 run) launch_app ;;
 --review|review) launch_app ;;
---verify|verify) launch_app; sleep 1; pgrep -x "$APP_NAME" >/dev/null ;;
+--verify|verify)
+  launch_app
+  sleep 1
+  if [[ -z "$(running_bundle_pids)" ]]; then
+    echo "未能确认本次构建的 App 正在运行：$APP_BUNDLE" >&2
+    exit 1
+  fi
+  ;;
 --debug|debug) lldb -- "$APP_CONTENTS/MacOS/$APP_NAME" ;;
 --logs|logs) launch_app; /usr/bin/log stream --info --style compact --predicate 'process == "Boxmail"' ;;
 --telemetry|telemetry) launch_app; /usr/bin/log stream --info --style compact --predicate 'subsystem == "com.boxmail.desktop"' ;;

@@ -25,6 +25,7 @@ enum AppicaGlyph: String, CaseIterable {
   case chevronDown = "chevron-down"
   case chevronLeft = "chevron-left"
   case chevronRight = "chevron-right"
+  case chevronRightBold = "chevron-right-bold"
   case chevronUp = "chevron-up"
   case chevronsUpDown = "chevrons-up-down"
   case circle = "circle"

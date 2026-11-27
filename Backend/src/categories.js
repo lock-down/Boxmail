@@ -16,6 +16,32 @@ export function categoryCatalog(repo) {
   }
   return catalog.items;
 }
+export function organizationLabelMode(repo, input, { allowEmpty = false } = {}) {
+  const { mode, labelIds } = input ?? {};
+  const available = new Set(categoryCatalog(repo).filter(label => label.id !== 'unclassified').map(label => label.id));
+  if (!['automatic', 'existing'].includes(mode) || !Array.isArray(labelIds)
+    || (mode === 'existing' ? (!allowEmpty && !labelIds.length) || labelIds.some(id => !available.has(id)) : labelIds.length > 0))
+    throw new ServiceError('请核对并确认本邮箱的标签方式');
+  return { mode, labelIds: [...new Set(labelIds)].sort() };
+}
+
+export function organizationCategory(repo, suggestion, supplied) {
+  const categories = categoryCatalog(repo);
+  if (typeof suggestion?.id === 'string') {
+    return supplied.some(item => item.id === suggestion.id)
+      ? categories.find(item => item.id === suggestion.id && item.id !== 'unclassified') : undefined;
+  }
+  if (typeof suggestion?.name !== 'string') return;
+  const name = suggestion.name.normalize('NFKC').trim();
+  if (!name || [...name].length > 32 || /[\r\n\u0000-\u001f]/u.test(name)) return;
+  const existing = categories.find(item => item.name.normalize('NFKC').toLocaleLowerCase() === name.toLocaleLowerCase());
+  if (existing) return existing.id === 'unclassified' ? undefined : existing;
+  if (categories.length >= 100) return;
+  const item = { id: randomUUID(), name, description: '', origin: 'mailOrganization' };
+  repo.put('categoryCatalog', { id: 'categories', items: [...categories, item] });
+  return item;
+}
+
 export function editCategory(repo, id, input = {}, remove = false) {
   const categories = categoryCatalog(repo);
   if (remove && !id) throw new ServiceError('请选择要删除的分类');
@@ -36,7 +62,7 @@ export function editCategory(repo, id, input = {}, remove = false) {
     throw new ServiceError('已有同名分类');
   if (!id && categories.length >= 100) throw new ServiceError('最多保存 100 个分类，请先整理已有分类');
   return repo.transaction(() => {
-    const item = { id: previous?.id || randomUUID(), name, description, ...(condition ? { match: condition,
+    const item = { id: previous?.id || randomUUID(), name, description, ...(previous?.origin ? { origin: previous.origin } : {}), ...(condition ? { match: condition,
       matchRevision: condition === previous?.match ? previous.matchRevision || randomUUID() : randomUUID() } : {}), ...(color ? { color: color.toUpperCase() } : {}) };
     const items = remove ? categories.filter(item => item.id !== id)
       : previous ? categories.map(value => value.id === id ? item : value) : [...categories, item];

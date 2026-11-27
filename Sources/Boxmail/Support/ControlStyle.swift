@@ -131,8 +131,8 @@ extension View {
     modifier(ControlFocus(corner: corner))
   }
 
-  func controlFieldSurface(focused: Bool, fill: Color = Palette.paper) -> some View {
-    let shape = RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
+  func controlFieldSurface(focused: Bool, fill: Color = Palette.paper, radius: CGFloat = UILayout.fieldRadius) -> some View {
+    let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
     return background(fill, in: shape).overlay {
       shape.strokeBorder(focused ? Palette.accent : Palette.border, lineWidth: focused ? 2 : 1)
         .allowsHitTesting(false)

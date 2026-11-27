@@ -40,10 +40,13 @@ private struct ScrollAppearanceScope: NSViewRepresentable {
     func scheduleRefresh() {
       guard window != nil, !refreshPending else { return }
       refreshPending = true
-      DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
-        self.refreshPending = false
-        if let root = self.window?.contentView { ScrollAppearance.applyRecursively(to: root) }
+      // Defer the hierarchy walk while AppKit tracks a drag or a menu.
+      RunLoop.main.perform(inModes: [.default]) { [weak self] in
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          self.refreshPending = false
+          if let root = self.window?.contentView { ScrollAppearance.applyRecursively(to: root) }
+        }
       }
     }
 

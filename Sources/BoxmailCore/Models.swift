@@ -331,13 +331,12 @@ public enum MailDestination: String, CaseIterable, Identifiable {
     case .organize: return "智能整理"
     case .analysis: return "附件解析"
     case .archive: return "已归档"
-    case .followUps: return "清单"
+    case .followUps: return "待办清单"
     case .rules: return "规则与用量"
     case .outbox: return "发送管理"
     case .spam: return "垃圾邮件"
     }
   }
-  public var isAI: Bool { [.summary, .replies, .organize, .analysis].contains(self) }
 }
 
 extension MailAccount {

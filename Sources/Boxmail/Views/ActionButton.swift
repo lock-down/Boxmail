@@ -8,7 +8,6 @@ struct ActionButton: View {
   var emphasis: ButtonEmphasis = .plain
   var size: UIControlSize = .regular
   var width: CGFloat? = nil
-  var minimumWidth: CGFloat? = nil
   var fillsWidth = false
   var alignment: Alignment = .center
   var help: String? = nil
@@ -19,9 +18,7 @@ struct ActionButton: View {
     Button(role: role, action: action) {
       ActionLabel(title: title, icon: icon, font: size.font)
         .foregroundStyle(emphasis.isSolid ? Palette.primaryForeground : color)
-        .controlLabel(size: size, horizontalInset: emphasis == .plain ? nil : 16,
-          fillsWidth: fillsWidth, alignment: alignment)
-        .frame(minWidth: minimumWidth, alignment: alignment)
+        .controlLabel(size: size, fillsWidth: fillsWidth, alignment: alignment)
         .frame(width: width, height: size.height, alignment: alignment)
     }.buttonStyle(ControlFeedback(selected: emphasis == .tinted, emphasis: emphasis)).controlFocus()
       .cossTooltip(help ?? "").accessibilityLabel(help ?? title)
@@ -36,10 +33,9 @@ struct ActionLabel: View {
   var body: some View {
     HStack(spacing: 8) {
       if let icon {
-        AppicaIcon(icon)
-          .frame(width: 16).accessibilityHidden(true)
+        AppicaIcon(icon, size: UILayout.compactIconSize).accessibilityHidden(true)
       }
-      Text(title).monospacedDigit().lineLimit(1).fixedSize(horizontal: true, vertical: false)
+      Text(title).monospacedDigit().lineLimit(1)
     }.font(font)
   }
 }

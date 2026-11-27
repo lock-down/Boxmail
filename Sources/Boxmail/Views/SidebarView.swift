@@ -13,8 +13,6 @@ struct SidebarView: View {
         Group {
           if let image = Self.brandImage {
             Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
-              .scaleEffect(1 / 0.9)
-              .clipShape(RoundedRectangle(cornerRadius: UILayout.navigationRadius, style: .continuous))
           }
         }.frame(width: 28, height: 28).accessibilityHidden(true)
         Text("Boxmail").font(.system(size: 14, weight: .semibold))
@@ -75,7 +73,7 @@ struct SidebarView: View {
         ).foregroundStyle(
           store.credentialIssueAccounts.isEmpty ? Palette.success : Palette.amber)
         if !store.credentialIssueAccounts.isEmpty {
-          ActionButton(title: "检查邮箱凭证", color: Palette.amber, size: .compact) {
+          ActionButton(title: "检查凭证", color: Palette.amber, size: .compact) {
             store.settingsTab = "账号"
             store.showSettings = true
           }
@@ -92,7 +90,7 @@ struct SidebarView: View {
   }
   private var accountMenu: some View {
     let unified = store.unifiedInbox && (store.supportsUnifiedScope || store.destination == .followUps)
-    let details = unified ? "跨账户收件与处理" : store.currentAccount?.email ?? "连接你的邮箱"
+    let details = unified ? "跨账户" : store.currentAccount?.email ?? "添加邮箱"
     return CossMenu(title: "选择邮箱账户", value: store.scopeTitle, width: 280,
       emphasis: .secondary, prefersSelection: true) {
       CossMenuItem.command("所有账户", icon: .inbox, mark: .choice(unified)) {
@@ -115,7 +113,7 @@ struct SidebarView: View {
         }
       }
       CossMenuItem.divider
-      CossMenuItem.command("添加邮箱账号…", icon: .plus) {
+      CossMenuItem.command("添加邮箱", icon: .plus) {
         store.settingsTab = "账号"
         store.showSettings = true
       }

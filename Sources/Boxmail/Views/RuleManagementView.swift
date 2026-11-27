@@ -10,13 +10,10 @@ struct RuleManagementView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      ActionButton(title: "新建规则", icon: .plus, emphasis: .primary) {
-        editing = MailRule(accountId: store.unifiedInbox ? nil : store.accountId)
-      }
       if let error = workspace.error { WorkflowNotice(text: error, color: Palette.amber) }
       if workspace.rules.isEmpty {
         EmptyState(
-          title: "还没有整理规则", subtitle: "新建规则后，可以先预览匹配结果。", icon: .filter2)
+          title: "还没有整理规则", subtitle: "到待办清单的「整理助手」创建规则。", icon: .filter2)
       } else {
         ForEach(workspace.rules) { rule in
           VStack(alignment: .leading, spacing: 12) {
@@ -38,7 +35,7 @@ struct RuleManagementView: View {
               Text(rule.intent).font(UIType.caption).foregroundStyle(Palette.muted)
             }
             Text(
-              "\(rule.query.accountId.flatMap { id in store.accounts.first { $0.id == id }?.email } ?? "所有账户") · \(MailDestination(rawValue: rule.query.folder)?.title ?? rule.query.folder) · \(rule.query.query)"
+              "\(rule.query.accountId.flatMap { id in store.accounts.first { $0.id == id }?.email } ?? "所有账户") · \(rule.query.folder == "all" ? "所有文件夹" : MailDestination(rawValue: rule.query.folder)?.title ?? rule.query.folder) · \(rule.query.query)"
             )
             .font(UIType.small).foregroundStyle(Palette.muted)
             Text(rule.actions.description).font(UIType.caption)
@@ -67,7 +64,7 @@ struct RuleManagementView: View {
       }
     }.task { await workspace.loadRules() }
       .sheet(item: $editing) { rule in
-        RuleEditor(store: store, workspace: workspace, initial: rule).workspaceSheet(.settings)
+        RuleEditor(store: store, workspace: workspace, initial: rule).workspaceWindowSize(.settings)
       }
       .sheet(item: $inspection, onDismiss: {
         if sourceId != nil { store.showSettings = false }
@@ -100,16 +97,16 @@ struct RuleRunDetailsView: View {
       HStack {
         if !run.actions.includesAI && ["preview", "failed", "partial", "paused"].contains(run.status) {
           ActionButton(
-            title: run.status == "preview" ? "确认运行" : "重试未完成项", color: Palette.accent,
+            title: run.status == "preview" ? "确认运行" : "重试剩余", color: Palette.accent,
             emphasis: .tinted
           ) { Task { await workspace.run(run) } }
           .disabled(run.items.isEmpty)
         }
         if run.status == "running" {
-          ActionButton(title: "暂停后续处理") { Task { await workspace.pause(run) } }
+          ActionButton(title: "暂停处理") { Task { await workspace.pause(run) } }
         }
         if ["completed", "partial", "paused"].contains(run.status) {
-          ActionButton(title: "撤销邮件状态变更") { Task { await workspace.undo(run) } }
+          ActionButton(title: "撤销变更") { Task { await workspace.undo(run) } }
         }
         Text(WorkspaceStatus.title(run.status)).font(UIType.small).foregroundStyle(Palette.muted)
       }

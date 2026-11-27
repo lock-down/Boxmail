@@ -56,7 +56,7 @@ struct AttachmentListView: View {
                   CossCheckbox(isOn: comparisonSelection.contains(item.id))
                     .frame(width: AttachmentListLayout.icon, height: 32).contentShape(Rectangle())
                 }.buttonStyle(ControlFeedback()).controlFocus()
-                  .cossTooltip(comparisonSelection.contains(item.id) ? "取消附件比较选择" : "选入附件比较")
+                  .cossTooltip(comparisonSelection.contains(item.id) ? "取消附件比较选择" : "加入比较")
                   .accessibilityLabel("\(comparisonSelection.contains(item.id) ? "取消选择" : "选择比较") \(item.name)")
                   .accessibilityAddTraits(comparisonSelection.contains(item.id) ? .isSelected : [])
               } else {
@@ -97,7 +97,7 @@ struct AttachmentListView: View {
               IconButton(icon: .fileSearch, help: "预览 \(item.name)") {
                 preview(item.attachment)
               }
-              IconButton(icon: .mail, help: "打开原邮件") { openMail(item.source.id) }
+              IconButton(icon: .mail, help: "打开原信") { openMail(item.source.id) }
               IconButton(icon: .download, help: "下载 \(item.name)") {
                 download(item.attachment)
               }
@@ -107,14 +107,14 @@ struct AttachmentListView: View {
           .foregroundStyle(Palette.ink)
           .cossContextMenu {
             CossMenuItem.command("预览附件", icon: .fileSearch) { preview(item.attachment) }
-            CossMenuItem.command("打开原邮件", icon: .mail) { openMail(item.source.id) }
+            CossMenuItem.command("打开原信", icon: .mail) { openMail(item.source.id) }
             CossMenuItem.command("下载附件", icon: .download) { download(item.attachment) }
             if onlySource != nil || selectComparison != nil { .divider }
             if let onlySource {
-              CossMenuItem.command("只看此邮件附件", icon: .filter2) { onlySource(item.source.id) }
+              CossMenuItem.command("本信附件", icon: .filter2) { onlySource(item.source.id) }
             }
             if let selectComparison {
-              CossMenuItem.command("选入附件比较", mark: .checkbox(comparisonSelection.contains(item.id))) {
+              CossMenuItem.command("加入比较", mark: .checkbox(comparisonSelection.contains(item.id))) {
                 selectComparison(item.id)
               }
             }

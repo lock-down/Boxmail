@@ -93,19 +93,19 @@ struct WritingStyleEditor: View {
       }
       WorkflowField(title: "行文要求") {
         PlainTextEditor(text: $style.instruction,
-          placeholder: "例如：先给结论，再分点说明后续安排",
+          placeholder: "行文要求",
           inset: .init(width: 10, height: 8), accessibilityLabel: "行文要求", showsVerticalScroller: false)
           .frame(height: 60).controlFieldSurface(focused: false)
       }
-      WorkflowField(title: "预设名称", detail: "保存时填写") {
-        WorkflowTextInput(label: "预设名称", placeholder: "例如：项目进展通知", text: $name)
+      WorkflowField(title: "预设名称", detail: "保存必填") {
+        WorkflowTextInput(label: "预设名称", placeholder: "项目进展", text: $name)
       }
       if let error = writing.error { WorkflowNotice(text: error, color: Palette.amber) }
       CossSeparator()
       HStack(spacing: 6) {
         if editingSavedStyle {
           CossMenu(title: "风格预设操作") {
-            CossMenuItem.command("另存为新预设", enabled: validName) { save(asNew: true) }
+            CossMenuItem.command("另存预设", enabled: validName) { save(asNew: true) }
             CossMenuItem.divider
             CossMenuItem.command("删除预设", destructive: true) { remove() }
           } trigger: {
@@ -113,7 +113,7 @@ struct WritingStyleEditor: View {
           }
         }
         Spacer(minLength: 0)
-        ActionButton(title: "仅本次使用", size: .compact) {
+        ActionButton(title: "仅本次", size: .compact) {
           writing.useOnce(style)
           done()
         }

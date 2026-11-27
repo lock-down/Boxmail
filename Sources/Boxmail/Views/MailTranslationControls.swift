@@ -30,8 +30,8 @@ struct MailTranslationControls: View {
             store.toggleTranslation(message)
           }
           CossSeparator(axis: .vertical).frame(height: 16)
-          CossMenu(title: "翻译设置", value: preference.language.title) {
-            CossMenuItem.command("自动翻译外语邮件（Auto）", mark: .checkbox(preference.auto)) {
+          CossMenu(title: "翻译设置", value: preference.language.title, showsInteractionBackground: false) {
+            CossMenuItem.command("自动翻译", mark: .checkbox(preference.auto)) {
               store.changeTranslationPreference(message, auto: !preference.auto)
             }
             CossMenuItem.note("打开外语邮件时使用当前配置的 AI 服务商")

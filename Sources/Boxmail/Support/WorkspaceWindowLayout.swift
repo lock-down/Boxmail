@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Sheet content fits its presenting surface; nested sheets inherit the resolved size.
-struct WorkspaceSheetLayout {
+/// Fits dialogs to the presenting window and the composer to its display.
+struct WorkspaceWindowLayout {
   let preferred: CGSize
   let minimum: CGSize
 
@@ -15,6 +15,7 @@ struct WorkspaceSheetLayout {
   static let composer = Self(preferred: CGSize(width: 1080, height: 720), minimum: CGSize(width: 680, height: 500))
   static let attachment = Self(preferred: CGSize(width: 1080, height: 720), minimum: CGSize(width: 640, height: 480))
   static let categories = Self(preferred: CGSize(width: 760, height: 520), minimum: CGSize(width: 640, height: 480))
+  static let agent = Self(preferred: CGSize(width: 780, height: 620), minimum: CGSize(width: 640, height: 500))
   static let provider = Self(preferred: CGSize(width: 680, height: 720), minimum: CGSize(width: 640, height: 480))
 }
 
@@ -29,8 +30,8 @@ extension EnvironmentValues {
   }
 }
 
-private struct WorkspaceSheetSize: ViewModifier {
-  let layout: WorkspaceSheetLayout
+private struct WorkspaceWindowSize: ViewModifier {
+  let layout: WorkspaceWindowLayout
   @Environment(\.workspaceViewport) private var viewport
 
   func body(content: Content) -> some View {
@@ -41,7 +42,7 @@ private struct WorkspaceSheetSize: ViewModifier {
 }
 
 extension View {
-  func workspaceSheet(_ layout: WorkspaceSheetLayout) -> some View {
-    modifier(WorkspaceSheetSize(layout: layout))
+  func workspaceWindowSize(_ layout: WorkspaceWindowLayout) -> some View {
+    modifier(WorkspaceWindowSize(layout: layout))
   }
 }

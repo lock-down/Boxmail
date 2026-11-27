@@ -21,7 +21,7 @@ struct AIModelCatalogEditor: View {
         Text("添加模型后可设置容量、输入类型和推理等级；也可从服务商获取可用模型。")
           .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
           .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
       }
       LazyVStack(alignment: .leading, spacing: 10) {
         ForEach(models.indices, id: \.self) { index in
@@ -63,7 +63,7 @@ private struct AIModelEditorRow: View {
           icon: !model.id.isEmpty && selectedModel == model.id ? .circleCheckFilled : .circle,
           help: "使用模型 \(model.id)",
           color: !model.id.isEmpty && selectedModel == model.id ? Palette.accent : Palette.muted,
-          selected: !model.id.isEmpty && selectedModel == model.id
+          size: UIControlSize.form.height, selected: !model.id.isEmpty && selectedModel == model.id
         ) { selectedModel = model.id.trimmingCharacters(in: .whitespacesAndNewlines) }
           .disabled(model.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         VStack(alignment: .leading, spacing: 8) {
@@ -75,16 +75,17 @@ private struct AIModelEditorRow: View {
             surface: Palette.paper)
         }.frame(width: SettingsFormLayout.fieldWidth)
         Spacer(minLength: 0)
-        IconButton(icon: expanded ? .chevronUp : .chevronDown, help: expanded ? "收起模型参数" : "展开模型参数") {
+        IconButton(icon: expanded ? .chevronUp : .chevronDown, help: expanded ? "收起模型参数" : "展开模型参数",
+          size: UIControlSize.form.height) {
           withAnimation(UIMotion.disclosure(reduceMotion)) { expanded.toggle() }
         }
-        IconButton(icon: .trash, help: "移除模型 \(model.id)", action: remove)
+        IconButton(icon: .trash, help: "移除模型 \(model.id)", size: UIControlSize.form.height, action: remove)
       }
       if expanded {
         CossSeparator()
         HStack(alignment: .top, spacing: 14) {
-          capacity("上下文窗口", placeholder: "256K", draft: $model.contextWindowDraft, value: $model.contextWindow)
-          capacity("最大输出 token 数", placeholder: "32K", draft: $model.maxTokensDraft, value: $model.maxTokens)
+          capacity("上下文", placeholder: "256K", draft: $model.contextWindowDraft, value: $model.contextWindow)
+          capacity("最大输出", placeholder: "32K", draft: $model.maxTokensDraft, value: $model.maxTokens)
         }
         Text("支持 K、M（1K = 1000）。留空使用模型默认值；填写输出数将限制单次请求。")
           .font(UIType.small).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
@@ -97,8 +98,8 @@ private struct AIModelEditorRow: View {
         AIModelReasoningEditor(model: $model, apiProtocol: apiProtocol)
         if apiProtocol == .chatCompletions {
           HStack(spacing: 10) {
-            Text("输出上限参数").font(UIType.caption).foregroundStyle(Palette.muted)
-            WorkflowSelection(title: "输出上限参数", selection: Binding(
+            Text("上限参数").font(UIType.caption).foregroundStyle(Palette.muted)
+            WorkflowSelection(title: "上限参数", selection: Binding(
               get: { model.compat?.maxTokensField ?? "max_completion_tokens" },
               set: { model.compat = .init(maxTokensField: $0, forceAdaptiveThinking: model.compat?.forceAdaptiveThinking) }),
               options: [
@@ -113,7 +114,7 @@ private struct AIModelEditorRow: View {
       if let issue = model.validationIssue {
         Text(issue).font(UIType.small).foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
       }
-    }.padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+    }.padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
   }
   private func input(_ type: String) -> Binding<Bool> {
     Binding(get: { model.inputTypes.contains(type) }, set: { enabled in

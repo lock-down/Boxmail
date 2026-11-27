@@ -12,7 +12,7 @@ struct MailQueryEditor: View {
     VStack(alignment: .leading, spacing: spacing) {
       WorkflowField(title: "搜索条件") {
         WorkflowTextInput(
-          label: "搜索条件", placeholder: "关键词、发件人或日期条件", text: $query.query, font: UIType.caption)
+          label: "搜索条件", placeholder: "搜索条件", text: $query.query, font: UIType.caption)
       }
       ViewThatFits(in: .horizontal) {
         HStack(alignment: .top, spacing: spacing) {
@@ -27,7 +27,7 @@ struct MailQueryEditor: View {
         }
       }
       DisclosureGroup("搜索语法") {
-        Text("支持 from:、to:、after:、before:、is:、has:、folder:、category:。可用 folder: 限定搜索文件夹。")
+        Text(query.fixedScope == true ? "支持 from:、to:、after:、before:、is:、has:、category:。搜索在所选账户和文件夹中执行。" : "支持 from:、to:、after:、before:、is:、has:、folder:、category:。可用 folder: 限定搜索文件夹。")
           .font(UIType.small).foregroundStyle(Palette.muted).lineSpacing(4).padding(.top, 8)
       }.disclosureGroupStyle(SettingsDisclosureStyle())
     }
@@ -42,13 +42,13 @@ struct MailQueryEditor: View {
   private var folderField: some View {
     WorkflowField(title: "文件夹") {
       WorkflowSelection(title: "文件夹", selection: $query.folder,
-        options: [MailDestination.inbox, .sent, .archive, .trash, .spam, .starred].map { ($0.rawValue, $0.title) })
+        options: [("all", "不限")] + [MailDestination.inbox, .sent, .archive, .trash, .spam, .starred].map { ($0.rawValue, $0.title) })
     }
   }
   private var statusField: some View {
     WorkflowField(title: "状态") {
       WorkflowSelection(title: "邮件状态", selection: $query.filter,
-        options: ["全部", "未读", "有附件", "AI 已总结"].map { ($0, $0) })
+        options: [("全部", "全部"), ("未读", "未读"), ("有附件", "有附件"), ("AI 已总结", "已总结")])
     }
   }
   private var categoryField: some View {

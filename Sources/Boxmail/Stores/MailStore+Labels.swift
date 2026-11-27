@@ -5,7 +5,8 @@ extension MailStore {
   var mailLabels: [MailCategory] { categories.filter { $0.id != "unclassified" } }
 
   var labelFilterTitle: String {
-    categories.first { $0.id == listLabelID }?.name ?? (listCategory.isEmpty ? "全部标签" : listCategory)
+    if let listLabelID { return categories.first { $0.id == listLabelID }?.name ?? "标签失效" }
+    return listCategory.isEmpty ? "全部标签" : listCategory
   }
 
   func labels(for message: MailMessage) -> [MailCategory] {

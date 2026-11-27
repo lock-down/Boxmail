@@ -25,10 +25,10 @@ struct RuleEditor: View {
           SectionCard(title: "规则说明", contentSpacing: 10, inset: 16) {
             HStack(alignment: .top, spacing: 12) {
               WorkflowField(title: "名称") {
-                WorkflowTextInput(label: "规则名称", placeholder: "例如：整理项目周报", text: $rule.name)
+                WorkflowTextInput(label: "规则名称", placeholder: "整理周报", text: $rule.name)
               }
               WorkflowField(title: "处理意图") {
-                WorkflowTextInput(label: "处理意图", placeholder: "说明这条规则的用途", text: $rule.intent)
+                WorkflowTextInput(label: "处理意图", placeholder: "规则用途", text: $rule.intent)
               }
             }
           }
@@ -57,7 +57,7 @@ struct RuleEditor: View {
           if rule.actions.includesAI {
             SectionCard(title: "旧 AI 动作", contentSpacing: 10, inset: 16) {
               Text(rule.actions.description).font(UIType.caption)
-              ActionButton(title: "移除旧 AI 动作") {
+              ActionButton(title: "移除动作") {
                 rule.actions.summary = nil
                 rule.actions.attachments = nil
                 rule.actions.followUp = nil
@@ -68,7 +68,8 @@ struct RuleEditor: View {
           SectionCard(title: "运行方式", contentSpacing: 10, inset: 16) {
             WrappingFlowLayout(spacing: 16) {
               Toggle("启用规则", isOn: $rule.enabled)
-              Toggle("收到新邮件时自动运行", isOn: $rule.automatic)
+              Toggle("来信运行", isOn: $rule.automatic)
+                .accessibilityHint("收到新邮件时自动运行")
                 .disabled(rule.actions.includesAI)
             }
             Text("自动规则按创建顺序执行，修改仅对后续运行生效。")

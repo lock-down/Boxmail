@@ -11,9 +11,10 @@ extension MailStore {
           try await self.backend.aiEvents { event in
             if event.type == "snapshot" {
               self.aiOutputs = Dictionary((event.outputs ?? []).filter {
-                $0.task == "translate" && $0.targetLanguage != nil
+                $0.task == "ruleDraft" || ($0.task == "translate" && $0.targetLanguage != nil)
               }.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
-            } else if let output = event.output, output.task == "translate", output.targetLanguage != nil {
+            } else if let output = event.output,
+              output.task == "ruleDraft" || (output.task == "translate" && output.targetLanguage != nil) {
               self.aiOutputs[output.id] = output.status == "running" ? output : nil
             }
           }

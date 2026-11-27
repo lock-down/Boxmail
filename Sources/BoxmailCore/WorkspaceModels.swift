@@ -133,6 +133,6 @@ public enum WorkspaceStatus {
   public static func title(_ status: String) -> String {
     ["waiting": "等待发送", "submitting": "正在提交", "sent": "已发送", "failed": "失败", "uncertain": "结果不确定",
       "cancelled": "已取消", "paused": "已暂停", "running": "处理中", "completed": "已完成", "partial": "部分未完成",
-      "undone": "已撤销状态变更", "preview": "待审阅", "pending": "待处理", "existing": "已处理", "interrupted": "已中断" ][status] ?? status
+      "undone": "已撤销状态变更", "preview": "待审阅", "pending": "待处理", "existing": "已处理", "skipped": "已跳过", "interrupted": "已中断" ][status] ?? status
   }
 }

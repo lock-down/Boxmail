@@ -27,7 +27,7 @@ struct RichTextFormatBar: View {
         formatButton(.listNumbers, help: "编号列表", selected: controller.list == "numbered") {
           controller.toggleList("numbered")
         }
-        IconButton(icon: .link, help: "添加链接（Command-K）") { showingLink = true }
+        IconButton(icon: .link, help: "添加链接（Command-K）", size: UIControlSize.compact.height) { showingLink = true }
           .cossPopover(isPresented: $showingLink) { linkEditor }
       }
     }.accessibilityElement(children: .contain).accessibilityLabel("富文本格式")
@@ -69,9 +69,9 @@ struct RichTextFormatBar: View {
         Text("自定文字颜色").font(UIType.section).accessibilityAddTraits(.isHeader)
         CossColorEditor(hex: $customHex, fallbackHex: RichTextStyle.defaultColor, submit: applyCustomColor)
         HStack {
-          ActionButton(title: "取消") { showingColor = false }
+          ActionButton(title: "取消", width: UILayout.pairedActionWidth) { showingColor = false }
           Spacer()
-          ActionButton(title: "应用颜色", emphasis: .primary) {
+          ActionButton(title: "应用颜色", emphasis: .primary, width: UILayout.pairedActionWidth) {
             applyCustomColor()
           }.disabled(!validCustomColor)
         }
@@ -92,7 +92,7 @@ struct RichTextFormatBar: View {
   ) -> some View {
     IconButton(
       icon: icon, help: help, color: selected ? Palette.accent : Palette.muted,
-      selected: selected, action: action
+      size: UIControlSize.compact.height, selected: selected, action: action
     )
   }
 
@@ -105,9 +105,10 @@ struct RichTextFormatBar: View {
       }
       if let linkError { WorkflowNotice(text: linkError, icon: .infoCircle, color: Palette.destructive) }
       HStack {
-        ActionButton(title: "取消") { showingLink = false }
+        ActionButton(title: "取消", width: UILayout.pairedActionWidth) { showingLink = false }
         Spacer()
-        ActionButton(title: "插入链接", icon: .link, emphasis: .primary) { insertLink() }
+        ActionButton(title: "插入链接", icon: .link, emphasis: .primary,
+          width: UILayout.pairedActionWidth) { insertLink() }
       }
     }.padding(16).frame(width: 320)
   }

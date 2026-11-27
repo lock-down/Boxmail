@@ -1,9 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { setImmediate as yieldToRequests } from 'node:timers/promises';
 import { ServiceError } from './validation.js';
 import { mailQuery, ruleRevision } from './mail-query.js';
 import { updateMessageBatch } from './mail-batch.js';
 import { runAgent } from './agent.js';
-import { categoryCatalog } from './categories.js';
+import { categoryCatalog, organizationLabelMode } from './categories.js';
+import { completion } from './responses.js';
+import { parseSearch } from './search-query.js';
 
 export const hasAutomaticAIActions = actions => ['summary', 'attachments', 'followUp', 'reply'].some(key => actions[key] === true);
 export const automaticAIPauseReason = '包含 AI 动作。可改为普通邮箱规则，或在清单中单独开启新邮件自动整理。';
@@ -12,10 +15,13 @@ export function pausedAutomaticAIRule(rule) {
     ? { ...rule, automatic: false, automaticPauseReason: automaticAIPauseReason } : rule;
 }
 
+const ruleFolders = ['all', 'inbox', 'sent', 'archive', 'trash', 'spam'];
 const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export class MailRules {
-  constructor(repo, credentials, { locks = new Set(), agent = runAgent, onProgress } = {}) {
-    this.repo = repo; this.credentials = credentials; this.locks = locks; this.agent = agent; this.onProgress = onProgress;
+  constructor(repo, credentials, { locks = new Set(), agent = runAgent, onProgress, complete = completion } = {}) {
+    this.repo = repo; this.credentials = credentials; this.locks = locks; this.agent = agent; this.onProgress = onProgress; this.complete = complete;
+    this.drafting = new Set();
+    this.draftController = new AbortController();
     for (const rule of repo.list('mailRule')) {
       const next = pausedAutomaticAIRule(rule);
       if (next !== rule) repo.put('mailRule', next);
@@ -34,11 +40,17 @@ export class MailRules {
       })) }));
   }
   save(input, id) {
+    return this.repo.put('mailRule', this.validatedRule(input, id));
+  }
+
+  validatedRule(input, id) {
     const old = id && this.repo.get('mailRule', id);
     if (id && !old) throw new ServiceError('规则不存在', 404);
     const name = String(input.name || '').trim();
     if (!name) throw new ServiceError('请填写规则名称');
     const query = mailQuery(input.query);
+    if (query.fixedScope && query.accountId && !this.repo.get('account', query.accountId))
+      throw new ServiceError('规则邮箱不存在', 409);
     const actions = input.actions;
     if (!actions || typeof actions !== 'object' || Array.isArray(actions)
       || Object.keys(actions).some(key => !['category', 'starred', 'unread', 'archive', 'summary', 'attachments', 'followUp', 'reply'].includes(key))
@@ -51,8 +63,140 @@ export class MailRules {
       enabled: input.enabled === true, automatic: input.automatic === true,
       createdAt: old?.createdAt || new Date().toISOString(), revision: ruleRevision(query, actions) };
     if (old?.automaticPauseReason && hasAutomaticAIActions(actions)) value.automaticPauseReason = automaticAIPauseReason;
-    return this.repo.put('mailRule', pausedAutomaticAIRule(value));
+    return pausedAutomaticAIRule(value);
   }
+  async agentDraft({ messages, accountId, lockAccount, requestId }, disconnectSignal) {
+    if (!Array.isArray(messages) || messages.at(-1)?.role !== 'user' || messages.some(item =>
+      !['user', 'assistant'].includes(item?.role) || typeof item.text !== 'string' || !item.text.trim()))
+      throw new ServiceError('请描述希望匹配的邮件和处理动作');
+    if (accountId && !this.repo.get('account', accountId)) throw new ServiceError('当前邮箱不存在');
+    const accounts = this.repo.list('account').map(({ id, name, email }) => ({ id, name, email }));
+    const categories = categoryCatalog(this.repo);
+    const labels = categories.filter(item => item.id !== 'unclassified').map(({ id, name }) => ({ id, name }));
+    const { config, apiKey } = this.credentials.ai();
+    const id = typeof requestId === 'string' && /^[0-9a-f-]{36}$/i.test(requestId) ? requestId : randomUUID();
+    const signal = disconnectSignal ? AbortSignal.any([this.draftController.signal, disconnectSignal]) : this.draftController.signal;
+    const trace = { id, task: 'ruleDraft', status: 'running', stage: 'waiting', text: '', thought: false, tools: [] };
+    const publish = () => this.onProgress?.({ ...trace, tools: [...trace.tools] });
+    const onTool = ({ name, ...tool }) => {
+      const entry = { ...tool, name: name ?? 'unknown' };
+      const index = trace.tools.findIndex(item => item.id === entry.id);
+      if (index === -1) trace.tools.push(entry);
+      else trace.tools[index] = entry;
+      if (entry.status === 'running' || entry.status === 'requested') trace.stage = 'checking';
+      publish();
+    };
+    const countMatches = query => {
+      const { where, params } = this.repo.messageWhere(query);
+      return this.repo.db.prepare(`SELECT count(*) AS total FROM records m WHERE ${where}`).get(...params).total;
+    };
+    const tools = [
+      { name: 'list_labels', description: '读取本机现有标签的名称。', parameters: { type: 'object', properties: {}, additionalProperties: false },
+        run: () => ({ labels, detail: `找到 ${labels.length} 个标签` }) },
+      { name: 'preview_rule', description: '按当前选定邮箱预查搜索条件的命中数量。返回数量，不读取邮件正文或主题。',
+        parameters: { type: 'object', properties: { query: { type: 'string' }, folder: { type: 'string', enum: ruleFolders } },
+          required: ['query', 'folder'], additionalProperties: false },
+        run: ({ query, folder }) => {
+          const scope = this.agentQuery({ query, folder, accountId }, accounts);
+          const total = countMatches(scope);
+          return { total, detail: `当前匹配 ${total} 封邮件` };
+        } },
+    ];
+    publish();
+    const work = (async () => {
+      try {
+        const availableAccounts = lockAccount === true && accountId ? accounts.filter(account => account.id === accountId) : accounts;
+        const response = await this.complete(config, apiKey, 'ruleDraft', { messages, currentAccountId: accountId ?? null,
+          ...(lockAccount === true ? { accountScopeIsFixed: true } : {}), accounts: availableAccounts, categories: categories.map(item => item.name), labels }, [], {
+          repository: this.repo, taskId: id, signal, tools, onTool,
+          onModelRequest: () => { trace.stage = 'waiting'; publish(); },
+          onThinkingSummary: delta => {
+            trace.thought = true;
+            trace.thinkingSummary = (trace.thinkingSummary || '') + delta;
+            publish();
+          },
+          onThinking: active => {
+            if (active) {
+              trace.thought = true;
+              trace.stage = 'thinking';
+            } else if (trace.stage === 'thinking') trace.stage = trace.text ? 'writing' : 'waiting';
+            publish();
+          },
+          onProgress: value => {
+            const text = typeof value.question === 'string' && value.question.trim() ? value.question : value.explanation;
+            if (typeof text !== 'string' || !text.trim() || text === trace.text) return;
+            trace.text = text;
+            trace.stage = 'writing';
+            publish();
+          },
+        });
+        signal.throwIfAborted();
+        const explanation = typeof response?.explanation === 'string' ? response.explanation.trim() : undefined;
+        if (typeof response?.question === 'string' && response.question.trim()) {
+          trace.status = 'completed';
+          return { question: response.question.trim(), explanation, trace };
+        }
+        if (response?.classification) {
+          const { classification } = response;
+          const target = lockAccount === true ? accountId : classification.accountId || accountId;
+          if (target && !accounts.some(account => account.id === target))
+            throw new ServiceError('标签方式包含无效的邮箱', 422);
+          const proposal = organizationLabelMode(this.repo, classification, { allowEmpty: true });
+          trace.status = 'completed';
+          return { classification: { ...proposal, accountId: target || null }, explanation, trace };
+        }
+        const draft = response?.draft;
+        if (!draft || typeof draft.name !== 'string' || !draft.actions
+          || Object.keys(draft.actions).some(key => !['category', 'starred', 'unread', 'archive'].includes(key))
+          || draft.actions.archive === false) throw new ServiceError('模型没有返回可执行的规则，请补充条件或动作', 502);
+        const targetAccount = lockAccount === true ? accountId : Object.hasOwn(draft.query ?? {}, 'accountId') ? draft.query.accountId : accountId;
+        const query = this.agentQuery({ ...draft.query, accountId: targetAccount }, accounts);
+        const rule = this.validatedRule({ ...draft, enabled: true, query,
+          intent: messages.filter(item => item.role === 'user').map(item => item.text).join('\n') });
+        onTool({ id: 'local-samples', name: 'local_samples', status: 'running' });
+        const { where, params } = this.repo.messageWhere(rule.query);
+        const total = countMatches(rule.query);
+        const samples = this.repo.db.prepare(`SELECT m.id, coalesce(json_extract(m.data,'$.subject'),'') AS subject,
+          coalesce(json_extract(m.data,'$.sender'),'') AS sender FROM records m WHERE ${where}
+          ORDER BY json_extract(m.data,'$.date') DESC,m.id LIMIT 5`).all(...params);
+        onTool({ id: 'local-samples', name: 'local_samples', status: 'completed', detail: `当前匹配 ${total} 封邮件` });
+        trace.status = 'completed';
+        return { rule, total, samples, explanation, trace };
+      } catch (error) {
+        trace.status = signal.aborted ? 'cancelled' : 'failed';
+        throw error;
+      } finally { publish(); }
+    })();
+    this.drafting.add(work);
+    try { return await work; }
+    finally { this.drafting.delete(work); }
+  }
+
+  agentQuery(input, accounts) {
+    if (typeof input.query !== 'string' || !ruleFolders.includes(input.folder)
+      || input.accountId != null && !accounts.some(account => account.id === input.accountId)
+      || parseSearch(input.query).conditions.some(({ field }) => field === 'account' || field === 'folder'))
+      throw new ServiceError('规则包含无效的账户、文件夹或搜索条件', 422);
+    return mailQuery({ ...input, fixedScope: true });
+  }
+
+  confirmAgentDraft({ rule, approved }) {
+    if (approved !== true || typeof rule?.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(rule.id) || rule.query?.fixedScope !== true)
+      throw new ServiceError('请先核对规则草案并确认', 403);
+    if (!rule.actions || Object.keys(rule.actions).some(key => !['category', 'starred', 'unread', 'archive'].includes(key)))
+      throw new ServiceError('规则包含无法创建的动作');
+    const actions = Object.fromEntries(Object.entries(rule.actions).sort(([a], [b]) => a.localeCompare(b)));
+    const next = this.validatedRule({ ...rule, actions });
+    const saved = this.repo.get('mailRule', rule.id);
+    if (saved) {
+      if (saved.revision !== next.revision || saved.name !== next.name || saved.intent !== next.intent
+        || saved.enabled !== next.enabled || saved.automatic !== next.automatic)
+        throw new ServiceError('此规则已保存并修改，请从列表中打开', 409);
+      return saved;
+    }
+    return this.repo.put('mailRule', { ...next, id: rule.id });
+  }
+
   remove(id) { this.repo.remove('mailRule', id); return { ok: true }; }
   preview(id, ids) {
     const rule = this.repo.get('mailRule', id);
@@ -94,6 +238,7 @@ export class MailRules {
   async execute(run) {
     const config = this.repo.get('settings', 'settings').ai;
     for (const item of run.items.filter(item => !['completed', 'existing'].includes(item.status))) {
+      await yieldToRequests();
       if (this.controller.signal.aborted || !this.repo.get('mailRule', run.ruleId)?.enabled && run.automatic) {
         run.status = 'paused'; break;
       }
@@ -158,8 +303,19 @@ export class MailRules {
   undo(id) {
     const run = this.repo.get('ruleRun', id);
     if (!run || run.status === 'running') throw new ServiceError('请等待此规则停止后撤销', 409);
+    if (run.status === 'undone') return run;
     this.repo.transaction(() => {
-      for (const item of [...run.items].reverse()) if (item.undo?.length) updateMessageBatch(this.repo, { updates: item.undo }, this.locks);
+      const reverted = new Set();
+      for (const item of run.items.toReversed()) {
+        if (!item.undo?.length) continue;
+        updateMessageBatch(this.repo, { updates: item.undo }, this.locks);
+        reverted.add(item.id);
+        if (item.identity) reverted.add(item.identity);
+      }
+      if (reverted.size) {
+        this.repo.db.prepare(`DELETE FROM records WHERE kind='ruleReceipt' AND json_extract(data,'$.runId')=?
+          AND json_extract(data,'$.messageId') IN (SELECT value FROM json_each(?))`).run(id, JSON.stringify([...reverted]));
+      }
       run.status = 'undone'; this.repo.put('ruleRun', run);
     });
     return run;
@@ -179,5 +335,10 @@ export class MailRules {
       if (signal.aborted) break;
     }
   }
-  async close() { this.closing = true; this.controller.abort(); await this.worker; }
+  async close() {
+    this.closing = true;
+    this.controller.abort();
+    this.draftController.abort();
+    await Promise.allSettled([this.worker, ...this.drafting]);
+  }
 }

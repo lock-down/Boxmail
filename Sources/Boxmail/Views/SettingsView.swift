@@ -10,7 +10,7 @@ struct SettingsView: View {
   @ViewState<[String: String]> private var aiKeys = [:]
   @ViewState<[String: String]> private var originalAIKeys = [:]
   @ViewState<String> private var promptTab = "translate"
-  @ViewState<String> private var aiSection = "模型与连接"
+  @ViewState<String> private var aiSection = "模型连接"
   @ViewState<MailAccount?> private var accountToEdit = nil
   @ViewState private var signatureAccountId = ""
   @ViewState<String> private var status = ""
@@ -49,7 +49,7 @@ struct SettingsView: View {
         }
         if store.settingsTab != "邮箱规则" {
           SettingsActionBar(
-            primaryTitle: loading ? "正在保存…" : "保存", isWorking: loading,
+            primaryTitle: loading ? "保存中…" : "保存", isWorking: loading,
             primaryDisabled: transferringConfiguration, cancelDisabled: transferringConfiguration,
             cancel: { dismiss() }, primary: { save() }
           ) {
@@ -66,7 +66,6 @@ struct SettingsView: View {
           store: store, account: account,
           isNewAccount: !store.accounts.contains(where: { $0.id == account.id })
         ) { status = $0 }
-        .borderlessScrollers()
       }
       .interactiveDismissDisabled(transferringConfiguration || loading)
       .cossAlert(
@@ -168,7 +167,7 @@ struct SettingsView: View {
             .foregroundStyle(statusFailed ? Palette.destructive : Palette.muted)
           .textSelection(.enabled).lineSpacing(4).padding(12)
           .frame(maxWidth: .infinity, alignment: .leading).background(
-            Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+            Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.cardRadius, style: .continuous))
         }
       }.frame(maxWidth: 720, alignment: .leading).padding(24).frame(
         maxWidth: .infinity, alignment: .leading)
@@ -181,7 +180,7 @@ struct SettingsView: View {
     switch store.settingsTab {
     case "AI": return "配置清单整理、翻译与写作使用的模型和提示词"
     case "账号": return "连接邮箱并设置发信签名"
-    case "邮箱规则": return "设置收信条件和邮箱动作，预览匹配后运行"
+    case "邮箱规则": return "查看、管理和运行已保存的邮箱规则"
     case "常用": return "同步与阅读偏好"
     case "开发者": return "导出同步与 API 运行日志，帮助定位异常和性能问题"
     default: return "管理本机数据、诊断与同步状态"
@@ -199,9 +198,9 @@ struct SettingsView: View {
   }
   private var aiSettings: some View {
     VStack(alignment: .leading, spacing: 20) {
-      SegmentedSelection(title: "AI 设置分区", values: ["模型与连接", "任务提示词"], selection: $aiSection)
+      SegmentedSelection(title: "AI 设置分区", values: ["模型连接", "提示词"], selection: $aiSection)
         .frame(width: 280)
-      if aiSection == "模型与连接" {
+      if aiSection == "模型连接" {
         AIProviderSettingsView(
           config: $config, keys: $aiKeys, originalKeys: $originalAIKeys,
           status: $status, loading: $loading)
@@ -211,12 +210,12 @@ struct SettingsView: View {
     }
   }
   private var promptSettings: some View {
-    SectionCard(title: "任务提示词") {
+    SectionCard(title: "提示词") {
         WrappingFlowLayout(spacing: 6) {
           ForEach(
             [
               ("translate", "邮件翻译"), ("compose", "帮我写"),
-              ("reply", "基于原邮件回复"), ("conversationReply", "参考会话回复"),
+              ("reply", "原信回复"), ("conversationReply", "会话回复"),
             ], id: \.0
           ) { item in
             SelectionButton(title: item.1, selected: promptTab == item.0, size: .compact) {
@@ -230,7 +229,7 @@ struct SettingsView: View {
             set: { config.prompts[promptTab] = $0 }),
           fontSize: 13, inset: .init(width: 5, height: 5), accessibilityLabel: "AI 默认提示词"
         ).frame(height: 160).padding(12)
-          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
           .id(promptTab)
         Text("清空提示词后保存会恢复默认。翻译和写作会将对应范围的内容提交给已配置的服务商。").font(
           .system(size: 11)
@@ -238,7 +237,7 @@ struct SettingsView: View {
         .foregroundStyle(Palette.muted)
         HStack {
           Spacer()
-          ActionButton(title: "恢复当前默认", color: Palette.accent, size: .compact) {
+          ActionButton(title: "恢复默认", color: Palette.accent, size: .compact) {
             config.prompts[promptTab] = AIPromptDefaults.values[promptTab]
           }
       }
@@ -260,7 +259,7 @@ struct SettingsView: View {
             } else {
               ActionButton(title: "编辑") { accountToEdit = account }
               IconMenu(icon: .dots, help: "账号更多操作") {
-                CossMenuItem.command("移除账号…", icon: .trash, destructive: true) { removingAccount = account }
+                CossMenuItem.command("移除账号", icon: .trash, destructive: true) { removingAccount = account }
               }
             }
           }.padding(16)
@@ -268,7 +267,7 @@ struct SettingsView: View {
             CossSeparator().padding(.leading, 58)
           }
         }
-      }.background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+      }.background(Palette.paper, in: RoundedRectangle(cornerRadius: UILayout.cardRadius, style: .continuous))
       ActionButton(title: "添加邮箱", icon: .plus, emphasis: .secondary) { accountToEdit = MailAccount() }
       signatureSettings
     }
@@ -279,18 +278,18 @@ struct SettingsView: View {
       readSettings
       NotificationPreferencesView(preferences: $preferences, coordinator: store.notifications)
       spamSettings
-    }
+    }.toggleStyle(CossToggleStyle())
   }
   private var syncSettings: some View {
     SectionCard(title: "邮箱同步", icon: .refresh, contentSpacing: 12) {
       HStack(spacing: 16) {
-        WorkflowStepper(title: "自动同步间隔", value: $preferences.syncMinutes, range: 1...60, unit: "分钟")
+        WorkflowStepper(title: "同步间隔", value: $preferences.syncMinutes, range: 1...60, unit: "分钟")
         Spacer(minLength: 0)
-        ActionButton(title: "立即同步", icon: .refresh, color: Palette.accent) {
+        ActionButton(title: "立即同步", icon: .refresh, color: Palette.accent, size: .form) {
           Task { await store.syncAll() }
         }.disabled(store.busy.contains("sync"))
       }
-      Toggle("实时接收新邮件", isOn: Binding(
+      Toggle("实时收信", isOn: Binding(
         get: { preferences.realtimeSync ?? false }, set: { preferences.realtimeSync = $0 }
       )).font(UIType.body)
       Text("应用打开时按间隔同步，并逐批补齐历史邮件。可在主窗口停止；下次同步会继续补齐。")
@@ -314,21 +313,25 @@ struct SettingsView: View {
           options: [("", "默认签名")] + store.accounts.map { ($0.id, $0.email) })
           .frame(width: 270)
         if !signatureAccountId.isEmpty, preferences.accountSignatures?[signatureAccountId] != nil {
-          ActionButton(title: "使用默认签名") { preferences.accountSignatures?.removeValue(forKey: signatureAccountId) }
+          ActionButton(title: "用默认", size: .form, help: "使用默认签名") {
+            preferences.accountSignatures?.removeValue(forKey: signatureAccountId)
+          }
         }
       }
       PlainTextEditor(text: signature, fontSize: 13, inset: .init(width: 4, height: 4),
         accessibilityLabel: "邮件签名").frame(height: 120).padding(12).background(
-          Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+          Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
       Text(signatureAccountId.isEmpty ? "未设置单独签名的账户使用此签名。" : "保存后用于该账户新建的草稿。")
         .font(UIType.caption).foregroundStyle(Palette.muted)
     }
   }
   private var readSettings: some View {
     SectionCard(title: "阅读行为", icon: .mailOpened) {
-      Toggle("打开邮件时标记为已读", isOn: $preferences.markRead).font(.system(size: 13))
+      Toggle("自动已读", isOn: $preferences.markRead).font(.system(size: 13))
+        .accessibilityHint("打开邮件时标记为已读").cossTooltip("打开邮件时标记为已读")
       WorkflowStepper(title: "正文字号", value: $preferences.fontSize, range: 12...24, unit: "pt")
-      Toggle("屏蔽远程图片", isOn: $preferences.blockRemoteImages).font(.system(size: 13))
+      Toggle("屏蔽外图", isOn: $preferences.blockRemoteImages).font(.system(size: 13))
+        .accessibilityHint("屏蔽远程图片").cossTooltip("屏蔽远程图片")
       Text("HTML 邮件保留原文排版，内嵌图片直接展示。外部图片可在邮件中单独加载，邮件中的脚本不会执行。已读和星标更改会在下次同步时提交至服务器。").font(
         .system(size: 12)
       )
@@ -336,7 +339,7 @@ struct SettingsView: View {
     }
   }
   private var spamSettings: some View {
-    DisclosureGroup("垃圾邮件处理") {
+    DisclosureGroup("垃圾邮件") {
       Text("同步时会识别服务商的垃圾邮件文件夹。默认屏蔽远程图片自动加载。AI 分类只修改本机分类标签。第一版暂未提供本机垃圾邮件训练或黑名单规则。").font(
         .system(size: 13)
       ).lineSpacing(7)

@@ -8,17 +8,18 @@ struct NotificationPreferencesView: View {
   var body: some View {
     SectionCard(title: "通知与角标", icon: .bell, contentSpacing: 8, inset: 16) {
       WrappingFlowLayout(spacing: 14) {
-        preference("新邮件通知", keyPath: \.newMailNotifications, requiresPermission: true)
-        preference("跟进到期通知", keyPath: \.followUpNotifications, requiresPermission: true)
+        preference("来信通知", keyPath: \.newMailNotifications, requiresPermission: true)
+        preference("到期提醒", keyPath: \.followUpNotifications, requiresPermission: true)
         preference("显示角标", keyPath: \.badgeEnabled)
           .cossTooltip("角标显示未读邮件与到期跟进数")
-        ActionButton(title: "系统通知 · \(coordinator.permission)", icon: .arrowUpRight, size: .compact,
+        ActionButton(title: "系统通知", icon: .arrowUpRight, size: .compact,
           help: "打开系统通知设置，\(coordinator.permission)") {
           if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
             NSWorkspace.shared.open(url)
           }
         }
       }
+      Text(coordinator.permission).font(UIType.small).foregroundStyle(Palette.muted)
       if let error = coordinator.error { WorkflowNotice(text: error, color: Palette.amber) }
     }
   }

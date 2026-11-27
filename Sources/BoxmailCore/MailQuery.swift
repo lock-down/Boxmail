@@ -6,6 +6,7 @@ public struct MailQuery: Codable, Hashable {
   public var query: String
   public var filter: String
   public var category, labelId: String?
+  public var fixedScope: Bool?
   public init(accountId: String?, folder: String = "inbox", query: String = "", filter: String = "全部", category: String? = nil, labelId: String? = nil) {
     self.accountId = accountId; self.folder = folder; self.query = query
     self.filter = filter; self.category = category; self.labelId = labelId

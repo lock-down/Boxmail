@@ -16,7 +16,7 @@ struct WorkspaceListSurface<Header: View, Content: View, Footer: View>: View {
       }
       footer()
     }
-    .framedSurface(bordered: bordered, radius: UILayout.workspaceRadius)
+    .framedSurface(bordered: bordered)
     .accessibilityElement(children: .contain)
   }
 }
@@ -70,7 +70,7 @@ struct WorkspaceListRow<Content: View, Actions: View>: View {
         content().frame(maxWidth: .infinity, alignment: .leading)
           .padding(16).contentShape(Rectangle())
       }
-      .buttonStyle(ControlFeedback(selected: selected, corner: 0)).controlFocus(corner: 0)
+      .buttonStyle(ControlFeedback(selected: selected)).controlFocus()
       .simultaneousGesture(TapGesture(count: 2).onEnded { primaryAction?() })
       .onKeyPress(.return) {
         (primaryAction ?? action)()
@@ -79,7 +79,8 @@ struct WorkspaceListRow<Content: View, Actions: View>: View {
       .accessibilityAddTraits(selected ? .isSelected : [])
       actions()
     }
-    .background(selected ? Palette.selected : hovered && enabled ? Palette.canvas : Palette.paper)
+    .background(selected ? Palette.selected : hovered && enabled ? Palette.canvas : Palette.paper,
+      in: RoundedRectangle(cornerRadius: UILayout.listRowRadius, style: .continuous))
     .onHover { hovered = $0 }
   }
 }
@@ -94,9 +95,12 @@ extension View {
       .tint(Palette.selected)
   }
 
-  func cossListRow(selected: Bool) -> some View {
-    modifier(CossListRowSurface(selected: selected))
-      .listRowInsets(EdgeInsets(top: 0, leading: UILayout.listRowInset, bottom: 4, trailing: UILayout.listRowInset))
+  func cossListRow(
+    selected: Bool, showsBorder: Bool = true,
+    insets: EdgeInsets = EdgeInsets(top: 0, leading: UILayout.listRowInset, bottom: 4, trailing: UILayout.listRowInset)
+  ) -> some View {
+    modifier(CossListRowSurface(selected: selected, showsBorder: showsBorder))
+      .listRowInsets(insets)
       .listRowSeparator(.hidden)
       .listRowBackground(Palette.paper)
   }
@@ -104,6 +108,7 @@ extension View {
 
 private struct CossListRowSurface: ViewModifier {
   let selected: Bool
+  let showsBorder: Bool
   @ViewState private var hovered = false
   @Environment(\.isEnabled) private var enabled
 
@@ -111,7 +116,11 @@ private struct CossListRowSurface: ViewModifier {
     let shape = RoundedRectangle(cornerRadius: UILayout.listRowRadius, style: .continuous)
     content.frame(maxWidth: .infinity, alignment: .leading)
       .background(selected ? Palette.selected : hovered && enabled ? Palette.canvas : Palette.paper, in: shape)
-      .overlay { shape.strokeBorder(selected ? Palette.border : Palette.softBorder).allowsHitTesting(false) }
+      .overlay {
+        if showsBorder || selected {
+          shape.strokeBorder(selected ? Palette.border : Palette.softBorder).allowsHitTesting(false)
+        }
+      }
       .contentShape(shape)
       .onHover { hovered = $0 }
   }

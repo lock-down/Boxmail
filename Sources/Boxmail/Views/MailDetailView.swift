@@ -33,7 +33,7 @@ struct MailDetailView: View {
             store.restoreMessages([message])
           }.cossTooltip(message.folder == "trash" ? message.restoreTitle : message.unarchiveTitle)
         } else {
-          ActionButton(title: "回复", icon: .arrowBackUp, emphasis: .secondary) {
+          ActionButton(title: "回复", icon: .arrowBackUp) {
             store.newDraft(reply: message)
           }
         }
@@ -45,7 +45,7 @@ struct MailDetailView: View {
         }
         Spacer(minLength: 4)
         if message.folder != "archive" && message.folder != "trash" {
-          IconButton(icon: .archive, help: "归档（Control-Command-A）", size: 28) {
+          IconButton(icon: .archive, help: "归档（Control-Command-A）") {
             store.update(message, ["folder": "archive"])
           }
         }
@@ -53,24 +53,24 @@ struct MailDetailView: View {
           mailLabelMenu(store: store, messages: [message])
         }
         if message.folder != "trash" {
-          IconButton(icon: .trash, help: "移到已删除（Delete）", size: 28) {
+          IconButton(icon: .trash, help: "移到已删除（Delete）") {
             store.update(message, ["folder": "trash"])
           }
         }
         IconButton(icon: message.starred ? .starFilled : .star, help: message.starred ? "取消星标" : "添加星标",
-          color: message.starred ? Palette.amber : Palette.muted, size: 28, selected: message.starred) {
+          color: message.starred ? Palette.amber : Palette.muted, selected: message.starred) {
           store.update(message, ["starred": !message.starred])
         }
         IconMenu(icon: .dots, help: "更多邮件操作") {
           CossMenuItem.command("加入清单", icon: .listCheck) { store.collectFollowUp(message: message) }
-          CossMenuItem.command("稍后处理…", icon: .clock) { store.collectFollowUp(message: message, snooze: true) }
+          CossMenuItem.command("稍后处理", icon: .clock) { store.collectFollowUp(message: message, snooze: true) }
           if history?.isEmpty == false || historicalSummary != nil {
-            CossMenuItem.command("历史结果…", icon: .history) {
+            CossMenuItem.command("历史结果", icon: .history) {
               presentedHistory = .init(id: message.id, subject: message.subject, history: history, summary: historicalSummary)
             }
           }
           CossMenuItem.divider
-          CossMenuItem.command("复制邮件正文", icon: .copy) { NSPasteboard.general.copy(message.body) }
+          CossMenuItem.command("复制正文", icon: .copy) { NSPasteboard.general.copy(message.body) }
           CossMenuItem.command(message.unread ? "标记已读" : "标记未读", icon: .mail) {
             store.update(message, ["unread": !message.unread])
           }

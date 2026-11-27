@@ -135,14 +135,14 @@ import Foundation
     guard FileManager.default.isExecutableFile(atPath: node.path),
       FileManager.default.fileExists(atPath: backend.path)
     else { throw failure("本机服务资源缺失，请通过项目 Run 按钮重新构建") }
-    port = Int.random(in: 49152...65000)
+    port = 0
     var environment = ProcessInfo.processInfo.environment
     // Keep unrelated development-tool preload, heap and debug flags out of bundled Node.
     environment.removeValue(forKey: "NODE_OPTIONS")
     environment.removeValue(forKey: "NODE_PATH")
     environment["BOXMAIL_DATA"] = lease.directory.path
     environment["BOXMAIL_TOKEN"] = token
-    environment["BOXMAIL_PORT"] = String(port)
+    environment["BOXMAIL_PORT"] = "0"
     environment["BOXMAIL_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
     if let demoEnabled = Bundle.main.object(forInfoDictionaryKey: "BoxmailDemoDataEnabled") as? Bool
     {
@@ -172,11 +172,15 @@ import Foundation
     do {
       for _ in 0..<60 {
         guard child.isRunning else { throw failure("本机邮件服务启动失败") }
-        do {
-          let _: EmptyResponse = try await request("/health", timeout: 1)
-          diagnostics.record("service.connected")
-          return
-        } catch { try await Task.sleep(for: .milliseconds(100)) }
+        if let announcedPort = child.announcedPort {
+          port = announcedPort
+          do {
+            let _: EmptyResponse = try await request("/health", timeout: 1)
+            diagnostics.record("service.connected")
+            return
+          } catch { try Task.checkCancellation() }
+        }
+        try await Task.sleep(for: .milliseconds(100))
       }
       throw failure("本机邮件服务启动超时")
     } catch {
@@ -188,7 +192,10 @@ import Foundation
     guard let child = process else { return }
     processGeneration = UUID()
     await child.stop()
-    if process === child { process = nil }
+    if process === child {
+      process = nil
+      port = 0
+    }
     diagnostics.record("service.stopped")
   }
   func reconnectAfterExit() async throws {
@@ -311,11 +318,6 @@ struct ModelsResponse: Decodable {
   var catalog: [AIModel] { details ?? models.map { AIModel(id: $0) } }
 }
 struct FileResponse: Decodable { let name, content: String }
-struct SendResponse: Decodable {
-  let ok: Bool
-  let rejected: [String]?
-  let warning: String?
-}
 func jsonObject<T: Encodable>(_ value: T) throws -> [String: Any] {
   try JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as! [String: Any]
 }

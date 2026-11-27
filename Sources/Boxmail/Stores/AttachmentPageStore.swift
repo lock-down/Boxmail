@@ -33,7 +33,6 @@ extension AttachmentPageRequest: PagedRequest {
 
 @Observable @MainActor final class AttachmentPageStore {
   let scrollPosition = ScrollPositionState()
-  var selectedAttachmentId: String?
   private let paging: PagedListStore<AttachmentPageRequest, AttachmentPage>
   @ObservationIgnored private var loadedFilters:
     (query: String, type: String, sort: [KeyPathComparator<AttachmentPageItem>])?

@@ -7,12 +7,13 @@ struct ActivityView: View {
   @ViewState<Bool> private var showsHistory = false
   @ViewState private var organization: OrganizationActivity?
   @ViewState private var operationError: String?
+  @ViewState private var selectedBatch: OrganizationBatch?
   @ViewState private var selectedRun: RuleRun?
   @ViewState private var sourceMessageId: String?
 
   private struct OrganizationActivity: Decodable {
+    let batches: [OrganizationBatch]
     let jobs: [AgentJob]
-    let usage: [AIUsage]
   }
 
   var body: some View {
@@ -28,21 +29,23 @@ struct ActivityView: View {
             accountResult(account)
           }
           if let operationError { WorkflowNotice(text: operationError, color: Palette.destructive) }
-          if let organization, !organization.jobs.isEmpty || !organization.usage.isEmpty {
+          if let organization, !organization.batches.isEmpty || !organization.jobs.isEmpty {
             organizationResults(organization)
           }
           if let error = store.rules.error { WorkflowNotice(text: error, color: Palette.destructive) }
           if !store.rules.runs.isEmpty {
-            DisclosureGroup("邮箱规则处理记录") {
+            DisclosureGroup("规则记录") {
               ForEach(store.rules.runs) { run in
-                ActionButton(title: run.name, icon: .listDetails) { selectedRun = run }
-                Text("\(WorkspaceStatus.title(run.status)) · \(run.items.count) 封 · \(displayTime(run.createdAt))")
-                  .font(UIType.small).foregroundStyle(Palette.muted)
+                activityRecord(title: run.name,
+                  detail: "\(WorkspaceStatus.title(run.status)) · \(run.items.count) 封 · \(displayTime(run.createdAt))") {
+                  selectedRun = run
+                }
+                if run.id != store.rules.runs.last?.id { CossSeparator() }
               }
             }
           }
           if !store.rules.usage.isEmpty {
-            DisclosureGroup("AI 用量") {
+            DisclosureGroup("模型用量") {
               ForEach(store.rules.usage) { usage in usageRow(usage) }
             }
           }
@@ -50,10 +53,10 @@ struct ActivityView: View {
             eventRow(event)
           }
           if !store.events.filter({ $0.type == "sync" }).isEmpty {
-            DisclosureGroup("同步历史记录", isExpanded: $showsHistory) {
+            DisclosureGroup("同步记录", isExpanded: $showsHistory) {
               ForEach(ActivityPresentation.history(store.events.filter { $0.type == "sync" })) { entry in
                 if entry.events.count > 1 {
-                  DisclosureGroup("相同无变化结果 · \(entry.events.count) 次") {
+                  DisclosureGroup("无变化 · \(entry.events.count) 次") {
                     ForEach(entry.events) { event in eventRow(event) }
                   }.font(UIType.caption).padding(.vertical, 8)
                 } else if let event = entry.events.first {
@@ -62,18 +65,30 @@ struct ActivityView: View {
               }
             }.font(UIType.caption)
           }
-          if store.events.isEmpty && store.accounts.allSatisfy(\.isDemo) && organization?.jobs.isEmpty != false
+          if store.events.isEmpty && store.accounts.allSatisfy(\.isDemo) && organization?.jobs.isEmpty != false && organization?.batches.isEmpty != false
             && store.rules.runs.isEmpty && store.rules.usage.isEmpty {
             EmptyState(title: "还没有活动记录", subtitle: "同步、AI 任务和发送状态会显示在这里。", icon: .clock)
           }
         }.frame(maxWidth: .infinity, alignment: .leading)
-      }
+      }.disclosureGroupStyle(SettingsDisclosureStyle(contentInset: 12))
     }.padding(24).frame(width: 640, height: 480)
       .sheet(item: $selectedRun, onDismiss: { if sourceMessageId != nil { dismiss() } }) { run in
         RuleRunDetailsView(workspace: store.rules, initial: run) { id in
           sourceMessageId = id
           selectedRun = nil
         }
+      }
+      .sheet(item: $selectedBatch, onDismiss: { if sourceMessageId != nil { dismiss() } }) { batch in
+        VStack(spacing: 0) {
+          WorkflowPanelHeader(title: batch.title, subtitle: displayTime(batch.createdAt), closeLabel: "关闭批次") {
+            selectedBatch = nil
+          }.padding(20)
+          CossSeparator()
+          OrganizationBatchView(store: store, initial: batch) { id in
+            sourceMessageId = id
+            selectedBatch = nil
+          }
+        }.background(Palette.paper).workspaceWindowSize(.categories)
       }
       .onDisappear {
         if let sourceMessageId { store.openSourceMessage(sourceMessageId) }
@@ -94,13 +109,21 @@ struct ActivityView: View {
   }
 
   private func organizationResults(_ activity: OrganizationActivity) -> some View {
-    SectionCard(title: "清单整理", contentSpacing: 10) {
+    SectionCard(title: "邮件整理与标签试用", contentSpacing: 10) {
+      ForEach(activity.batches) { batch in
+        let account = store.accounts.first { $0.id == batch.accountId }?.email
+        let detail = [account, displayTime(batch.createdAt), batch.progress].compactMap { $0 }.joined(separator: " · ")
+        activityRecord(title: batch.title, detail: detail) {
+          selectedBatch = batch
+        }
+        if batch.id != activity.batches.last?.id { CossSeparator() }
+      }
       ForEach(activity.jobs) { job in
         HStack(alignment: .top, spacing: 8) {
           VStack(alignment: .leading, spacing: 4) {
             let subject = store.messages.first { $0.id == job.messageId }?.subject
             Text(subject ?? "来源邮件").font(UIType.body).lineLimit(2)
-            let state = ["pending": "等待整理", "running": "正在整理", "completed": "已整理", "failed": "整理失败", "paused": "已暂停"]
+            let state = ["pending": "等待整理", "running": "正在整理", "completed": "已整理", "failed": "整理失败", "paused": "已暂停", "skipped": "已跳过"]
             Text(job.error ?? state[job.status] ?? job.status).font(UIType.caption).foregroundStyle(Palette.muted)
           }
           Spacer()
@@ -118,6 +141,23 @@ struct ActivityView: View {
         }
       }
 
+    }
+  }
+
+  private func activityRecord(title: String, detail: String, action: @escaping () -> Void) -> some View {
+    WorkspaceListRow(action: action) {
+      HStack(spacing: 8) {
+        AppicaIcon(.listDetails, size: UILayout.compactIconSize).foregroundStyle(Palette.muted)
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(title).font(UIType.body).foregroundStyle(Palette.ink)
+          Text(detail).font(UIType.small).monospacedDigit().foregroundStyle(Palette.muted)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+        AppicaIcon(.chevronRight, size: UILayout.smallIconSize).foregroundStyle(Palette.muted)
+          .accessibilityHidden(true)
+      }.accessibilityElement(children: .combine)
+    } actions: {
+      EmptyView()
     }
   }
 

@@ -5,12 +5,18 @@ struct WorkspaceStatusSnapshot: Decodable, Equatable {
   let messageRevision: Int
   let snoozes, sendPlans: [String]
   let followUpRevision, dueFollowUpCount: Int?
+  let organizationBatches: [OrganizationBatch]?
 }
 
 extension MailStore {
   func observeWorkspaceChanges() async {
     do {
+      let organizationRevision = organizationProgressRevision
       let status: WorkspaceStatusSnapshot = try await backend.request("/workspace-status", timeout: 8)
+      if organizationRevision == organizationProgressRevision, let batches = status.organizationBatches,
+        organizationBatchProgress != batches {
+        organizationBatchProgress = batches
+      }
       if lastWorkspaceStatus.map({ previous in
         previous.messageRevision != status.messageRevision || previous.followUpRevision != status.followUpRevision
           || previous.dueFollowUpCount != status.dueFollowUpCount || previous.snoozes != status.snoozes
@@ -27,41 +33,62 @@ extension MailStore {
   }
 
   func previewFile(_ attachment: MailAttachment) {
+    requestAttachmentPreview(attachment.id, cached: attachment)
+  }
+
+  func previewSourceAttachment(_ id: String) {
+    requestAttachmentPreview(id)
+  }
+
+  private func requestAttachmentPreview(_ id: String, cached: MailAttachment? = nil) {
+    attachmentPreviewRequest?.cancel()
     let revision = restoreRevision
-    Task {
+    let queryKey = mailQueryKey
+    let selectedId = selectedMessageId
+    func current() -> Bool {
+      !Task.isCancelled && revision == restoreRevision
+        && queryKey == mailQueryKey && selectedId == selectedMessageId
+    }
+    attachmentPreviewRequest = Task {
       do {
+        let attachment: MailAttachment
+        if let cached {
+          attachment = cached
+        } else {
+          attachment = try await backend.request("/attachments/\(id)/metadata")
+        }
+        guard current() else { return }
         let message: MailMessage = try await backend.request("/messages/\(attachment.messageId)")
-        guard revision == restoreRevision else { return }
+        guard current() else { return }
         attachmentPreviewIds = message.attachmentIds
         attachmentPreviewIndex = attachmentPreviewIds.firstIndex(of: attachment.id) ?? 0
         previewAttachment = attachment
-      } catch { self.error = error.localizedDescription }
+        cacheAttachment(attachment)
+      } catch { if current() { self.error = error.localizedDescription } }
     }
   }
-  func previewSourceAttachment(_ id: String) {
-    let revision = restoreRevision
-    Task {
-      do {
-        let file: MailAttachment = try await backend.request("/attachments/\(id)/metadata")
-        guard revision == restoreRevision else { return }
-        cacheAttachment(file)
-        previewFile(file)
-      } catch { if revision == restoreRevision { self.error = error.localizedDescription } }
-    }
-  }
+
   func openSourceMessage(_ id: String, tab: MailAITab? = nil) {
+    sourceMessageRequest?.cancel()
     let source = captureSourceContext()
-    Task {
+    let revision = restoreRevision
+    func current() -> Bool {
+      !Task.isCancelled && revision == restoreRevision
+        && source.destination == destination && source.accountId == accountId
+        && source.savedSearchID == activeSavedSearchId
+        && (source.query == nil || source.query == mailQuery)
+        && (source.unified == nil || source.unified == unifiedInbox)
+    }
+    sourceMessageRequest = Task {
       do {
         let message: MailMessage = try await backend.request("/messages/\(id)")
-        guard source.destination == destination, source.accountId == accountId,
-          source.unified == nil || source.unified == unifiedInbox else { return }
+        guard current() else { return }
         if let draftId = message.draftId {
           editDraft(draftId)
           return
         }
         openMail(message, tab: tab); mailSource = source
-      } catch { self.error = error.localizedDescription }
+      } catch { if current() { self.error = error.localizedDescription } }
     }
   }
   func collectFollowUp(message: MailMessage, title: String? = nil, todo: MailTodo? = nil, sourceKey: String? = nil, snooze: Bool = false) {

@@ -22,7 +22,7 @@ export class ApplicationServices {
     this.followUps = new FollowUps(repo);
     this.organization = new MailOrganization(repo, this.credentials, { complete: organizationComplete, baseline: organizationBaseline });
     this.sendQueue = new SendQueue(repo, this.credentials, { send, blocked });
-    this.rules = new MailRules(repo, this.credentials, { locks, onProgress, agent });
+    this.rules = new MailRules(repo, this.credentials, { locks, onProgress, agent, complete });
     this.assistant = new MailAssistant(repo, this.credentials, this.followUps, { complete, locks, onProgress });
     this.eventWorker = null; this.closing = false;
     for (const usage of repo.list('aiUsage').filter(item => item.status === 'running'))
@@ -49,8 +49,11 @@ export class ApplicationServices {
         followUpId: item.id, messageId: item.messageId, title: item.title, createdAt: new Date().toISOString(), delivered: false });
     }
     await this.sendQueue.tick();
-    if (!this.closing && !this.blocked()) await this.organization.tick();
-    if (this.closing || this.eventWorker) return;
+    // Sending can yield long enough for synchronization to take the account lock.
+    if (this.closing || this.blocked()) return;
+    void this.organization.tick(() => this.blocked()).catch(error =>
+      this.repo.diagnostics?.record('mail-organization.worker.failed', errorDiagnostic(error)));
+    if (this.eventWorker) return;
     const event = this.repo.list('newMailEvent').find(event => event.status === 'pending');
     if (!event) return;
     this.eventWorker = this.rules.newMail(event.messageIds).then(() => {
@@ -59,13 +62,14 @@ export class ApplicationServices {
       this.repo.put('newMailEvent', { ...event, status: 'failed', error: error.message });
     }).finally(() => { this.eventWorker = null; });
   }
-  get busy() { return this.legacyBusy || !!(this.organization.processing || this.organization.trials.size); }
-  get legacyBusy() { return !!(this.sendQueue.active || this.rules.worker || this.assistant.active.size || this.eventWorker); }
-  async route(method, route, body, params) {
+  get busy() { return this.legacyBusy || !!this.organization.processing; }
+  get legacyBusy() { return !!(this.sendQueue.active || this.rules.worker || this.rules.drafting.size || this.assistant.active.size || this.eventWorker); }
+  async route(method, route, body, params, { signal } = {}) {
     const parts = route.split('/').filter(Boolean), [resource, id, action] = parts;
     if (resource === 'workspace-status' && method === 'GET') return { handled: true, result: {
       messageRevision: this.repo.messageRevision,
       followUpRevision: this.repo.followUpRevision,
+      organizationBatches: this.organization.progress(),
       dueFollowUpCount: this.followUps.due().length,
       snoozes: this.repo.list('snooze').filter(item => Date.parse(item.until) > Date.now()).map(item => `${item.id}:${item.until}`).sort(),
       sendPlans: this.sendQueue.list().map(item => `${item.id}:${item.status}`).sort(),
@@ -75,9 +79,8 @@ export class ApplicationServices {
         const preferences = this.repo.get('settings', 'settings').preferences;
         const due = new Set(this.followUps.due().map(followUpNotificationId));
         return { handled: true, result: this.repo.list('localNotification').filter(item => !item.delivered
-          && this.repo.get('message', item.messageId)
           && (item.kind === 'followUp' ? preferences.followUpNotifications && due.has(item.id)
-            : preferences.newMailNotifications ?? preferences.notifications)) };
+            : (preferences.newMailNotifications ?? preferences.notifications) && this.repo.get('message', item.messageId))) };
       }
       if (method === 'POST' && action === 'ack') {
         const item = this.repo.get('localNotification', id);
@@ -91,16 +94,18 @@ export class ApplicationServices {
           params.get('accountId'), params.get('q') || '', Number(params.get('offset') || 0));
         if (method === 'GET' && id === 'policy') return this.organization.policy(params.get('accountId'));
         if (method === 'POST' && id === 'policy') return this.organization.savePolicy(body);
-        if (method === 'POST' && id === 'run') return this.organization.organize(body);
-        if (method === 'POST' && id === 'trial') return this.organization.trial(body);
+        if (method === 'POST' && id === 'candidates') return this.organization.candidates(
+          body.accountId, body.query || '', body.offset ?? 0,
+          { unread: body.unread === true, selected: this.organization.selectedIDs(body.selected ?? [], true), count: body.count });
+        if (method === 'POST' && id === 'preview') return this.organization.preview(body);
+        if (method === 'POST' && id === 'run') return body.receipt ? this.organization.submit(body) : this.organization.organize(body);
+        if (method === 'POST' && id === 'trial') return this.organization.submitTrial(body);
         if (method === 'POST' && id === 'apply') return this.organization.applyTrial(body);
         if (method === 'POST' && id === 'retry') return this.organization.retry(body.id);
-        if (method === 'GET' && id === 'activity') return {
-          jobs: this.repo.db.prepare(`SELECT data FROM records WHERE kind='job' AND json_extract(data,'$.task')='mailOrganization'
-            ORDER BY json_extract(data,'$.createdAt') DESC,id LIMIT 100`).all().map(row => JSON.parse(row.data)),
-          usage: this.repo.list('aiUsage').filter(item => ['mailOrganization', 'labelMatch'].includes(item.task))
-            .sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 100),
-        };
+        if (method === 'GET' && id === 'activity') return this.organization.activity();
+        if (method === 'GET' && id === 'batches' && action) return this.organization.batch(action);
+        if (method === 'POST' && id === 'cancel-batch') return this.organization.cancelBatch(body.id, body.includeRunning === true);
+        if (method === 'POST' && id === 'retry-batch') return this.organization.retryBatch(body.id);
         throw new ServiceError('整理入口不存在', 404);
       };
       return { handled: true, result: await result() };
@@ -128,6 +133,8 @@ export class ApplicationServices {
     }
     if (resource === 'mail-rules') {
       if (method === 'GET') return { handled: true, result: this.rules.list() };
+      if (method === 'POST' && id === 'agent-confirm') return { handled: true, result: this.rules.confirmAgentDraft(body) };
+      if (method === 'POST' && id === 'agent-draft') return { handled: true, result: await this.rules.agentDraft(body, signal) };
       if (method === 'POST') return { handled: true, result: action === 'preview' ? this.rules.preview(id) : this.rules.save(body, id) };
       if (method === 'DELETE') return { handled: true, result: this.rules.remove(id) };
     }

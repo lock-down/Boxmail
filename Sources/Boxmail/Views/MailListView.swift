@@ -1,6 +1,12 @@
 import BoxmailCore
 import SwiftUI
 
+private let mailRowHorizontalInset: CGFloat = 12
+private let senderDisclosureSize: CGFloat = 24
+private let senderBranchPosition = UILayout.listRowInset + mailRowHorizontalInset + senderDisclosureSize / 2
+private let senderBranchOffset: CGFloat = 12
+private let senderChildInset = senderBranchPosition + senderBranchOffset
+
 struct MailListView: View {
   @Bindable var store: MailStore
   @FocusState private var listFocused: Bool
@@ -40,13 +46,13 @@ struct MailListView: View {
                 || store.busy.contains("sync") || store.mailActionInProgress)
           }
           IconMenu(icon: .dots, help: "邮件列表操作") {
-            CossMenuItem.command("全选当前显示的邮件", icon: .circleCheck, shortcut: "⌘A",
+            CossMenuItem.command("全选列表", icon: .circleCheck, shortcut: "⌘A",
               enabled: !store.filteredMessages.isEmpty) { store.selectAllLoadedMail() }
-            CossMenuItem.command("将当前显示的邮件全部标记已读", icon: .mailOpened) {
+            CossMenuItem.command("全标已读", icon: .mailOpened) {
               store.updateMessages(store.filteredMessages.filter { $0.unread }, changes: ["unread": false])
             }
             CossMenuItem.divider
-            CossMenuItem.command("刷新邮箱", icon: .refresh) { Task { await store.syncAll() } }
+            CossMenuItem.command("同步邮箱", icon: .refresh) { Task { await store.syncAll() } }
           }.disabled(store.mailActionInProgress)
         }.frame(height: 32)
         if selected.count > 1 {
@@ -76,7 +82,7 @@ struct MailListView: View {
         get: { trashAccount != nil }, set: { if !$0 { trashAccount = nil } }), presenting: trashAccount
       ) { account in
         CossAlertAction("取消", role: .cancel) { trashAccount = nil }
-        CossAlertAction("清空已删除", role: .destructive) {
+        CossAlertAction("永久清空", role: .destructive) {
           store.emptyTrash(account: account); trashAccount = nil
         }
       } message: { account in
@@ -98,7 +104,8 @@ struct MailListView: View {
               if store.expandedSenderGroups.contains(group.id) {
                 ForEach(store.senderChildren(group)) { message in messageRow(message, child: true) }
                 MailSenderGroupFooter(store: store, group: group)
-                  .listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
+                  .listRowInsets(EdgeInsets(top: 0, leading: senderChildInset, bottom: 0, trailing: UILayout.listRowInset))
+                  .listRowSeparator(.hidden).listRowBackground(Palette.paper)
               }
             }
           }
@@ -110,7 +117,8 @@ struct MailListView: View {
             Spacer()
             if store.listLoading { CossSpinner(label: "正在加载…") }
             else {
-              ActionButton(title: store.usesSenderGroups ? "显示更多发件人" : "显示更多邮件", icon: .chevronDown) {
+              ActionButton(title: "加载更多", icon: .chevronDown,
+                help: store.usesSenderGroups ? "加载更多发件人" : "加载更多邮件") {
                 Task { await store.loadMessages(reset: false) }
               }
             }
@@ -155,7 +163,15 @@ struct MailListView: View {
       toggleGroup: group.flatMap { value in value.count > 1 ? {
         withAnimation(UIMotion.disclosure(reduceMotion)) { store.toggleSenderGroup(value.id) }
       } : nil })
-      .cossListRow(selected: store.selectedMessageIds.contains(message.id))
+      .cossListRow(selected: store.selectedMessageIds.contains(message.id), showsBorder: false,
+        insets: EdgeInsets(top: child ? 0 : 4, leading: child ? senderChildInset : UILayout.listRowInset,
+          bottom: child ? 0 : 4, trailing: UILayout.listRowInset))
+      .overlay(alignment: .leading) {
+        if child {
+          Rectangle().fill(Palette.softBorder).frame(width: 1).offset(x: -senderBranchOffset)
+            .allowsHitTesting(false).accessibilityHidden(true)
+        }
+      }
       .cossContextMenu {
         if !store.mailActionInProgress && !emptyingTrash {
           mailTriageItems(store: store, messages: store.selectedMessageIds.contains(message.id)
@@ -169,7 +185,7 @@ struct MailListView: View {
     VStack(alignment: .leading, spacing: 8) {
       if let error = store.listError {
         Text(error).font(UIType.small).foregroundStyle(Palette.amber).fixedSize(horizontal: false, vertical: true)
-        ActionButton(title: "重新加载列表", icon: .refresh) {
+        ActionButton(title: "重载列表", icon: .refresh) {
           Task { await store.loadMessages(reset: true, preserveSelection: true) }
         }
       }
@@ -225,22 +241,24 @@ struct MailBatchToolbar: View {
   @Bindable var store: MailStore
   let messages: [MailMessage]
   var body: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: 4) {
       Text("已选 \(messages.count) 封").font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.accent)
         .lineLimit(1).monospacedDigit()
-      Spacer(minLength: 2)
+      Spacer(minLength: 4)
       if messages.allSatisfy({ $0.folder == "trash" || $0.folder == "archive" }) {
-        IconButton(icon: .arrowBackUp, help: "恢复所选邮件", size: 28) { store.restoreMessages(messages) }
+        IconButton(icon: .arrowBackUp, help: "恢复所选邮件", size: UIControlSize.compact.height) { store.restoreMessages(messages) }
       } else {
-        IconButton(icon: .archive, help: "归档所选邮件", size: 28) {
+        IconButton(icon: .archive, help: "归档所选邮件", size: UIControlSize.compact.height) {
           store.updateMessages(messages.filter { $0.folder != "trash" }, changes: ["folder": "archive"])
         }
       }
-      IconMenu(icon: .dots, help: "批量标记与分类") { mailTriageItems(store: store, messages: messages) }
-      IconButton(icon: .trash, help: "将所选邮件移到已删除", size: 28) {
+      IconMenu(icon: .dots, help: "批量标记与分类", size: UIControlSize.compact.height) {
+        mailTriageItems(store: store, messages: messages)
+      }
+      IconButton(icon: .trash, help: "将所选邮件移到已删除", size: UIControlSize.compact.height) {
         store.updateMessages(messages.filter { $0.folder != "trash" }, changes: ["folder": "trash"])
       }.disabled(messages.allSatisfy { $0.folder == "trash" })
-      IconButton(icon: .x, help: "取消选择", size: 28) { store.clearMailSelection() }
+      IconButton(icon: .x, help: "取消选择", size: UIControlSize.compact.height) { store.clearMailSelection() }
     }.frame(height: 32).disabled(store.mailActionInProgress)
   }
 }
@@ -249,7 +267,7 @@ struct MailBatchToolbar: View {
 private func mailTriageItems(store: MailStore, messages: [MailMessage]) -> [CossMenuItem] {
   let mails = messages.filter { $0.draftId == nil }
   if let draft = messages.first, messages.count == 1, let id = draft.draftId {
-    CossMenuItem.command("继续编辑草稿", icon: .edit) { store.editDraft(id) }
+    CossMenuItem.command("继续编辑", icon: .edit) { store.editDraft(id) }
   } else if !mails.isEmpty {
     CossMenuItem.command("标记已读", icon: .mailOpened) { store.updateMessages(mails, changes: ["unread": false]) }
     CossMenuItem.command("标记未读", icon: .mailExclamation) { store.updateMessages(mails, changes: ["unread": true]) }
@@ -258,19 +276,19 @@ private func mailTriageItems(store: MailStore, messages: [MailMessage]) -> [Coss
     }
     if mails.count == 1, let message = mails.first {
       CossMenuItem.command("加入清单", icon: .listCheck) { store.collectFollowUp(message: message) }
-      CossMenuItem.command("稍后处理…", icon: .clock) { store.collectFollowUp(message: message, snooze: true) }
+      CossMenuItem.command("稍后处理", icon: .clock) { store.collectFollowUp(message: message, snooze: true) }
     }
     CossMenuItem.submenu("标签", icon: .tag, items: mailLabelMenu(store: store, messages: mails))
     CossMenuItem.divider
     if mails.allSatisfy({ $0.folder == "trash" || $0.folder == "archive" }) {
-      CossMenuItem.command("恢复到原文件夹", icon: .arrowBackUp) { store.restoreMessages(mails) }
+      CossMenuItem.command("恢复原处", icon: .arrowBackUp) { store.restoreMessages(mails) }
     }
     if mails.contains(where: { $0.folder != "archive" && $0.folder != "trash" }) {
       CossMenuItem.command("归档", icon: .archive) {
         store.updateMessages(mails.filter { $0.folder != "trash" }, changes: ["folder": "archive"])
       }
     }
-    CossMenuItem.command("移到已删除", icon: .trash, shortcut: "⌫",
+    CossMenuItem.command("删除邮件", icon: .trash, shortcut: "⌫",
       enabled: !mails.allSatisfy { $0.folder == "trash" }, destructive: true) {
       store.updateMessages(mails.filter { $0.folder != "trash" }, changes: ["folder": "trash"])
     }
@@ -287,36 +305,32 @@ struct MailRow: View {
   var isSenderChild = false
   var expanded = false
   var toggleGroup: (() -> Void)? = nil
-  private var unread: Bool { senderGroup.map { $0.unreadCount > 0 } ?? message.unread }
   private var rowLabel: String {
     "\(message.sender)，\(message.subject.isEmpty ? "无主题" : message.subject)，\(accessibilityStatus)"
   }
   var body: some View {
-    HStack(alignment: .top, spacing: 6) {
+    HStack(alignment: .top, spacing: 4) {
       if let toggleGroup {
         Button(action: toggleGroup) {
-          AppicaIcon(.chevronRight, size: UILayout.smallIconSize)
+          AppicaIcon(.chevronRightBold, size: UILayout.smallIconSize)
             .rotationEffect(.degrees(expanded ? 90 : 0)).foregroundStyle(Palette.muted)
-            .frame(width: 16, height: 22).contentShape(Rectangle())
+            .frame(width: senderDisclosureSize, height: senderDisclosureSize).contentShape(Rectangle())
         }.buttonStyle(ControlFeedback(corner: UILayout.iconRadius, showsInteractionBackground: false))
           .controlFocus(corner: UILayout.iconRadius).padding(.top, -4)
           .cossTooltip("\(expanded ? "折叠" : "展开") \(message.sender) 的 \(senderGroup?.count ?? 0) 封邮件")
           .accessibilityLabel("\(expanded ? "折叠" : "展开") \(message.sender) 的 \(senderGroup?.count ?? 0) 封邮件")
           .accessibilityValue(expanded ? "已展开" : "已折叠")
       } else if senderGroup != nil {
-        Color.clear.frame(width: 16, height: 1).accessibilityHidden(true)
+        Color.clear.frame(width: senderDisclosureSize, height: 1).accessibilityHidden(true)
       }
-      Circle().fill(unread ? Palette.accent : .clear).frame(width: 6, height: 6).padding(.top, 5)
+      Circle().fill(message.unread ? Palette.accent : .clear).frame(width: 6, height: 6).padding(.top, 5)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 4) {
         if !isSenderChild {
           HStack(spacing: 6) {
-            Text(message.sender).font(.system(size: 12, weight: unread ? .semibold : .regular)).lineLimit(1)
+            Text(message.sender).font(.system(size: 12, weight: message.unread ? .semibold : .regular)).lineLimit(1)
             if let group = senderGroup, group.count > 1 {
-              Text("\(group.count)").font(.system(size: 11, weight: .medium)).monospacedDigit()
-                .foregroundStyle(Palette.muted).padding(.horizontal, 4)
-                .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.minimumRadius, style: .continuous))
-                .cossTooltip("共 \(group.count) 封，\(group.unreadCount) 封未读")
+              senderGroupCount(group)
             }
             Spacer(minLength: 0)
             Text(displayTime(message.date)).font(UIType.small).monospacedDigit().foregroundStyle(Palette.muted).fixedSize()
@@ -355,10 +369,21 @@ struct MailRow: View {
         }
       }.accessibilityElement(children: .contain).accessibilityLabel(rowLabel)
         .accessibilityHint(message.preview)
-    }.padding(.leading, isSenderChild ? 40 : 12).padding(.trailing, 12).padding(.vertical, isSenderChild ? 8 : 12)
+    }.padding(.horizontal, mailRowHorizontalInset).padding(.vertical, isSenderChild ? 8 : 12)
       .frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(Palette.ink)
       .accessibilityElement(children: .contain)
   }
+  private func senderGroupCount(_ group: MailSenderGroup) -> some View {
+    let hasUnread = group.unreadCount > 0
+    let title = hasUnread ? "\(group.count) 封 · \(group.unreadCount) 未读" : "\(group.count) 封"
+    return Text(title).font(.system(size: 11, weight: .medium)).monospacedDigit()
+      .foregroundStyle(hasUnread ? Palette.accent : Palette.muted).lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false).padding(.horizontal, 4)
+      .background(hasUnread ? Palette.accentSoft : Palette.canvas,
+        in: RoundedRectangle(cornerRadius: UILayout.minimumRadius, style: .continuous))
+      .accessibilityHidden(true)
+  }
+
   private func labelTrigger(_ count: String?) -> some View {
     CossMenu(title: "邮件标签", value: labels.map(\.name).joined(separator: "、"), items: labelMenu) {
       if let count {
@@ -374,7 +399,7 @@ struct MailRow: View {
     return message.preview
   }
   private var accessibilityStatus: String {
-    var parts = [message.unread ? "未读" : "已读", displayTime(message.date)]
+    var parts = [message.unread ? "此邮件未读" : "此邮件已读", displayTime(message.date)]
     if !message.attachmentIds.isEmpty { parts.append("\(message.attachmentIds.count) 个附件") }
     if message.starred { parts.append("已加星标") }
     parts.append(contentsOf: labels.map(\.name))
@@ -390,14 +415,14 @@ struct MailListDisplayMenu: View {
   @Bindable var store: MailStore
   private var showsDrafts: Bool { store.pageMessages.first?.draftId != nil }
   var body: some View {
-    CossMenu(title: "邮件列表显示方式", value: store.groupMailBySender && !showsDrafts ? "发件人聚合" : "逐封显示",
+    CossMenu(title: "邮件列表显示方式", value: store.groupMailBySender && !showsDrafts ? "按发件人" : "逐封显示",
       width: 248) {
       CossMenuItem.heading("显示方式")
-      CossMenuItem.command("按发件人聚合", mark: .choice(store.groupMailBySender)) { store.changeSenderGrouping(true) }
+      CossMenuItem.command("按发件人", mark: .choice(store.groupMailBySender)) { store.changeSenderGrouping(true) }
       CossMenuItem.command("逐封显示", mark: .choice(!store.groupMailBySender)) { store.changeSenderGrouping(false) }
     } trigger: {
       CossMenuLabel(title: store.groupMailBySender && !showsDrafts ? "发件人" : "逐封",
-        size: .compact, color: Palette.muted)
+        color: Palette.muted)
     }.fixedSize().disabled(showsDrafts || store.mailActionInProgress)
       .cossTooltip(showsDrafts ? "草稿搜索逐封显示" : "按发件人聚合或逐封显示，均按最新时间排列")
   }
@@ -419,16 +444,18 @@ struct MailSenderGroupFooter: View {
             Task { await store.loadSenderGroup(group.id, reset: store.senderGroupNextOffsets[group.id] == nil) }
           }
         } else {
-          ActionButton(title: "显示更早邮件", color: Palette.accent, size: .compact) {
+          ActionButton(title: "更早邮件", color: Palette.accent, size: .compact) {
             Task { await store.loadSenderGroup(group.id, reset: false) }
           }
         }
         Spacer(minLength: 0)
         Text("\(store.senderLoadedCount(group))/\(group.count)").font(UIType.small).monospacedDigit()
           .foregroundStyle(Palette.muted)
-      }.padding(.leading, 40).padding(.trailing, 12).padding(.vertical, 9)
-        .frame(maxWidth: .infinity).background(Palette.canvas)
-        .overlay(alignment: .bottom) { Rectangle().fill(Palette.softBorder).frame(height: 1) }
+      }.padding(.horizontal, mailRowHorizontalInset).padding(.vertical, 4).frame(maxWidth: .infinity)
+        .overlay(alignment: .leading) {
+          Rectangle().fill(Palette.softBorder).frame(width: 1).offset(x: -senderBranchOffset)
+            .allowsHitTesting(false).accessibilityHidden(true)
+        }
     }
   }
 }

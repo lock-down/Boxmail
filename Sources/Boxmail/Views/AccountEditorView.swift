@@ -57,11 +57,12 @@ struct AccountEditorView: View {
           SettingsFieldRow(title: "账户名称", text: $account.name, placeholder: "你的姓名")
           SettingsFieldRow(title: "邮箱地址", text: $account.email, placeholder: "you@example.com")
           SettingsFieldRow(
-            title: "登录用户名", text: $account.username, placeholder: "留空时使用邮箱地址")
+            title: "用户名", text: $account.username, placeholder: "默认邮箱")
+            .cossTooltip("留空时使用邮箱地址")
           HStack(spacing: SettingsFormLayout.columnGap) {
             SettingsFormLabel(title: "授权码")
             SecureField("", text: $password).settingsTextInput()
-              .inputPlaceholder("邮箱应用密码 / 授权码", visible: password.isEmpty).accessibilityLabel(
+              .inputPlaceholder("授权码", visible: password.isEmpty).accessibilityLabel(
                 "邮箱授权码"
               )
               .frame(width: SettingsFormLayout.fieldWidth)
@@ -71,7 +72,7 @@ struct AccountEditorView: View {
             HStack(spacing: SettingsFormLayout.columnGap) {
               Color.clear.frame(width: SettingsFormLayout.labelWidth, height: 1)
                 .accessibilityHidden(true)
-              Text("服务器地址").frame(width: SettingsFormLayout.fieldWidth, alignment: .leading)
+              Text("服务地址").frame(width: SettingsFormLayout.fieldWidth, alignment: .leading)
               Text("端口").frame(width: SettingsFormLayout.portWidth, alignment: .leading)
               Text("加密方式").frame(width: SettingsFormLayout.menuWidth, alignment: .leading)
             }.font(UIType.small).foregroundStyle(Palette.muted)
@@ -96,7 +97,7 @@ struct AccountEditorView: View {
         primaryDisabled: account.email.isEmpty || password.isEmpty,
         cancel: { dismiss() }, primary: { saveAccount() }
       ) {
-        ActionButton(title: "测试连接", icon: .bolt) { testMail() }
+        ActionButton(title: "测试连接", icon: .bolt, size: .form) { testMail() }
           .disabled(loading || account.email.isEmpty || password.isEmpty)
       }
     }.frame(width: 680, height: 530).background(Palette.paper).tint(Palette.accent)
@@ -114,7 +115,7 @@ struct AccountEditorView: View {
   ) -> some View {
     HStack(spacing: SettingsFormLayout.columnGap) {
       SettingsFormLabel(title: name)
-      WorkflowTextInput(label: name + " 地址", placeholder: "服务器地址", text: host, font: UIType.caption)
+      WorkflowTextInput(label: name + " 地址", placeholder: "服务地址", text: host, font: UIType.caption)
         .frame(width: SettingsFormLayout.fieldWidth)
       TextField("端口", value: port, format: .number.grouping(.never)).settingsTextInput()
         .frame(width: SettingsFormLayout.portWidth).accessibilityLabel(name + " 端口")

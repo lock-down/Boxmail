@@ -197,7 +197,7 @@ struct MailBodyView: View {
     if let html = message.html, !html.isEmpty {
       VStack(alignment: .leading, spacing: 12) {
         if message.hasRemoteImages == true, preferences.blockRemoteImages, !loadRemoteImages {
-          RemoteImagesBanner(text: "此邮件包含外部图片", buttonTitle: "加载本封邮件图片") {
+          RemoteImagesBanner(text: "此邮件包含外部图片", buttonTitle: "加载图片") {
             loadRemoteImages = true
           }
         }

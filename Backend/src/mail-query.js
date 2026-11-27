@@ -11,10 +11,13 @@ export function renameQueryCategory(query, previous, name) {
   for (const condition of parsed.conditions) if (condition.field === 'category' && condition.value === previous) {
     condition.value = name; changed = true;
   }
-  if (changed && parsed.conditions.some(item => item.field === 'category')) query.query = [
-    ...parsed.terms.map(value => JSON.stringify(value)),
-    ...parsed.conditions.map(({ field, value }) => `${field}:${JSON.stringify(value)}`),
-  ].join(' ');
+  if (changed && parsed.conditions.some(item => item.field === 'category')) {
+    const quoted = value => '"' + value.replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"';
+    query.query = [
+      ...parsed.terms.map(quoted),
+      ...parsed.conditions.map(({ field, value }) => `${field}:${quoted(value)}`),
+    ].join(' ');
+  }
   return changed;
 }
 
@@ -26,10 +29,11 @@ export function mailQuery(input = {}) {
     query: input.query ?? input.q ?? '',
     filter: input.filter || '全部',
     category: input.category || null,
+    ...(input.fixedScope === true ? { fixedScope: true } : {}),
     ...(input.labelId ? { labelId: input.labelId } : {}),
   };
   if (query.accountId !== null && typeof query.accountId !== 'string'
-    || !['inbox', 'sent', 'archive', 'trash', 'spam', 'starred', 'summary', 'drafts', 'replies', 'analysis'].includes(query.folder)
+    || !['all', 'inbox', 'sent', 'archive', 'trash', 'spam', 'starred', 'summary', 'drafts', 'replies', 'analysis'].includes(query.folder)
     || !['全部', '未读', '有附件', 'AI 已总结'].includes(query.filter)
     || query.category !== null && typeof query.category !== 'string'
     || query.labelId !== undefined && typeof query.labelId !== 'string') throw new ServiceError('查询范围无效');

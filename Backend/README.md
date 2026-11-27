@@ -2,7 +2,7 @@
 
 后端由 macOS 客户端作为子进程管理，负责邮件协议、AI、附件、搜索与数据维护，使用 Node.js 24.22.2 LTS 或更新的 LTS 版本、内置 SQLite 和锁定的 npm 依赖。客户端和后台领域服务按各自调用路径读取本机 `.env`，SQLite 结构版本仍为 2。
 
-本文对应 Boxmail 0.1.12（build 51）。安装包内置 Node.js 26.13.1 LTS，开发构建使用本机通过版本检查的 Node.js。构建与打包见 [开发说明](../docs/DEVELOPMENT.md)。
+本文对应 Boxmail 1.0.0（构建号 52）。安装包内置 Node.js 26.13.1 LTS，开发构建使用本机通过版本检查的 Node.js。构建与打包见 [开发说明](../docs/DEVELOPMENT.md)。
 
 HTML 转发草稿使用可选的 forwardedHTML、forwardedText 成对保存原文，body 为可编辑转发说明；保存时校验并清理 HTML，旧草稿字段缺省兼容。发送同时生成 text/html 和 text/plain，将本机 data 图片改为 CID 内嵌资源，保留链接地址且不主动下载外部图片。本机已发送副本保留原 HTML，草稿预览和搜索包含转发原文。客户端的收件信息折叠与按指针位置滚动仅用于展示，不写回 forwardedHTML，也不改变发送内容。
 
@@ -272,7 +272,7 @@ PDF 文本提取和 PDF / PPT 页面栅格化通过 `pdf-processing.js` 在独�
 
 `mail-content-worker.js` 保留原调用接口，通过 `parser-process.js` 和 `parser-runner.js` 复用独立子进程处理 MIME、正文清理及同步附件提取。单项默认 60 秒，V8 old-space 预算 192 MB；完成后 RSS 达到上限一半（默认 256 MB）或已复用 500 项时，在下一项任务前回收并重建进程，避免旧附件驻留内存挤占下一封正文；`parser-owner-watch.js` 每 100 毫秒检查整个解析进程的 RSS，默认超过 512 MB 时终止进程组，也覆盖原生图像缓冲区。所有者失联时，独立管道守护逻辑即使遇到解析主循环阻塞也能清理进程。子进程不继承应用令牌、API 密钥和 Node 预加载环境。
 
-附件解析失败保留原文件并继续同步，MIME 失败进入会话内有限延后重试。文件与记录沿用原有事务规则。诊断只记录解析格式、输入大小、耗时、退出信号和静态错误分类，不保存原始 stderr。客户端也分类后端致命输出，识别服务退出并清理旧运行状态，再次同步可重新连接当前数据目录；既有待迁移计划仍等到下次 App 启动。后端资源计数仅覆盖后端进程，不包含独立解析子进程。历史修复与验证范围见[变更记录](../CHANGELOG.md)。
+附件解析失败保留原文件并继续同步，MIME 失败进入会话内有限延后重试。文件与记录沿用原有事务规则。诊断只记录解析格式、输入大小、耗时、退出信号和静态错误分类，不保存原始 stderr。客户端也分类后端致命输出，识别服务退出并清理旧运行状态，再次同步可重新连接当前数据目录；既有待迁移计划仍等到下次 App 启动。后端资源计数仅覆盖后端进程，不包含独立解析子进程。联调方法见 [开发说明](../docs/DEVELOPMENT.md#同步与日志故障复现)。
 
 `diagnostics.js` 写入 `logs/backend.jsonl` 及两份轮转文件，每份约 1 MB，异步队列有上限。记录账户匿名标识、阶段和计数、经过归一化的 API 路由、错误类型、状态码和耗时；不记录查询参数、请求体、原始错误内容、凭证或邮件内容。模型调用和模型目录失败也记录诊断。每 30 秒保存 RSS、CPU 时间和事件循环延迟，进程退出时刷新待写记录。
 
@@ -302,19 +302,22 @@ PDF 文本提取和 PDF / PPT 页面栅格化通过 `pdf-processing.js` 在独�
 
 | 接口 | 行为 |
 | --- | --- |
-| `GET /workspace-status` | 邮件与跟进修订、到期数、有效延后和发送状态 |
+| `GET /workspace-status` | 邮件与跟进修订、整理批次进度、到期数、有效延后和发送状态 |
 | `GET /saved-searches`、`POST /saved-searches[/:id]`、`DELETE /saved-searches/:id` | 列表、新建／更新、移除；保存名称及 `MailQuery` 定义 |
 | `POST /messages/labels` | 用 `messageIds`、`labelId` 和 `add` 批量编辑一个标签。移除会记录人工排除，重新添加会清除排除。 |
-| `GET /mail-organization/candidates` | 按账户搜索及分页选出正文已缓存的邮件。 |
+| `GET/POST /mail-organization/candidates` | 按账户搜索已缓存邮件。POST 还支持未读、已选 ID 和最近封数。 |
 | `GET/POST /mail-organization/policy` | 按账户查询或选择自动／手动，开启自动需 `confirmed: true`。带 `labelId` 和 `enabled` 时修改账户的标签条件。 |
-| `POST /mail-organization/run`、`POST /mail-organization/retry` | 排队已选择的邮件，或手动重试失败或暂停的任务。 |
-| `POST /mail-organization/trial`、`POST /mail-organization/apply` | 试用返回命中主题。收到 `approved: true` 后重新校验来源与条件版本，再应用标签。 |
+| `POST /mail-organization/preview` | 预览选信范围和预计动作，返回确认用的 `receipt` 和 `batchId`。 |
+| `POST /mail-organization/run`、`POST /mail-organization/trial` | 提交确认凭据并开始整理或标签试用，返回批次。 |
+| `GET /mail-organization/batches/:id`、`POST /mail-organization/cancel-batch`、`POST /mail-organization/retry-batch` | 读取批次结果、停止处理或重试剩余项。 |
+| `POST /mail-organization/apply` | 收到 `approved: true` 后重新校验试用结果的来源与条件版本，再应用标签。 |
 | `GET /mail-organization/activity` | 查看清单整理任务和试用用量。 |
 | `GET /checklist` | 按账户和来源邮件分页，接受 `offset`、`limit`。省略 `accountId` 查看所有账户。`filter` 支持 `all`、`mine`、`waiting`、`snoozed`、`completed`、`due`、`removed`。`followUpId` 可定位到事项所在页。 |
 | `POST /checklist/suggestions` | 用 `accountId`、`messageId` 和 `todoId` 保存已有建议的状态或提醒，`dismissed` 控制是否显示该建议。 |
 | `GET /follow-ups`、`POST /follow-ups[/:id]`、`DELETE /follow-ups/:id` | 本机事项记录。`state` 为 mine／waiting／completed。`dueAt`、`snoozedUntil` 使用 ISO 8601，`null` 清除，省略保留。 |
 | `GET/POST /send-plans`、`POST /send-plans/:id` | 首次安排需 `approved: true`、草稿 ID、发送时间和时区。提交前可取消、改期，或用 `pause: true` 暂停后编辑草稿 |
 | `GET /mail-rules`、`POST /mail-rules[/:id]`、`DELETE /mail-rules/:id` | 名称、意图、查询、动作、启用及自动开关 |
+| `POST /mail-rules/agent-draft`、`POST /mail-rules/agent-confirm` | 整理助手按对话和账户范围生成规则草案，在本机查询样例。用户确认后创建规则。 |
 | `POST /mail-rules/:id/preview` | 持久化本次完整命中与拟执行动作，不改邮件 |
 | `GET /rule-runs`、`POST /rule-runs/:id/run` | 确认运行或重试失败项，运行需 `approved: true` |
 | `POST /rule-runs/:id/pause`、`POST /rule-runs/:id/undo` | 暂停当前任务，或撤销该记录的邮件状态变化 |
@@ -334,7 +337,7 @@ PDF 文本提取和 PDF / PPT 页面栅格化通过 `pdf-processing.js` 在独�
 
 发送计划新建正文为 `{draftId,scheduledAt,timeZone,approved:true}`，`scheduledAt` 规范为 ISO 8601；修改用 `{scheduledAt,timeZone}`，取消用 `{cancel:true}`。状态为 `waiting`、`submitting`、`sent`、`failed`、`uncertain`、`cancelled` 或 `paused`；只有 waiting／failed／paused 可取消或改期。队列核对草稿修订后调用既有 `sendDraft`，执行时读取当前账户凭证，提交期间不能取消。普通发送的 10 秒等待由客户端安排；恢复备份时等待计划暂停，提交中计划转为结果不确定。
 
-纯邮箱规则按创建顺序处理新邮件，含 AI 动作的自动规则为暂停状态。定义、预览、执行记录、去重回执和事件分别保存。条件是结构化查询，自然语言意图不自行改变匹配范围。跟进建议不自动收录，回复预览不自动发送。
+纯邮箱规则按创建顺序处理新邮件，含 AI 动作的自动规则为暂停状态。定义、预览、执行记录、去重回执和事件分别保存。运行中的纯邮箱规则可在邮件之间暂停，从已有记录继续。撤销只应用仍能通过当前值核对的变更。条件是结构化查询，自然语言意图不自行改变匹配范围。跟进建议不自动收录，回复预览不自动发送。
 
 文件夹问答使用 `scope.kind = folder`，在 `query` 中传 `folder` 和可选的 `accountId`。文件夹查询先在本地排序来源，再按模型上下文窗口、回答预留和历史预算装入相关正文及已缓存的附件文本。每轮结果的 `contextCoverage` 记录本轮纳入数、候选总数和资料是否只有部分覆盖。`message` 和 `conversation` 传 `messageId`，`attachments` 传至少两个来自不同邮件的 `attachmentIds` 和 `relationship`。这些指定来源在预算允许时复用 `prepareMailContext` 准备原件。`search` 继续接受旧会话中的 `MailQuery`。
 

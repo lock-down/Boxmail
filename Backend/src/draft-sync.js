@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { parseDocument } from 'htmlparser2';
-import { prepareAttachment, attachmentBytes, attachmentFiles, removeUnusedAttachments } from './attachments.js';
+import { prepareAttachment, attachmentFiles, removeUnusedAttachments } from './attachments.js';
 import { draftRevision } from './draft-state.js';
 import { draftContent, inlineForwardImages } from './forward-content.js';
 import { richFromHTML } from './rich-text.js';

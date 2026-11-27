@@ -23,5 +23,5 @@ func mailLabelMenu(store: MailStore, messages: [MailMessage]) -> [CossMenuItem] 
     })
   }
   CossMenuItem.divider
-  CossMenuItem.command("管理标签…", icon: .settings) { store.showLabelManager = true }
+  CossMenuItem.command("管理标签", icon: .settings) { store.showLabelManager = true }
 }

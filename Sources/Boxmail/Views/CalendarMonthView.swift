@@ -7,8 +7,10 @@ struct CalendarMonthView: View {
   @Binding var selection: Date?
   var choose: () -> Void = {}
   @ViewState private var month: Date
+  @ViewState private var showsDayFocus = false
   @FocusState private var focusedDay: Date?
   private var calendar: Calendar { MailSearchCalendar.calendar() }
+  private var cell: CGFloat { CossDatePickerLayout.cell }
   private var year: Int { calendar.component(.year, from: month) }
   private var monthNumber: Int { calendar.component(.month, from: month) }
 
@@ -27,52 +29,79 @@ struct CalendarMonthView: View {
     })
   }
   var body: some View {
-    VStack(spacing: 12) {
-      HStack(spacing: 8) {
-        IconButton(icon: .chevronLeft, help: "上个月") { moveMonth(-1) }
-        HStack(spacing: 24) {
-          WorkflowSelection(title: "日历年份", selection: yearSelection,
-            options: (max(1, year - 50)...min(9999, year + 20)).map { ($0, "\($0) 年") }, style: .inline)
-          WorkflowSelection(title: "日历月份", selection: monthSelection,
-            options: (1...12).map { ($0, "\($0) 月") }, style: .inline)
+    VStack(spacing: 4) {
+      HStack(spacing: 0) {
+        IconButton(icon: .chevronLeft, help: "上个月", size: cell) { moveMonth(-1) }
+        Spacer(minLength: 0)
+        HStack(spacing: 0) {
+          captionMenu(title: "日历年份", selection: yearSelection,
+            options: max(1, year - 50)...min(9999, year + 20), unit: "年")
+          captionMenu(title: "日历月份", selection: monthSelection, options: 1...12, unit: "月")
         }
-        IconButton(icon: .chevronRight, help: "下个月") { moveMonth(1) }
-      }.frame(height: 32)
-      HStack(spacing: 4) {
-        ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) { day in
-          Text(day).font(UIType.small).foregroundStyle(Palette.muted).frame(maxWidth: .infinity)
+        Spacer(minLength: 0)
+        IconButton(icon: .chevronRight, help: "下个月", size: cell) { moveMonth(1) }
+      }.frame(height: cell)
+      HStack(spacing: 0) {
+        ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) { day in
+          Text(day).font(UIType.caption).foregroundStyle(Palette.muted.opacity(0.9)).frame(width: cell, height: cell)
         }
       }.accessibilityHidden(true)
-      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-        ForEach(Array(MailSearchCalendar.monthDays(containing: month).enumerated()), id: \.offset) { _, day in
+      LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: 0), count: 7), spacing: 0) {
+        let days = MailSearchCalendar.monthDays(containing: month, firstWeekday: 1, showsOutsideDays: true)
+        ForEach(days.indices, id: \.self) { index in
+          let day = days[index]
           if let day { dayButton(day) }
-          else { Color.clear.frame(height: 32).accessibilityHidden(true) }
+          else { Color.clear.frame(height: cell).accessibilityHidden(true) }
         }
       }
-    }.frame(maxWidth: .infinity).tint(Palette.accent)
+    }.frame(width: cell * 7).tint(Palette.accent)
       .onKeyPress(.leftArrow) { moveDayFocus(-1) }
       .onKeyPress(.rightArrow) { moveDayFocus(1) }
       .onKeyPress(.upArrow) { moveDayFocus(-7) }
       .onKeyPress(.downArrow) { moveDayFocus(7) }
+      .onKeyPress(.tab) { showsDayFocus = true; return .ignored }
       .accessibilityElement(children: .contain).accessibilityLabel(title + "日历")
       .onChange(of: selection) { _, value in
         if let value, !calendar.isDate(value, equalTo: month, toGranularity: .month) { month = value }
       }
   }
+
+  private func captionMenu(title: String, selection: Binding<Int>, options: ClosedRange<Int>, unit: String) -> some View {
+    let selected = selection.wrappedValue
+    return CossMenu(title: title, value: "\(selected)\(unit)", width: 112, prefersSelection: true) {
+      options.map { value in
+        CossMenuItem.command("\(value)\(unit)", mark: .choice(value == selected)) {
+          selection.wrappedValue = value
+        }
+      }
+    } trigger: {
+      Text(verbatim: "\(selected)\(unit)").font(.system(size: 14, weight: .medium))
+        .frame(height: cell)
+    }
+  }
+
   private func dayButton(_ date: Date) -> some View {
     let selected = selection.map { calendar.isDate($0, inSameDayAs: date) } ?? false
     let today = calendar.isDateInToday(date)
-    return Button { chooseDay(date) } label: {
+    let outside = !calendar.isDate(date, equalTo: month, toGranularity: .month)
+    return Button {
+      showsDayFocus = false
+      chooseDay(date)
+    } label: {
       Text("\(calendar.component(.day, from: date))")
-        .font(.system(size: 12, weight: selected || today ? .semibold : .regular))
-        .foregroundStyle(selected ? Palette.primaryForeground : Palette.ink)
-        .frame(maxWidth: .infinity).frame(height: 32)
-        .background(today && !selected ? Palette.sidebar : .clear,
-          in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+        .font(.system(size: 14)).monospacedDigit()
+        .foregroundStyle(selected ? Palette.primaryForeground : outside ? Palette.muted.opacity(0.9) : Palette.ink)
+        .frame(width: cell, height: cell)
+        .overlay(alignment: .bottom) {
+          if today {
+            Circle().fill(selected ? Palette.primaryForeground : Palette.primary).frame(width: 3, height: 3)
+              .padding(.bottom, 4).accessibilityHidden(true)
+          }
+        }
     }.buttonStyle(ControlFeedback(emphasis: selected ? .primary : .plain))
       .focusable().focusEffectDisabled().focused($focusedDay, equals: date)
       .overlay {
-        if focusedDay == date {
+        if showsDayFocus && focusedDay == date {
           RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous)
             .strokeBorder(Palette.accent, lineWidth: 2).allowsHitTesting(false)
         }
@@ -84,13 +113,15 @@ struct CalendarMonthView: View {
   }
 
   private func chooseDay(_ date: Date) {
+    if !calendar.isDate(date, equalTo: month, toGranularity: .month) { month = date }
     selection = date
     choose()
   }
 
   private func moveDayFocus(_ offset: Int) -> KeyPress.Result {
     guard let focusedDay, let next = calendar.date(byAdding: .day, value: offset, to: focusedDay),
-      (1...9999).contains(calendar.component(.year, from: next)) else { return .ignored }
+      calendar.component(.era, from: next) == 1, calendar.component(.year, from: next) <= 9999 else { return .ignored }
+    showsDayFocus = true
     if !calendar.isDate(next, equalTo: month, toGranularity: .month) { month = next }
     self.focusedDay = next
     return .handled
@@ -98,6 +129,6 @@ struct CalendarMonthView: View {
 
   private func moveMonth(_ offset: Int) {
     if let date = calendar.date(byAdding: .month, value: offset, to: month),
-      (1...9999).contains(calendar.component(.year, from: date)) { month = date }
+      calendar.component(.era, from: date) == 1, calendar.component(.year, from: date) <= 9999 { month = date }
   }
 }

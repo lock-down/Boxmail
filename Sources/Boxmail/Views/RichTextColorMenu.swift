@@ -21,7 +21,7 @@ struct RichTextColorMenu: View {
         mark: .choice(!mixed && color == option.hex)) { onSelect(option.hex) }
     }
     CossMenuItem.divider
-    CossMenuItem.command("自定颜色…", icon: .palette, action: onCustom)
+    CossMenuItem.command("自定颜色", icon: .palette, action: onCustom)
   }
 
   var body: some View {

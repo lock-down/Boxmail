@@ -41,7 +41,7 @@ struct AIModelDiscoveryView: View {
         }.frame(height: 280)
       }.padding(24)
       SettingsActionBar(
-        primaryTitle: "添加所选模型", primaryDisabled: selected.isEmpty,
+        primaryTitle: "添加模型", primaryDisabled: selected.isEmpty,
         cancel: { dismiss() },
         primary: {
           add(candidates.filter { selected.contains($0.id) }); dismiss()

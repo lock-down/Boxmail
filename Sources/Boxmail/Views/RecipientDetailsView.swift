@@ -29,7 +29,7 @@ struct RecipientDetailsView: View {
       if expanded {
         RecipientAddressList(fields: fields)
           .fixedSize(horizontal: false, vertical: true)
-          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+          .background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
           .transition(UIMotion.reveal(reduceMotion))
       }
     }.animation(UIMotion.disclosure(reduceMotion), value: expanded)

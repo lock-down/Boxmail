@@ -1,17 +1,40 @@
 import BoxmailCore
 import SwiftUI
 
+enum CossDatePickerLayout {
+  static let cell: CGFloat = 36
+  static let inset: CGFloat = 8
+  static let radius = UILayout.fieldRadius + inset
+  static let width = cell * 7 + inset * 2
+}
+
 struct CossDateTrigger: View {
   let title: String
   let value: String
+  var icon: AppicaGlyph = .calendar
+  var fillsWidth = true
   let open: () -> Void
 
   var body: some View {
     Button(action: open) {
-      CossMenuLabel(title: value.isEmpty ? "选择日期" : value, icon: .calendar, size: .form,
-        fillsWidth: true, color: value.isEmpty ? Palette.muted : Palette.ink)
-    }.buttonStyle(ControlFeedback(emphasis: .secondary)).controlFocus().accessibilityLabel(title)
-      .accessibilityValue(value.isEmpty ? "未选择日期" : value)
+      CossDateTriggerLabel(value: value.isEmpty ? "选择日期" : value, icon: icon, fillsWidth: fillsWidth)
+    }.buttonStyle(ControlFeedback()).controlFocus().accessibilityLabel(title)
+      .accessibilityValue(value.isEmpty ? "未选择日期" : value == title ? "" : value)
+  }
+}
+
+struct CossDateTriggerLabel: View {
+  let value: String
+  let icon: AppicaGlyph
+  var fillsWidth = true
+
+  var body: some View {
+    HStack(spacing: 8) {
+      AppicaIcon(icon, size: UILayout.compactIconSize).foregroundStyle(Palette.muted).accessibilityHidden(true)
+      Text(value).lineLimit(1).monospacedDigit()
+    }.font(UIControlSize.form.font)
+      .controlLabel(size: .form, fillsWidth: fillsWidth, alignment: .leading)
+      .controlFieldSurface(focused: false, fill: Palette.canvas, radius: UILayout.controlRadius)
   }
 }
 
@@ -28,19 +51,22 @@ struct CossDatePicker: View {
 
   var body: some View {
     CossDateTrigger(title: title, value: value) { isOpen.toggle() }
-      .cossPopover(isPresented: $isOpen) {
-        VStack(spacing: 12) {
+      .cossPopover(isPresented: $isOpen, radius: CossDatePickerLayout.radius) {
+        VStack(spacing: 8) {
           CalendarMonthView(title: title, selection: date) { isOpen = false }
           CossSeparator()
           HStack {
-            ActionButton(title: "清除日期") { value = ""; isOpen = false }.disabled(value.isEmpty)
+            ActionButton(title: "清除日期", width: UILayout.pairedActionWidth) {
+              value = ""
+              isOpen = false
+            }.disabled(value.isEmpty)
             Spacer()
-            ActionButton(title: "今天", emphasis: .secondary) {
+            ActionButton(title: "今天", emphasis: .secondary, width: UILayout.pairedActionWidth) {
               value = MailSearchCalendar.value(.now)
               isOpen = false
             }
           }
-        }.padding(16).frame(width: 300)
+        }.padding(CossDatePickerLayout.inset).frame(width: CossDatePickerLayout.width)
       }
   }
 }

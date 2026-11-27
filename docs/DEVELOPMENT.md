@@ -1,13 +1,13 @@
 # 开发与维护
 
-本文对应 Boxmail 0.1.12（build 51）的源码工作区。客户端、后端与打包入口见下文。操作见 [使用指南](USER_GUIDE.md)，接口见 [后端文档](../Backend/README.md)。
+本文对应 Boxmail 1.0.0（构建号 52）的源码工作区。客户端、后端与打包入口见下文。操作见 [使用指南](USER_GUIDE.md)，接口见 [后端文档](../Backend/README.md)。
 
 ## 源码入口
 
 | 目录或模块 | 职责 |
 | --- | --- |
 | `Sources/Boxmail/App/` | 应用、场景和命令 |
-| `Sources/Boxmail/Views/` | 邮件、写信、搜索、附件和设置界面 |
+| `Sources/Boxmail/Views/` | 邮件、写信、搜索、附件、待办与设置界面 |
 | `Sources/Boxmail/Support/` | 设计系统、动效、滚动及原生预览桥接 |
 | `Sources/Boxmail/Stores/MailStore.swift` 及扩展 | 状态、后端调用、分页、缓存、AI 输出流和任务轮询 |
 | `Sources/Boxmail/Stores/PagedListStore.swift`、`FollowUpStore.swift`、`Views/ChecklistView.swift` | 共用分页状态机、清单刷新与到期事项定位 |
@@ -24,7 +24,9 @@
 | `Sources/Boxmail/Views/AnalysisDocumentView.swift`、`AnalysisTableView.swift`、`AnalysisCodeBlockView.swift`、`Support/AITextStyle.swift` | AI Markdown 正文、表格、代码和行内排版 |
 | `Sources/Boxmail/Services/NotificationCoordinator.swift` | 系统通知权限、投递、来源定位与 Dock 角标 |
 | `Sources/Boxmail/Views/ComposerWritingPopover.swift`、`WritingPreferencesView.swift`、`MailHistoryView.swift`、`ActivityView.swift` | 写作浮层、风格编辑、历史来源与活动记录 |
-| `Sources/Boxmail/Support/WorkspaceSheetLayout.swift`、`AttachmentListLayout.swift` | 主窗口及嵌套弹窗的尺寸边界、附件表格的列宽与窄窗口断点 |
+| `Sources/Boxmail/Support/ComposerWindow.swift` | 写信窗口、正常退出前保存及前台定位 |
+| `Sources/Boxmail/Views/RuleAgentView.swift`、`OrganizationBatchView.swift` | 整理助手、样例确认及批次进度 |
+| `Sources/Boxmail/Support/WorkspaceWindowLayout.swift`、`AttachmentListLayout.swift` | 窗口及嵌套弹窗的尺寸边界、附件表格的列宽与窄窗口断点 |
 | `Sources/Boxmail/Support/WindowTitlebarRegion.swift`、`MainWindowLayout.swift` | 主窗口标题区域交互、原生缩放及默认／最小尺寸 |
 | `Sources/Boxmail/Services/` | 后端生命周期、本机凭证和配置迁移 |
 | `Sources/BoxmailCore/` | 数据模型、配置归档、存储迁移、后端进程与目录锁、文本与日期逻辑 |
@@ -57,7 +59,7 @@ git diff --check
 
 `test.sh` 检查运行时后构建 `BoxmailPresentationRenderer`，通过 `BOXMAIL_PRESENTATION_RENDERER` 传给后端测试，再运行 Node.js 和 Swift 测试。工具链提供 `TestingMacros` 插件时显式加载，避免部分 Command Line Tools 未自动加载宏的问题。
 
-当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、附件及分类邮件分页、后台预览清理、富文本连续编辑、窗口原生缩放与默认还原，以及控件对齐、附件表格与面板适配。回归也覆盖统一查询、多标签、清单、自动整理授权、发送队列、历史结果与来源迁移、兼容路由、写作快捷键及输入法。各版本的验证范围与结果见 [变更记录](../CHANGELOG.md)。新增回归不得替换同名旧测试。
+当前源码回归覆盖 ZIP 与备份损坏缓存恢复、草稿异常和并发对账、附件及分类邮件分页、后台预览清理、富文本连续编辑、窗口原生缩放与默认还原，以及控件对齐、附件表格与面板适配。回归也覆盖统一查询、多标签、清单、自动整理授权、发送队列、历史结果与来源迁移、兼容路由、写作快捷键及输入法。发布回归记录在对应的 GitHub Release。新增回归应保留已有测试覆盖。
 
 真实 HTTP/SQLite/Swift 回归包含六账户、12,001 封合成邮件及 4,135 个附件的加载、正文与 HTML 保留、设置保存和同目录重启。HTTP 夹具按会话隔离，正式测试继续覆盖凭证文件权限、手工修改、迁移、ZIP 排除密钥、WAL 强制退出、磁盘容量不足、事务回滚、网络期限与取消、JSON 主线程隔离及客户端旧响应竞态。大邮箱用例一次补齐 12073 封收件箱与 543 封已发送；AppKit/WebKit 用例检查定位、选择、分页、收件人滚动和转发预览。搜索派生索引在后台逐封处理，测试等待索引就绪，搜索请求本身不能触发全量 flush。发布时另验证正式包的图标、资源、源码、签名、首次启动及退出清理。
 
@@ -129,7 +131,7 @@ swiftc -O -D INCREMENTAL \
 
 发件人聚合快照只保留一份匹配元数据，不保存正文；SQLite 写入、查询变化、事务回滚、备份恢复或数据库连接变化后失效。重复读取与首次扫描应分别测量，首次扫描仍与匹配邮件数量有关。
 
-后端 RSS 和 HTTP 就绪时间不包含客户端、WebKit、系统冷启动与真实网络；GC 后的 JS 堆也不等于操作系统已回收内存，短期测试不能证明长期无泄漏。原生验收需单独记录客户端、后端及 WebKit 的测量范围。需要留存的原始 JSON、截图和日志放在本机 `artifacts/` 或 `.scratch/`，验证完成后清理一次性结果；对外结论与适用范围合并到变更记录。
+后端 RSS 和 HTTP 就绪时间不包含客户端、WebKit、系统冷启动与真实网络；GC 后的 JS 堆也不等于操作系统已回收内存，短期测试不能证明长期无泄漏。原生验收需单独记录客户端、后端及 WebKit 的测量范围。需要留存的原始 JSON、截图和日志放在本机 `artifacts/` 或 `.scratch/`，验证完成后清理一次性结果；对外结论与适用范围写入对应的 GitHub Release。
 
 ### 同步与日志故障复现
 
@@ -139,7 +141,7 @@ swiftc -O -D INCREMENTAL \
 
 “设置 > 开发者”导出 ZIP，可在同步中或服务无响应时收集已落盘日志。应用和后端各保留约 3 MB，默认持续记录关键事件；只用匿名账户、阶段、计数、错误分类与耗时，禁止传入原始错误描述、邮件主题、正文或凭证。不要把配置 JSON 或真实数据目录作为诊断附件。
 
-`Backend/test/parser-isolation.test.js` 注入原生 SIGABRT、外部缓冲区占用及阻塞循环，检查解析子进程隔离、RSS 保护、断点与附件保留、取消和所有者失联后的进程回收。诊断分类不保存原始标准错误或文档内容；只复用自建进程组，不终止其他 Node 进程。后端 RSS / CPU 计数不包含这些子进程。历史修复与验证范围见[变更记录](../CHANGELOG.md)。
+`Backend/test/parser-isolation.test.js` 注入原生 SIGABRT、外部缓冲区占用及阻塞循环，检查解析子进程隔离、RSS 保护、断点与附件保留、取消和所有者失联后的进程回收。诊断分类不保存原始标准错误或文档内容；只复用自建进程组，不终止其他 Node 进程。后端 RSS / CPU 计数不包含这些子进程。
 
 启动日志 `startup.phase` 按 service、snapshot、apply、first-page 和 selected-content 记录本地耗时，`startup.ready` 仅表示数据就绪，不包含 LaunchServices 启动和后续 WebKit 绘制。日志只记录匿名阶段、数量与耗时。`message-header.js` 将列表的 `to`、`cc`、`bcc`、`replyTo` 展示字符串限制为 2,048 字符，发件人聚合复用该投影与有界预览；详情和回复收件人必须读取完整记录。
 
@@ -169,7 +171,7 @@ ZIP 缓存按路径、设备、inode、大小和 mtime／ctime 核对文件身�
 
 窗口顶部只在两个空白区域使用 `WindowTitlebarRegion`；隐藏标题栏可能先于 NSView 消费双击，因此桥接在挂接时安装局部鼠标监视，仅拦截所属窗口、空白区域内的双击，脱离或销毁时移除；保留搜索框和工具按钮的原生输入。`WindowZoomController` 由 ContentView 持有，按窗口保存缩放前 frame，在当前 NSScreen.visibleFrame 内最大化，第二次恢复；两向均调用 NSWindow.setFrame(_:display:animate:) 的 AppKit 原生动画，不自定义时长或曲线。初始已最大化且没有历史 frame 时，按 MainWindowLayout 的默认 1440 × 900 尺寸生成居中的还原窗口；小屏限制在可用区域的 85%，同时遵守最小尺寸。MainWindowLayout 也为主场景提供默认及最小尺寸，避免两处配置漂移。手动缩放后以新尺寸作为下一次恢复基准，不进入系统全屏。
 
-`WindowZoomTests.swift` 覆盖历史尺寸恢复、初始最大化、边缘误差、小屏、负坐标屏幕及标题区域命中。原生检查同时核对动画、拖动和搜索／按钮输入，验证结果与边界见变更记录。
+`WindowZoomTests.swift` 覆盖历史尺寸恢复、初始最大化、边缘误差、小屏、负坐标屏幕及标题区域命中。原生检查同时核对动画、拖动和搜索／按钮输入，发布时记录实际验收环境。
 
 ### 富文本、服务器草稿与写作
 
@@ -187,8 +189,6 @@ ZIP 缓存按路径、设备、inode、大小和 mtime／ctime 核对文件身�
 
 相关回归为 `Backend/test/rich-text.test.js`、`draft-sync.test.js`、`conversation-ai.test.js`，以及 Swift 的 `RichTextTests`、`RichTextEditorTests`、`RichTextColorMenuTests` 与草稿加载保护。`RichTextFormatBar` 使用 `CossMenu` 选择字号和预设色，自定颜色复用 `CossColorEditor`，链接表单使用 `CossPopover`。菜单色样与图标分别绘制，像素回归核对实际 sRGB 颜色。原生隔离验收已核对格式编辑、保存重开、宽窄布局和依据邮件跳转；实际 IMAP 服务商、其他邮件客户端、真实 AI 服务及 VoiceOver 全流程仍需单独验证。
 
-各版本的编译、回归与原生验收范围统一记录在变更记录中。
-
 ### 邮件字符与数据解码
 
 0.1.4 兼容附件 `contentType` 为 false、空值或无效 MIME 的旧缓存；`mailparser` 对空 `Content-Type:` 会实际返回 false，默认参数只覆盖 undefined，不能修正这类值。`attachment-metadata.js` 统一未知 MIME 类型，Repository 启动只投影检查 MIME 元数据，再分批事务修正异常记录。新写入、完整及紧凑读取、元数据接口和转发副本使用同一规则。
@@ -205,9 +205,9 @@ Swift 仅对这项可缺省的描述字段提供回退，附件身份、大小�
 
 ### 品牌图标
 
-品牌源图与客户端共用 `Sources/BoxmailCore/Resources/BoxmailMark.png`。图标处理及裁切参数见 `script/generate_icon.swift`。客户端通过 `BoxmailBrand` 读取资源并缓存图片，侧栏按 28 pt 显示。
+品牌源图为 `assets/brand/BoxmailMark.svg`。`Sources/BoxmailCore/Resources/BoxmailMark.png` 是保留透明区域的 1024 px 渲染图，供 README 和客户端共用。客户端通过 `BoxmailBrand` 读取资源并缓存图片，侧栏按 28 pt 显示。
 
-`script/generate_icon.swift` 从同一原始图片生成 16、32、64、128、256、512 和 1024 像素的标准 iconset；裁切原图外围 5% 并施加圆角遮罩，统一主体尺寸和透明留白，再由 `iconutil` 转为 `Boxmail.icns`。构建脚本在图片或生成脚本变更时重建图标，App 启动时使用包内图标更新 Dock 与“关于”窗口。更换品牌素材后检查浅色与深色背景、小尺寸可辨识性、侧栏及实际安装包，避免只替换源码中的图片。
+`script/generate_icon.swift` 从 PNG 生成标准 iconset。原稿轮廓保持完整，每边留 7.5% 的透明边距，再由 `iconutil` 转为 `BoxmailAppIcon.icns`。构建脚本在图片或生成脚本变更时重建图标，并通过 `CFBundleIconFile` 为 macOS 和 App 指定同一张包内图标。更换品牌素材后检查浅色和深色背景、小尺寸、侧栏、应用包与系统通知。
 
 ### 代码与异步状态约定
 
@@ -258,14 +258,14 @@ Swift 仅对这项可缺省的描述字段提供回退，附件身份、大小�
 
 颜色、字体、尺寸、断点、外观和动效统一维护在 [UI 规范](DESIGN.md)，本节只保留状态与原生桥接约定。
 
-- 设置与编辑面板复用 `SettingsActionBar`、`SettingsFieldRow`、`SettingsTransferRow` 和 `.workspaceSheet()`。已有输入在失败时保留，配置确认期间继续锁定父设置页；动作状态由 `SettingsActionState` 管理。
+- 设置与编辑面板复用 `SettingsActionBar`、`SettingsFieldRow`、`SettingsTransferRow` 和 `.workspaceWindowSize(...)`。已有输入在失败时保留，配置确认期间继续锁定父设置页；动作状态由 `SettingsActionState` 管理。
 - 邮件列表的 Binding 只提交当前查询中的用户选择，跳转和刷新独立协调。`MailRevealRequest` 由目标行消费，重复打开可重新定位，普通刷新不抢回滚动位置。快捷键由 `FocusedValue` 限定在列表，文字编辑沿用原生行为。
 - 手动单封与批量操作共用 `/messages/batch`，撤销按 `expected` 核对冲突；自动已读不占用手动撤销记录，恢复备份后清空旧撤销与选择。
 - `RecipientDetailsView` 共用邮件头、HTML 与纯文本引用、转发及草稿搜索的收件信息。`RecipientAddressList` 负责只读文字和滚动，`ScrollEventRouting` 按当前鼠标位置及 `bounds` 与 `visibleRect` 的交集命中；移到正文立即交还外层，避免可见矩形越界或旧事件目标占用滚轮。HTML 脚本只识别字段和报告占位，SwiftUI 组件回填高度，切换文档重置状态；文字更新保留原始节点映射。
 - `RecipientEntryView` 只在 `isEnabled` 真正变化时赋值，避免焦点刷新重复触发系统自动填充。空关键词不显示联系人浮层，输入法、选区、鼠标与 Tab 交接保持原生行为。
 - HTML 转发以 `forwardedHTML` / `forwardedText` 保存快照，编辑正文只含说明和签名；未编辑的旧引用可恢复原排版，已编辑内容保留。预览折叠不写回快照，发送合并两种正文并转换 data 图片为 CID。
 - AI 通过认证的 `/ai/events` SSE 逐步显示，中间输出不持久化，结束后校验再提交；分类确认和草稿采用等待完整结果。译文按文字节点 ID 更新并转义，链接、图片、样式、邮件脚本和联网限制保持原策略。
-- 摘要显隐只更新 `summaryHidden`，不删除 `summary`；列表、已移除与撤销共用 `/summaries/visibility`。旧整封分析从来源邮件的「历史结果…」查看。旧保存视图的「AI 已总结」条件继续按实际结果判断。
+- 摘要显隐只更新 `summaryHidden`，不删除 `summary`；列表、已移除与撤销共用 `/summaries/visibility`。旧整封分析从来源邮件的「历史结果」查看。旧保存视图的「AI 已总结」条件继续按实际结果判断。
 
 ## 本机凭证与签名
 
@@ -286,7 +286,7 @@ codesign -dvvv -r- dist/Boxmail.app
 codesign --verify --deep --strict dist/Boxmail.app
 ```
 
-也可将指纹单独写入根目录 `.boxmail-signing-identity`，该文件已忽略；环境变量优先。凭证文件读取与签名身份无关；正式签名和公证仍需另行验证。
+也可将指纹单独写入根目录 `.boxmail-signing-identity`，该文件已忽略；环境变量优先。凭证文件读取与签名身份无关；1.0.0 发布包使用临时签名。Developer ID 签名需要可用证书和私钥，公证需要 Apple 凭证。
 
 ## 版本与打包
 
@@ -297,7 +297,7 @@ codesign --verify --deep --strict dist/Boxmail.app
 | `VERSION` | App 版本来源 |
 | `Backend/package.json`、`Backend/package-lock.json` | 后端包版本，可用 `npm version <版本> --prefix Backend --no-git-tag-version` |
 | `BUILD` | 构建号来源，构建脚本校验并写入 `CFBundleVersion`；打包读取同次构建的 Info.plist |
-| `CHANGELOG.md`、`README.md`、`docs/RELEASE_NOTES.md` | 源码版本、更新说明和验证记录 |
+| `CHANGELOG.md`、`README.md`、`docs/RELEASE_NOTES.md` | 源码版本与安装说明 |
 | `docs/USER_GUIDE.md`、`docs/DESIGN.md`、`docs/DEVELOPMENT.md`、`docs/ROADMAP.md`、`docs/MAIL_AI_CONTEXT.md`、`Backend/README.md` | 适用版本、当前操作、UI 规范、接口契约、回归基线及已发布范围 |
 
 1. 完成适用的回归、编译和原生联调，检查差异，不提交个人数据。
@@ -306,7 +306,7 @@ codesign --verify --deep --strict dist/Boxmail.app
 4. 校验 ZIP 的 SHA-256、解压一致性及签名，并用独立空目录检查首次启动。最低系统、其他架构和设备需分别验证。
 5. 对外发布时，再推送提交和标签，并上传 ZIP 与 SHA-256 文件。核对远端提交、资产大小和校验值。
 
-App 发布后，在官网独立分支同步版本、下载链接、系统要求及对应版本的指南链接。官网截图与功能说明以公开安装包为准，不将未发布的源码变化写成下载版能力；本地内容位于 `website/`，预览方式见官网分支的 `README.md`。
+桌面端发布只推送 `main` 和对应版本标签。官网由 `codex/website` 独立维护，按官网分支的 `README.md` 更新下载入口和素材。
 
 发布模式以 Release 构建，包内含后端源码及生产依赖、SwiftPM 资源和内置运行时。界面图标位于 `Boxmail_Boxmail.bundle`，核心共享资源位于 `Boxmail_BoxmailCore.bundle`。发布包关闭演示数据，日常 App 在打包期间继续运行。`docs/USER_GUIDE.md` 复制为包内 `使用说明.md`，`docs/RELEASE_NOTES.md` 复制为 `更新说明.md`。两份说明均可在解压后直接阅读。`版本信息.txt`记录版本、源码标识和上海时区生成时间。产物在 `dist/`，日常 App 为 `dist/Boxmail.app`。
 
@@ -314,11 +314,9 @@ App 发布后，在官网独立分支同步版本、下载链接、系统要求�
 
 ## 文档与本地产物
 
-[README](../README.md) 维护项目入口与文档目录；[使用指南](USER_GUIDE.md) 维护操作和限制，[UI 规范](DESIGN.md) 维护视觉及交互尺寸，本文维护实现与开发流程，[后端接口](../Backend/README.md) 维护数据契约。[AI 上下文](MAIL_AI_CONTEXT.md) 记录模型输入范围和旧数据兼容。路线图列出后续验证和候选，版本变化及验收范围写入[变更记录](../CHANGELOG.md)。
+[README](../README.md) 维护项目入口与文档目录；[使用指南](USER_GUIDE.md) 维护操作和限制，[UI 规范](DESIGN.md) 维护视觉及交互尺寸，本文维护实现与开发流程，[后端接口](../Backend/README.md) 维护数据契约。[AI 上下文](MAIL_AI_CONTEXT.md) 记录模型输入范围和旧数据兼容。路线图列出后续验证和候选，版本变化记录在[更新日志](../CHANGELOG.md)，验收范围随 GitHub Release 发布。
 
-未发布变化明确标注为当前源码或日常开发版，不改写历史安装包的能力与验证基线；删除章节或移动内容时同步修复相对链接和锚点，不再维护旧行号及重复进度报告。
-
-`website/` 是官网独立分支的本地内容，按该分支维护和发布，不作为 App 运行资源或安装包内容。往期调研和代码审查可从对应发布标签追溯。当前实现写入各自的维护文档。
+源码文档随功能和接口更新。删除或移动章节时核对相对链接和锚点。官网资源随独立工作树维护。
 
 | 本地内容 | 维护方式 |
 | --- | --- |
@@ -329,9 +327,9 @@ App 发布后，在官网独立分支同步版本、下载链接、系统要求�
 | `Backend/node_modules/` | 本机依赖，不提交 Git；缺少时通过 `npm ci --prefix Backend` 重建 |
 | 数据库、`.env`、日志和签名配置 | 不提交 Git；真实数据与凭证不随构建清理 |
 
-`.impeccable/critique/` 和 `.impeccable/review/` 不提交 Git，项目配置保留在 `.impeccable/config.json`。各发布标签可用于追溯当时的源码和文档。
+`.impeccable/critique/` 和 `.impeccable/review/` 不提交 Git，项目配置保留在 `.impeccable/config.json`。
 
-本机回归不能代替真实外部投递、其他邮件或 AI 服务商、大邮箱长期性能、最低系统、Intel、屏幕阅读器及正式分发验证，实际验证范围见变更记录。
+本机回归不能代替真实外部投递、其他邮件或 AI 服务商、大邮箱长期性能、最低系统、Intel、屏幕阅读器及正式分发验证，实际验证范围随 GitHub Release 发布。
 
 
 ## 清单、标签、写作与兼容接口
@@ -346,4 +344,4 @@ App 发布后，在官网独立分支同步版本、下载链接、系统要求�
 
 共享提示词资源由 `ai-settings.js` 和 `legacy-prompts.js` 维护。升级只替换与旧默认全文一致的提示词。自定义值、用户记录和旧结果继续保留。
 
-完整回归用 `./script/test.sh`。保持邮件来源、恢复、安全边界和已保留的兼容接口测试。隔离 App 核对当前入口、键盘、输入法和滚动；实际结果范围见[变更记录](../CHANGELOG.md)。
+使用 `./script/test.sh` 回归邮件来源、备份恢复和兼容接口。用隔离 App 核对入口、键盘、输入法和滚动。

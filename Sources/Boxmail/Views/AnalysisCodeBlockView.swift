@@ -15,6 +15,6 @@ struct AnalysisCodeBlockView: View {
         Text(verbatim: text).font(.system(size: 12, design: .monospaced)).lineSpacing(5)
           .fixedSize(horizontal: true, vertical: true).padding(16)
       }
-    }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
+    }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: UILayout.fieldRadius, style: .continuous))
   }
 }

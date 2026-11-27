@@ -5,6 +5,7 @@ import Observation
 import SwiftUI
 
 @Observable @MainActor final class MailStore {
+  let composerWindow = ComposerWindow()
   let followUps: FollowUpStore
   let sendQueue: SendQueueStore
   let rules: RuleWorkspaceStore
@@ -14,6 +15,8 @@ import SwiftUI
   @ObservationIgnored let backend: BackendService
   @ObservationIgnored let readMailPassword: @MainActor (String) throws -> String
   @ObservationIgnored var conversationBodyRequests: [String: UUID] = [:]
+  @ObservationIgnored var attachmentPreviewRequest: Task<Void, Never>?
+  @ObservationIgnored var sourceMessageRequest: Task<Void, Never>?
   @ObservationIgnored private var refreshGeneration = UUID()
   @ObservationIgnored private var draftOpenGeneration = UUID()
   init(backend: BackendService? = nil, readMailPassword: (@MainActor (String) throws -> String)? = nil) {
@@ -45,6 +48,9 @@ import SwiftUI
   var labelReturnSource: MailSourceContext?
   var showLabelManager = false
   var dismissedOrganizationPrompts: Set<String> = []
+  var organizationBatchProgress: [OrganizationBatch] = []
+  var hiddenOrganizationBatchID: String?
+  var organizationProgressRevision = 0
   var savedSearches: [SavedSearch] = []
   var activeSavedSearchId: String?
   var conversation: MailConversation?
@@ -55,6 +61,9 @@ import SwiftUI
     didSet {
       organizationWorkspaces = [:]
       dismissedOrganizationPrompts = []
+      organizationBatchProgress = []
+      hiddenOrganizationBatchID = nil
+      organizationProgressRevision += 1
       translationReading = nil
       translationPreferences = [:]
       translationResults = [:]
@@ -66,6 +75,8 @@ import SwiftUI
       followUps.revision += 1
       summaryListChange = nil
       mailSource = nil
+      sourceMessageRequest?.cancel()
+      attachmentPreviewRequest?.cancel()
     }
   }
   var accountId = ""
@@ -150,6 +161,7 @@ import SwiftUI
   var lastNetworkSatisfied: Bool?
   var externalPreviewFiles: [AttachmentPreviewFile] = []
   private var polling: Task<Void, Never>?
+  private var workspaceMonitoring: Task<Void, Never>?
   var currentAccount: MailAccount? { accounts.first { $0.id == accountId } }
   var selectedMessage: MailMessage? {
     guard let id = selectedMessageId else { return nil }
@@ -198,7 +210,9 @@ import SwiftUI
           "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1000)),
           "count": String(messages.count),
         ])
-        selectedMessageId = filteredMessages.first?.id
+      selectedMessageId = filteredMessages.first?.id
+      notifications.openPendingDestination(in: self)
+      startWorkspaceMonitoring()
       if messages.contains(where: { message in
         message.uid != nil && message.bodyVersion != 1
           && accounts.contains { $0.id == message.accountId && !$0.isDemo }
@@ -215,6 +229,17 @@ import SwiftUI
     } catch {
       backend.diagnostics.record("service.start.failed", RuntimeDiagnostics.errorFields(error))
       startupError = error.localizedDescription
+    }
+  }
+  private func startWorkspaceMonitoring() {
+    workspaceMonitoring = Task {
+      await loadSavedSearches()
+      while !Task.isCancelled {
+        await observeWorkspaceChanges()
+        await notifications.poll(store: self)
+        if [.drafts, .outbox].contains(destination) { await sendQueue.load() }
+        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+      }
     }
   }
   func refresh(reloadContent: Bool = true) async throws {
@@ -324,7 +349,8 @@ import SwiftUI
     }
   }
   func editDraft(_ id: String) {
-    guard composer == nil, !busy.contains("draft-load") else { return }
+    if composer != nil { composerWindow.bringToFront(); return }
+    guard !busy.contains("draft-load") else { return }
     guard let draft = drafts.first(where: { $0.id == id }), draft.status != "sending" else {
       error = "草稿已发送、移除或正在发送，请刷新后重试。"
       return
@@ -411,7 +437,8 @@ import SwiftUI
     }
   }
   func newDraft(reply: MailMessage? = nil, forward: Bool = false, all: Bool = false) {
-    guard composer == nil, !showSettings, previewAttachment == nil, !busy.contains("draft-load"),
+    if composer != nil { composerWindow.bringToFront(); return }
+    guard !showSettings, previewAttachment == nil, !busy.contains("draft-load"),
       reply == nil || !busy.contains("compose-reply")
     else { return }
     let generation = UUID(), revision = restoreRevision
@@ -522,8 +549,11 @@ import SwiftUI
     }
   }
   func stop() async {
+    workspaceMonitoring?.cancel()
     syncContentRefresh?.cancel()
     aiStreamTask?.cancel()
+    attachmentPreviewRequest?.cancel()
+    sourceMessageRequest?.cancel()
     polling?.cancel()
     networkMonitor?.cancel()
     externalPreviewFiles.forEach { $0.remove() }

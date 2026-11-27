@@ -56,7 +56,7 @@ export function validateModelInput(config, instructions, content, images, { inli
   return { capability, reasoning, context };
 }
 
-export async function protocolCompletion(config, apiKey, instructions, prepared, { signal, responseParts, onText, onUsage }) {
+export async function protocolCompletion(config, apiKey, instructions, prepared, { signal, responseParts, onText, onUsage, onThinking, onThinkingSummary, onToolCall, tools = [] }) {
   const { capability, reasoning, context } = prepared;
   const model = { id: capability.id, name: capability.name, provider: `boxmail-${config.providerId}`,
     api: config.apiProtocol, baseUrl: config.apiProtocol === 'anthropic-messages' ? anthropicBaseURL(config.baseURL) : config.baseURL,
@@ -67,7 +67,12 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
   let httpStatus, terminalText;
   const controller = new AbortController();
   const requestSignal = AbortSignal.any([signal, controller.signal]);
-  const events = apis[config.apiProtocol].streamSimple(model, context, {
+  // Direct PI-AI provider streams take a transcript. In 1.3.0, tool
+  // declarations belong to its leading system message.
+  const transcript = tools.length ? {
+    messages: [{ ...context.messages[0], toolsAdded: tools }, ...context.messages.slice(1)],
+  } : context;
+  const events = apis[config.apiProtocol].streamSimple(model, transcript, {
     apiKey: apiKey || 'boxmail-local', reasoning, maxTokens: capability.configuredMaxTokens,
     signal: requestSignal, timeoutMs: config.timeout * 1000, maxRetries: 0, cacheRetention: 'none', env: {},
     headers: { 'OpenAI-Organization': null, 'OpenAI-Project': null,
@@ -81,6 +86,8 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
       const usage = providerUsage(config.apiProtocol, event);
       if (usage) onUsage?.(usage);
       if (config.apiProtocol === 'openai-responses') {
+        if (onThinkingSummary && event.type === 'response.reasoning_summary_text.delta' && typeof event.delta === 'string')
+          onThinkingSummary(event.delta);
         if (event.item?.type === 'message' && event.item.role !== 'assistant') throw new Error('Invalid assistant role');
         if (event.type === 'response.completed' && event.response?.status === 'completed') {
           // Some compatible gateways only include answer blocks in the terminal event.
@@ -97,12 +104,15 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
     onPayload: payload => {
       if (config.apiProtocol === 'openai-responses') {
         payload.instructions = instructions;
-        payload.input = responseParts ? [{ role: 'user', content: responseParts }]
+        const usesTools = tools.length || context.messages.some(message => message.role === 'toolResult');
+        if (!usesTools) payload.input = responseParts ? [{ role: 'user', content: responseParts }]
           : payload.input.filter(message => message.role === 'user');
+        else payload.input = payload.input.filter(item => item.role !== 'system' && item.role !== 'developer');
         payload.text = { format: { type: 'json_object' } };
-        // Mail tasks do not replay reasoning history or display a thinking summary.
-        if (payload.reasoning) delete payload.reasoning.summary;
-        delete payload.include;
+        if (!usesTools) delete payload.include;
+        // Only request the public reasoning summary on the native Responses service.
+        if (payload.reasoning && (!onThinkingSummary || new URL(config.baseURL).hostname !== 'api.openai.com'))
+          delete payload.reasoning.summary;
         // The fallback capability is not an explicitly configured request cap.
         if (!capability.configuredMaxTokens) delete payload.max_output_tokens;
       } else if (config.apiProtocol === 'openai-completions') {
@@ -113,10 +123,21 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
     },
   });
   let lastPreview = -Infinity;
+  const thinking = new Set();
   try {
     for await (const event of events) {
       if (event.partial?.content.reduce((n, p) => n + (p.text?.length || p.thinking?.length || 0), 0) > 2_000_000)
         throw new ServiceError('模型响应过长，请缩小处理范围', 502);
+      if (onThinking && event.type === 'thinking_start') {
+        if (!thinking.size) onThinking(true);
+        thinking.add(event.contentIndex);
+      }
+      if (onThinking && event.type === 'thinking_end') {
+        thinking.delete(event.contentIndex);
+        if (!thinking.size) onThinking(false);
+      }
+      if (event.type === 'toolcall_end' && tools.length)
+        onToolCall?.(event.toolCall);
       if (event.type === 'text_delta' || event.type === 'text_end') {
         // Coalesce before assembling the growing answer, not after copying it.
         if (onText && performance.now() - lastPreview >= 100) {
@@ -138,13 +159,21 @@ export async function protocolCompletion(config, apiKey, instructions, prepared,
         throw error;
       }
       const error = new ServiceError(`AI 服务返回 HTTP ${httpStatus}，请检查地址、密钥、协议和模型`, 502);
+      if (tools.length && [400, 422].includes(httpStatus)
+        && /(?:tools?|functions?) (?:are |is )?not supported|does not support (?:tools?|function calling)|unsupported (?:tools?|function calling)/i.test(result.errorMessage || ''))
+        error.code = 'MODEL_TOOLS_UNSUPPORTED';
       error.upstreamStatus = httpStatus; throw error;
     }
     if (result.stopReason === 'error' && /(?:parse|JSON|Unexpected token)/i.test(result.errorMessage || ''))
       throw new ServiceError('模型流式响应格式不正确，请重试', 502);
+    if (tools.length && result.stopReason === 'toolUse' && result.content.some(part => part.type === 'toolCall'))
+      return { assistant: result };
     if (result.stopReason !== 'stop') throw incomplete();
     const text = terminalText ?? result.content.filter(part => part.type === 'text').map(part => part.text).join('');
     if (text.length > 2_000_000) throw new ServiceError('模型响应过长，请缩小处理范围', 502);
     return text;
-  } finally { controller.abort(); }
+  } finally {
+    if (thinking.size) onThinking?.(false);
+    controller.abort();
+  }
 }

@@ -30,7 +30,7 @@ struct AIModelReasoningEditor: View {
           HStack {
             Text("推理模式").font(UIType.caption).foregroundStyle(Palette.muted)
             WorkflowSelection(title: "Anthropic 推理模式", selection: mode,
-              options: [("budget", "思考预算"), ("adaptive", "自适应推理")]
+              options: [("budget", "思考预算"), ("adaptive", "自适应")]
             )
             .frame(width: SettingsFormLayout.fieldWidth)
             Spacer()
@@ -46,7 +46,7 @@ struct AIModelReasoningEditor: View {
         ForEach(levels, id: \.self) { level in
           HStack(spacing: 10) {
             Text(level.capitalized).font(UIType.caption).frame(width: 65, alignment: .leading)
-            WorkflowTextInput(label: "\(level) 推理发送值", placeholder: level == "off" ? "不发送参数" : level,
+            WorkflowTextInput(label: "\(level) 推理发送值", placeholder: level == "off" ? "不发送" : level,
               text: wireValue(level), font: UIType.caption, surface: Palette.paper).disabled(level == "off")
               .frame(width: SettingsFormLayout.fieldWidth)
             IconButton(icon: .minus, help: "移除推理等级 \(level)") {
@@ -56,7 +56,7 @@ struct AIModelReasoningEditor: View {
             Spacer(minLength: 0)
           }
         }
-        CossMenu(title: "添加推理等级") {
+        CossMenu(title: "添加等级") {
           for level in AIReasoningEfforts.levels.filter({ !levels.contains($0) }) {
             CossMenuItem.command(level.capitalized) {
               var values = model.reasoningEfforts?.values ?? [:]
@@ -65,7 +65,7 @@ struct AIModelReasoningEditor: View {
             }
           }
         } trigger: {
-          CossMenuLabel(title: "添加推理等级", icon: .plus, size: .compact)
+          CossMenuLabel(title: "添加等级", icon: .plus, size: .compact)
         }.fixedSize().disabled(levels.count == AIReasoningEfforts.levels.count)
       }
     }.animation(UIMotion.disclosure(reduceMotion), value: enabled.wrappedValue)

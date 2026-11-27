@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsDisclosureStyle: DisclosureGroupStyle {
+  var contentInset: CGFloat = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   func makeBody(configuration: Configuration) -> some View {
@@ -14,12 +15,14 @@ struct SettingsDisclosureStyle: DisclosureGroupStyle {
           AppicaIcon(.chevronDown, size: UILayout.smallIconSize)
             .foregroundStyle(Palette.muted).frame(width: 14)
             .rotationEffect(.degrees(configuration.isExpanded ? 180 : 0)).accessibilityHidden(true)
-        }.padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        }.controlLabel(size: .form, horizontalInset: 8, fillsWidth: true, alignment: .leading)
           .contentShape(RoundedRectangle(cornerRadius: UILayout.controlRadius, style: .continuous))
       }.buttonStyle(ControlFeedback(showsInteractionBackground: false))
         .controlFocus(corner: UILayout.controlRadius)
         .accessibilityValue(configuration.isExpanded ? "已展开" : "已收起")
-      if configuration.isExpanded { configuration.content }
+      if configuration.isExpanded {
+        configuration.content.padding(.leading, contentInset)
+      }
     }
   }
 }

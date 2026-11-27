@@ -45,6 +45,14 @@ import Observation
     } catch { self.error = error.localizedDescription; return false }
   }
 
+  func confirmAgentDraft(_ rule: MailRule) async -> Bool {
+    do {
+      try await backend.perform("/mail-rules/agent-confirm", body: ["rule": try jsonObject(rule), "approved": true])
+      await loadRules()
+      return true
+    } catch { self.error = error.localizedDescription; return false }
+  }
+
   func preview(_ rule: MailRule) async -> RuleRun? {
     do {
       let run: RuleRun = try await backend.request("/mail-rules/\(rule.id)/preview", method: "POST", body: [:])

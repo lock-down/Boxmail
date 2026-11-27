@@ -20,19 +20,21 @@ struct OrganizationPolicyView: View {
         WorkflowSelection(title: "选择邮箱", selection: $accountID,
           options: [("", "选择邮箱")] + store.accounts.filter { !$0.isDemo }.map { ($0.id, $0.email) })
         if let policy {
-          Text(policy.mode == "automatic" ? (policy.point == nil ? "等待连接邮箱以建立新信起点" : "已开启自动整理")
-            : policy.mode == "manual" ? "仅手动整理" : "尚未选择").font(UIType.section)
-          Text("开启后，此后收到的邮件主题和正文会提交给你配置的 AI 服务商，用于生成摘要和待办。匹配标签时也会提交发件人和启用的条件。费用按服务商计收。")
+          Text(policy.statusTitle).font(UIType.section)
+          Text(policy.mode == "automatic" ? MailOrganizationPolicy.disableNotice :
+            "此后收到的邮件主题和正文会提交给你配置的 AI 服务商，用于生成摘要、待办和分类标签，并附现有分类说明。匹配已启用的标签条件时也会提交发件人。费用按服务商计收。")
             .font(UIType.body).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
         }
         if let error { WorkflowNotice(text: error, color: Palette.destructive) }
         Spacer(minLength: 0)
       }.padding(20).disabled(working)
-      SettingsActionBar(primaryTitle: policy?.mode == "automatic" ? "关闭自动整理" : "开启自动整理",
+      SettingsActionBar(primaryTitle: policy?.mode == "automatic" ? "关闭自动" : "开启自动",
         isWorking: working, primaryDisabled: policy == nil, cancelDisabled: working, cancel: { dismiss() },
         primary: { update(policy?.mode == "automatic" ? "manual" : "automatic") }) {
         if policy?.mode == "undecided" {
-          ActionButton(title: "仅手动整理", emphasis: .secondary) { update("manual") }
+          ActionButton(title: "仅手动", emphasis: .secondary, size: .form, width: UILayout.pairedActionWidth) {
+            update("manual")
+          }
             .disabled(working)
         }
       }

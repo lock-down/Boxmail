@@ -59,7 +59,7 @@ import Foundation
       domain: "BoxmailDocumentPreview", code: 1,
       userInfo: [
         NSLocalizedDescriptionKey:
-          "系统未能生成文档预览，请重试或使用“打开原文件”查看。"
+          "系统未能生成文档预览，请重试或使用“打开原件”查看。"
       ])
   }
 
